@@ -23,6 +23,46 @@ podman run -p 8000:8000 \
 
 Open **http://localhost:8000** and unlock with your password.
 
+### Run it as a systemd service (Podman Quadlet)
+
+To have systemd start and supervise the container, first store your secrets with
+`podman secret` so they stay out of the unit file:
+
+```sh
+printf 'sk-ant-...' | podman secret create conversa_api_key -
+printf 'your-password' | podman secret create conversa_password -
+```
+
+Then drop a `.container` quadlet file at
+`~/.config/containers/systemd/conversa.container`:
+
+```ini
+[Unit]
+Description=conversa
+
+[Container]
+Image=localhost/conversa:latest
+PublishPort=8000:8000
+Secret=conversa_api_key,type=env,target=ANTHROPIC_API_KEY
+Secret=conversa_password,type=env,target=APP_PASSWORD
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target
+```
+
+Then reload and start it:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user start conversa
+```
+
+> Build the image first (`podman build -t conversa -f Containerfile .`) so
+> `localhost/conversa:latest` exists.
+
 > Want to run the frontend and backend separately for development?
 > See [DEVELOPMENT.md](DEVELOPMENT.md).
 
