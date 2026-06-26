@@ -1,0 +1,160 @@
+import { del, get, set } from 'idb-keyval'
+import { computed, reactive, ref, watch } from 'vue'
+
+// All conversation state lives client-side in IndexedDB (via idb-keyval).
+
+const STORE_KEY = 'conversa_conversations'
+const MODELS_KEY = 'conversa_models'
+const GLOBAL_KEY = 'conversa_global' // user edits to the global defaults, persisted client-side
+
+export const SETTING_KEYS = [
+  'model',
+  'temperature',
+  'num_messages_to_send',
+  'send_system_prompt',
+  'max_tokens',
+  'utility_model',
+  'use_memory',
+  'compression_threshold',
+]
+
+const state = reactive({ conversations: [] })
+export const currentId = ref(null)
+export const globalSettings = ref(null)
+export const models = ref([]) // [{id, label}], cached from backend
+export const sidebarOpen = ref(false) // mobile drawer toggle; desktop ignores it
+
+let loaded = false
+let savedGlobal = null // user's edited global defaults, loaded from IDB
+
+// Loads persisted state. Call once before showing the UI.
+export async function initStore() {
+  state.conversations = (await get(STORE_KEY)) || []
+  models.value = (await get(MODELS_KEY)) || []
+  savedGlobal = (await get(GLOBAL_KEY)) || null
+  // Backfill stable message ids for conversations saved before ids existed.
+  for (const c of state.conversations) {
+    for (const m of c.messages) if (!m.id) m.id = crypto.randomUUID()
+  }
+  loaded = true
+  // Persist on any change, debounced so token-by-token streaming doesn't thrash IDB.
+  watch(() => state.conversations, save, { deep: true })
+}
+
+let saveTimer
+function save() {
+  if (!loaded) return
+  clearTimeout(saveTimer)
+  // JSON round-trip strips the Vue reactive proxy so structured-clone can store it.
+  const snapshot = JSON.parse(JSON.stringify(state.conversations))
+  saveTimer = setTimeout(() => set(STORE_KEY, snapshot), 400)
+}
+
+// Write immediately, bypassing the debounce — call when a stream finishes so a quick
+// page reload can't lose the final assistant message.
+export function persistNow() {
+  if (!loaded) return
+  clearTimeout(saveTimer)
+  return set(STORE_KEY, JSON.parse(JSON.stringify(state.conversations)))
+}
+
+export function cacheModels(list) {
+  models.value = list
+  set(MODELS_KEY, list)
+}
+
+export const conversations = computed(() =>
+  state.conversations.filter((c) => !c.isTemplate),
+)
+export const templates = computed(() =>
+  state.conversations.filter((c) => c.isTemplate),
+)
+export const currentConversation = computed(() =>
+  state.conversations.find((c) => c.id === currentId.value) || null,
+)
+
+function blank(overrides = {}) {
+  return {
+    id: crypto.randomUUID(),
+    title: 'New conversation',
+    isTemplate: false,
+    scanAssistant: false,
+    settings: {}, // empty = inherit every key from globalSettings
+    cards: [],
+    memory: '', // rolling summary of compressed-away history
+    memoryCount: 0, // how many leading non-system messages are folded into memory
+    messages: [{ id: crypto.randomUUID(), role: 'system', content: '', createdAt: Date.now() }],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    ...overrides,
+  }
+}
+
+export function createConversation() {
+  const c = blank()
+  state.conversations.unshift(c)
+  currentId.value = c.id
+  return c
+}
+
+export function createFromTemplate(template) {
+  const c = JSON.parse(JSON.stringify(template))
+  c.id = crypto.randomUUID()
+  c.isTemplate = false
+  c.title = template.title
+  c.createdAt = c.updatedAt = Date.now()
+  c.messages = c.messages.map((m) => ({ ...m, id: crypto.randomUUID() }))
+  c.cards = (c.cards || []).map((cd) => ({ ...cd, id: crypto.randomUUID() }))
+  state.conversations.unshift(c)
+  currentId.value = c.id
+  return c
+}
+
+// Copy the current conversation into a new template (does not move/modify the original).
+export function saveAsTemplate(convo) {
+  const t = JSON.parse(JSON.stringify(convo))
+  t.id = crypto.randomUUID()
+  t.isTemplate = true
+  t.createdAt = t.updatedAt = Date.now()
+  t.messages = t.messages.map((m) => ({ ...m, id: crypto.randomUUID() }))
+  t.cards = (t.cards || []).map((cd) => ({ ...cd, id: crypto.randomUUID() }))
+  state.conversations.unshift(t)
+  return t
+}
+
+export function deleteConversation(id) {
+  state.conversations = state.conversations.filter((c) => c.id !== id)
+  if (currentId.value === id) currentId.value = state.conversations[0]?.id || null
+}
+
+export function selectConversation(id) {
+  currentId.value = id
+}
+
+// Per-conversation override falls back to the global default per key.
+// `??` so an explicit false/0 override is respected; only null/undefined inherits.
+export function effectiveSettings(convo) {
+  const g = globalSettings.value || {}
+  const out = {}
+  for (const k of SETTING_KEYS) out[k] = convo.settings?.[k] ?? g[k]
+  return out
+}
+
+export function setGlobalSettings(serverDefaults) {
+  // Server defaults seed any missing keys; the user's saved edits win.
+  globalSettings.value = { ...serverDefaults, ...(savedGlobal || {}) }
+  if (!state.conversations.length) createConversation()
+  else if (!currentId.value) currentId.value = state.conversations[0].id
+}
+
+// Persist the current global settings as the user's defaults for new conversations.
+export function persistGlobal() {
+  savedGlobal = { ...globalSettings.value }
+  set(GLOBAL_KEY, savedGlobal)
+}
+
+// Wipe everything (e.g. on logout if desired).
+export async function clearAll() {
+  state.conversations = []
+  await del(STORE_KEY)
+}

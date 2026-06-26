@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+/* Semantic theme tokens. Light is the default (:root); .dark on <html> flips them.
+   These feed Tailwind color utilities below, so bg-surface/text-muted/etc. theme automatically. */
+:root {
+  --c-app: #fafafa;
+  --c-surface: #ffffff;
+  --c-surface2: #f1f1f3;
+  --c-edge: #e4e4e7;
+  --c-text: #18181b;
+  --c-muted: #6b7280;
+  --c-code: #f6f8fa;
+}
+.dark {
+  --c-app: #09090b;
+  --c-surface: #18181b;
+  --c-surface2: #27272a;
+  --c-edge: #27272a;
+  --c-text: #f4f4f5;
+  --c-muted: #a1a1aa;
+  --c-code: #0d1117;
+}
+
+@theme {
+  --color-app: var(--c-app);
+  --color-surface: var(--c-surface);
+  --color-surface2: var(--c-surface2);
+  --color-edge: var(--c-edge);
+  --color-base: var(--c-text);
+  --color-muted: var(--c-muted);
+}
+
+html, body, #app { height: 100%; }
+body { background: var(--c-app); color: var(--c-text); }
+input, textarea, select { color: inherit; }
+
+/* Rendered-markdown styling (Tailwind's preflight strips defaults, so restore the basics). */
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0.5rem 0; }
+.md pre { background: var(--c-code); border: 1px solid var(--c-edge); padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; margin: 0.5rem 0; }
+.md code { background: var(--c-surface2); padding: 0.1em 0.3em; border-radius: 0.25rem; font-size: 0.9em; }
+.md pre code { background: none; padding: 0; }
+.md .code-block { position: relative; }
+.md .code-copy {
+  position: absolute; top: 0.4rem; right: 0.4rem;
+  display: inline-flex; padding: 0.25rem; border-radius: 0.3rem;
+  background: var(--c-app); border: 1px solid var(--c-edge); color: var(--c-muted);
+  cursor: pointer; opacity: 0; transition: opacity 0.1s;
+}
+.md .code-block:hover .code-copy, .md .code-copy:focus { opacity: 1; }
+.md .code-copy:hover { color: var(--c-text); }
+
+/* Syntax highlighting — github-ish palette, flips with .dark. */
+.hljs { color: var(--c-text); }
+.hljs-comment, .hljs-quote { color: #6e7781; font-style: italic; }
+.hljs-keyword, .hljs-tag, .hljs-selector-tag, .hljs-built_in, .hljs-name, .hljs-literal { color: #cf222e; }
+.hljs-string, .hljs-attr, .hljs-symbol, .hljs-bullet, .hljs-addition, .hljs-link { color: #0a3069; }
+.hljs-number, .hljs-meta { color: #0550ae; }
+.hljs-title, .hljs-section, .hljs-title.function_ { color: #8250df; }
+.hljs-attribute, .hljs-variable, .hljs-template-variable, .hljs-type, .hljs-class .hljs-title { color: #953800; }
+.hljs-deletion { color: #82071e; }
+.dark .hljs-comment, .dark .hljs-quote { color: #8b949e; }
+.dark .hljs-keyword, .dark .hljs-tag, .dark .hljs-selector-tag, .dark .hljs-built_in, .dark .hljs-name, .dark .hljs-literal { color: #ff7b72; }
+.dark .hljs-string, .dark .hljs-attr, .dark .hljs-symbol, .dark .hljs-bullet, .dark .hljs-addition, .dark .hljs-link { color: #a5d6ff; }
+.dark .hljs-number, .dark .hljs-meta { color: #79c0ff; }
+.dark .hljs-title, .dark .hljs-section, .dark .hljs-title.function_ { color: #d2a8ff; }
+.dark .hljs-attribute, .dark .hljs-variable, .dark .hljs-template-variable, .dark .hljs-type, .dark .hljs-class .hljs-title { color: #ffa657; }
+.dark .hljs-deletion { color: #ffa198; }
+.md ul, .md ol { margin: 0.5rem 0; padding-left: 1.5rem; list-style: revert; }
+.md a { color: #6366f1; text-decoration: underline; }
+.md h1, .md h2, .md h3 { font-weight: 600; margin: 0.75rem 0 0.5rem; }
+.md blockquote { border-left: 3px solid var(--c-edge); padding-left: 0.75rem; color: var(--c-muted); margin: 0.5rem 0; }
+.md table { border-collapse: collapse; margin: 0.5rem 0; }
+.md th, .md td { border: 1px solid var(--c-edge); padding: 0.25rem 0.5rem; }
