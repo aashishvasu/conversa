@@ -1,6 +1,6 @@
 <script setup>
 import { Bot, Check, ChevronDown, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User } from 'lucide-vue-next'
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
 import { buildPayload } from '../cards.js'
 import { formatTime } from '../format.js'
@@ -24,6 +24,16 @@ const copiedId = ref(null)
 const atBottom = ref(true)
 const scroller = ref(null)
 let controller = null
+
+// Render only the last N messages for speed; "Load more" reveals older ones in
+// PAGE_SIZE batches. Tune PAGE_SIZE here. Display-only — all messages stay in memory
+// and what's sent to the API is governed separately by num_messages_to_send.
+const PAGE_SIZE = 100
+const visibleCount = ref(PAGE_SIZE)
+const visibleMessages = computed(() => {
+  const all = convo.value?.messages || []
+  return all.length > visibleCount.value ? all.slice(-visibleCount.value) : all
+})
 
 const ROLE_ICON = { user: User, assistant: Bot, system: Cog }
 
@@ -87,6 +97,7 @@ function onScroll() {
 // Only auto-follow the stream when the user is already at the bottom.
 watch(() => convo.value?.messages.at(-1)?.content, () => atBottom.value && scrollDown(), { flush: 'post' })
 watch(convo, () => {
+  visibleCount.value = PAGE_SIZE
   atBottom.value = true
   scrollDown()
 })
@@ -188,7 +199,12 @@ async function regenTitle() {
     <!-- Messages -->
     <div class="relative flex-1 overflow-hidden">
       <div ref="scroller" class="h-full space-y-3 overflow-y-auto px-3 py-6 sm:px-4" @scroll="onScroll" @click="onContentClick">
-        <div v-for="m in convo.messages" :key="m.id" class="group">
+        <div v-if="convo.messages.length > visibleCount" class="flex justify-center">
+          <button class="rounded px-3 py-1 text-xs text-muted hover:bg-surface2 hover:text-base" @click="visibleCount += PAGE_SIZE">
+            Load {{ PAGE_SIZE }} more ({{ convo.messages.length - visibleCount }} older)
+          </button>
+        </div>
+        <div v-for="m in visibleMessages" :key="m.id" class="group">
           <!-- edit mode -->
           <div v-if="editingId === m.id" class="rounded-lg border border-edge bg-surface p-2">
             <div class="mb-2 flex items-center gap-2">
