@@ -30,11 +30,11 @@ async function onAuthed(settings) {
 </script>
 
 <template>
-  <div v-if="!ready" class="flex h-screen items-center justify-center bg-app text-muted">
+  <div v-if="!ready" class="flex h-dvh items-center justify-center bg-app text-muted">
     Loading…
   </div>
   <Login v-else-if="!authed" @authenticated="onAuthed" />
-  <div v-else class="flex h-screen">
+  <div v-else class="flex h-dvh">
     <Sidebar />
     <ChatPane />
   </div>

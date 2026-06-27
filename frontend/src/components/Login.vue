@@ -22,7 +22,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="flex h-screen items-center justify-center bg-app text-base">
+  <div class="flex h-dvh items-center justify-center bg-app text-base">
     <form class="w-80 space-y-4 rounded-lg bg-surface p-6 shadow-lg" @submit.prevent="submit">
       <div class="flex flex-col items-center gap-2">
         <img src="/logo.png" alt="conversa" class="h-16 w-16" />
