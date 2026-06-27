@@ -1,8 +1,10 @@
 <script setup>
 import { globalSettings, models, persistGlobal } from '../store.js'
+import { enterToSend, fontScale } from '../prefs.js'
 
 // Edits the global defaults (absolute values, no inherit). New conversations copy these.
 const g = globalSettings // ref auto-unwraps in template
+// fontScale / enterToSend are frontend-only prefs; their own watchers persist on change.
 </script>
 
 <template>
@@ -61,5 +63,18 @@ const g = globalSettings // ref auto-unwraps in template
       <label class="mb-1 block text-muted">Compression threshold (chars)</label>
       <input v-model.number="g.compression_threshold" type="number" min="500" step="500" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal" />
     </div>
+
+    <hr class="border-edge" />
+    <p class="text-muted">Appearance &amp; input. Applies to this browser only.</p>
+
+    <div>
+      <label class="mb-1 block text-muted">Font size: {{ Math.round(fontScale * 100) }}%</label>
+      <input v-model.number="fontScale" type="range" min="0.8" max="1.4" step="0.05" class="w-full" />
+    </div>
+
+    <label class="flex items-center gap-2">
+      <input v-model="enterToSend" type="checkbox" />
+      Enter sends message (off: Shift+Enter sends, Enter makes a newline)
+    </label>
   </div>
 </template>

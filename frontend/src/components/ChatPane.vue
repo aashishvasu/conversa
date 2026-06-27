@@ -6,6 +6,7 @@ import { buildPayload } from '../cards.js'
 import { formatTime } from '../format.js'
 import { CHECK_SVG, COPY_SVG, renderMarkdown } from '../md.js'
 import { compressIfNeeded } from '../memory.js'
+import { enterToSend } from '../prefs.js'
 import { currentConversation, effectiveSettings, models, persistNow, sidebarOpen } from '../store.js'
 import { generateTitle } from '../titles.js'
 import CardsPanel from './CardsPanel.vue'
@@ -133,6 +134,20 @@ async function runCompletion(c) {
   }
 }
 
+// Enter behaviour is a frontend pref: by default Enter sends and Shift+Enter makes a
+// newline; flip enterToSend and they swap. Let the textarea insert the newline itself.
+const composerHint = computed(() => enterToSend.value
+  ? 'Enter to send, Shift+Enter for newline'
+  : 'Shift+Enter to send, Enter for newline')
+function onComposerKeydown(e) {
+  if (e.key !== 'Enter' || e.isComposing) return // don't fire mid-IME-composition
+  const isSend = enterToSend.value ? !e.shiftKey : e.shiftKey
+  if (isSend) {
+    e.preventDefault()
+    send()
+  }
+}
+
 async function send() {
   const text = input.value.trim()
   if (!text || streaming.value || !convo.value) return
@@ -220,14 +235,14 @@ async function regenTitle() {
 
           <!-- view mode -->
           <div v-else class="flex" :class="rowAlign(m.role)">
-            <div class="flex max-w-2xl flex-col" :class="colAlign(m.role)">
+            <div class="flex min-w-0 max-w-2xl flex-col" :class="colAlign(m.role)">
               <div class="relative rounded-lg px-4 py-2" :class="bubbleClass(m.role)">
                 <div class="mb-1 flex items-center gap-1 opacity-60">
                   <component :is="ROLE_ICON[m.role]" :size="13" />
                   <Pin v-if="m.pinned" :size="12" class="fill-current text-indigo-400" />
                 </div>
-                <div v-if="m.role === 'system'" class="whitespace-pre-wrap text-sm" :class="!m.content && 'italic text-muted'">{{ m.content || 'You are a helpful assistant.' }}</div>
-                <div v-else-if="m.content" class="md" v-html="renderMarkdown(m.content)"></div>
+                <div v-if="m.role === 'system'" class="whitespace-pre-wrap break-words text-sm" :class="!m.content && 'italic text-muted'">{{ m.content || 'You are a helpful assistant.' }}</div>
+                <div v-else-if="m.content" class="md break-words" v-html="renderMarkdown(m.content)"></div>
                 <div v-else class="text-muted">…</div>
                 <div class="absolute -top-3 right-2 hidden gap-0.5 rounded-md border border-edge bg-surface p-0.5 text-muted shadow group-hover:flex">
                   <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Regenerate from here" @click="reload(m)"><RotateCcw :size="14" /></button>
@@ -284,9 +299,9 @@ async function regenTitle() {
         <textarea
           v-model="input"
           rows="2"
-          placeholder="Message…  (Enter to send, Shift+Enter for newline)"
+          :placeholder="`Message…  (${composerHint})`"
           class="flex-1 resize-none rounded bg-surface2 px-3 py-2 outline-none"
-          @keydown.enter.exact.prevent="send"
+          @keydown="onComposerKeydown"
         ></textarea>
         <button v-if="!streaming" class="flex items-center justify-center rounded bg-indigo-600 px-4 text-white hover:bg-indigo-500" title="Send" @click="send">
           <Send :size="18" />
