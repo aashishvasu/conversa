@@ -241,8 +241,8 @@ async function regenTitle() {
                   <component :is="ROLE_ICON[m.role]" :size="13" />
                   <Pin v-if="m.pinned" :size="12" class="fill-current text-indigo-400" />
                 </div>
-                <div v-if="m.role === 'system'" class="whitespace-pre-wrap break-words text-sm" :class="!m.content && 'italic text-muted'">{{ m.content || 'You are a helpful assistant.' }}</div>
-                <div v-else-if="m.content" class="md break-words" v-html="renderMarkdown(m.content)"></div>
+                <div v-if="m.role === 'system'" class="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm" :class="!m.content && 'italic text-muted'">{{ m.content || 'You are a helpful assistant.' }}</div>
+                <div v-else-if="m.content" class="md [overflow-wrap:anywhere]" v-html="renderMarkdown(m.content)"></div>
                 <div v-else class="text-muted">…</div>
                 <div class="absolute -top-3 right-2 hidden gap-0.5 rounded-md border border-edge bg-surface p-0.5 text-muted shadow group-hover:flex">
                   <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Regenerate from here" @click="reload(m)"><RotateCcw :size="14" /></button>
