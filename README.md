@@ -66,6 +66,35 @@ systemctl --user start conversa
 > Want to run the frontend and backend separately for development?
 > See [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## Updating
+
+Pull the latest code, rebuild the image, and restart the container.
+
+If you run it under systemd (Quadlet):
+
+```sh
+git pull
+podman build -t conversa -f Containerfile .
+systemctl --user restart conversa
+```
+
+If you started it with plain `podman run`, stop the old container and start a new
+one from the rebuilt image:
+
+```sh
+git pull
+podman build -t conversa -f Containerfile .
+podman rm -f conversa 2>/dev/null
+podman run -p 8000:8000 \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -e APP_PASSWORD=your-password \
+  --name conversa \
+  conversa
+```
+
+Your conversations, settings, cards, and templates live in the browser, so an
+update never touches them.
+
 ## Configuration
 
 Set these as environment variables when you start the container.
