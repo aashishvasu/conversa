@@ -1,6 +1,6 @@
 <script setup>
 import { Bot, Check, ChevronDown, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User } from 'lucide-vue-next'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
 import { buildPayload } from '../cards.js'
 import { formatTime } from '../format.js'
@@ -102,6 +102,9 @@ watch(convo, () => {
   atBottom.value = true
   scrollDown()
 })
+// On reload, convo already has its value when this mounts, so the watcher above
+// won't fire — scroll to the bottom once for the initial conversation.
+onMounted(scrollDown)
 
 async function runCompletion(c) {
   const settings = effectiveSettings(c)
