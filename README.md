@@ -144,6 +144,13 @@ It's a lightweight way to give the assistant background knowledge ("when I say
 *Aria*, that's my D&D character, a half-elf rogue…") without pasting it into every
 message or burning tokens on context you don't currently need.
 
+You can override the trigger matching per card with two buttons on the card's
+row: **force include** (✓) always sends the card regardless of triggers, and
+**force skip** (⃠) never sends it. Click again to clear the override and return
+to normal trigger matching. Forced-include and triggered cards show green;
+force-skip shows yellow. To keep cards tidy, give a card a **folder** name and
+it'll group under that heading — purely visual, it has no effect on triggering.
+
 ### Memory — so long chats don't get forgotten or expensive
 
 Turn on **memory** and conversa keeps a running summary of the older parts of a
