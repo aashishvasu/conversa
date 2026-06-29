@@ -119,8 +119,8 @@ async function runCompletion(c) {
       } catch { /* on failure, just send uncompressed */ }
     }
     const payload = buildPayload(c, settings) // built BEFORE the empty assistant placeholder
-    assistant = { id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() }
-    c.messages.push(assistant)
+    c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() })
+    assistant = c.messages.at(-1) // reactive proxy, not the raw object — so streamed tokens render live
     await streamChat(payload, (t) => (assistant.content += t), controller.signal)
     if (c.title === 'New conversation') {
       try {
@@ -130,7 +130,7 @@ async function runCompletion(c) {
     }
   } catch (e) {
     if (e.name !== 'AbortError' && assistant)
-      assistant.content += `${assistant.content ? '\n\n' : ''}⚠️ ${e.message}`
+      assistant.content += `${assistant.content ? '\n\n' : ''}> ⚠️ **Error:** ${e.message}`
   } finally {
     streaming.value = false
     persistNow() // don't let a quick reload lose the completed message
@@ -222,7 +222,9 @@ async function regenTitle() {
             Load {{ PAGE_SIZE }} more ({{ convo.messages.length - visibleCount }} older)
           </button>
         </div>
-        <div v-for="m in visibleMessages" :key="m.id" class="group">
+        <!-- v-memo: re-render a bubble only when something it shows changes, so streaming
+             one message doesn't re-parse markdown for every other visible message. -->
+        <div v-for="m in visibleMessages" :key="m.id" v-memo="[m.content, m.role, m.pinned, editingId === m.id, copiedId === m.id]" class="group">
           <!-- edit mode -->
           <div v-if="editingId === m.id" class="rounded-lg border border-edge bg-surface p-2">
             <div class="mb-2 flex items-center gap-2">
