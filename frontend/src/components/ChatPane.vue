@@ -1,5 +1,5 @@
 <script setup>
-import { Bot, Check, ChevronDown, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User } from 'lucide-vue-next'
+import { Bot, Check, ChevronDown, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
 import { buildPayload } from '../cards.js'
@@ -21,6 +21,7 @@ const titling = ref(false)
 const titleErr = ref('')
 const panel = ref(null)
 const editingId = ref(null)
+let editBackup = null // original {content, role} so Cancel can revert; null = newly added
 const copiedId = ref(null)
 const atBottom = ref(true)
 const scroller = ref(null)
@@ -58,7 +59,17 @@ function colAlign(role) {
 function addMessage() {
   const m = { id: crypto.randomUUID(), role: 'user', content: '', createdAt: Date.now() }
   convo.value.messages.push(m)
+  editBackup = null // new message: Cancel removes it
   editingId.value = m.id
+}
+function startEdit(m) {
+  editBackup = { content: m.content, role: m.role }
+  editingId.value = m.id
+}
+function cancelEdit(m) {
+  if (editBackup) Object.assign(m, editBackup) // existing: revert edits
+  else removeMessage(m.id) // newly added: drop it
+  editingId.value = null
 }
 function removeMessage(id) {
   convo.value.messages = convo.value.messages.filter((m) => m.id !== id)
@@ -233,7 +244,8 @@ async function regenTitle() {
                 <option value="user">user</option>
                 <option value="assistant">assistant</option>
               </select>
-              <button class="ml-auto rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500" @click="editingId = null">Done</button>
+              <button class="ml-auto rounded p-1.5 text-muted hover:bg-surface2 hover:text-base" title="Cancel" @click="cancelEdit(m)"><X :size="14" /></button>
+              <button class="rounded bg-indigo-600 p-1.5 text-white hover:bg-indigo-500" title="Done" @click="editingId = null"><Check :size="14" /></button>
             </div>
             <textarea v-model="m.content" rows="5" class="w-full rounded bg-surface2 px-3 py-2 text-sm outline-none"></textarea>
           </div>
@@ -251,7 +263,7 @@ async function regenTitle() {
                 <div v-else class="text-muted">…</div>
                 <div class="absolute -top-3 right-2 hidden gap-0.5 rounded-md border border-edge bg-surface p-0.5 text-muted shadow group-hover:flex">
                   <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Regenerate from here" @click="reload(m)"><RotateCcw :size="14" /></button>
-                  <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Edit" @click="editingId = m.id"><Pencil :size="14" /></button>
+                  <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Edit" @click="startEdit(m)"><Pencil :size="14" /></button>
                   <button v-if="m.role !== 'system'" class="rounded p-1 hover:bg-surface2" :class="m.pinned ? 'text-indigo-400' : 'hover:text-base'" :title="m.pinned ? 'Unpin' : 'Pin (always sent)'" @click="togglePin(m)"><Pin :size="14" :class="m.pinned && 'fill-current'" /></button>
                   <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Copy raw" @click="copyMessage(m)">
                     <Check v-if="copiedId === m.id" :size="14" class="text-green-500" />
