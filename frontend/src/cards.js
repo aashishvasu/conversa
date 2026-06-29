@@ -35,17 +35,25 @@ function cardHits(card, text) {
   return parseTriggers(card.triggers).some((p) => wholePhraseMatch(text, p))
 }
 
+// Whether a card sends this turn. `force` overrides triggers: 'include' always
+// sends, 'skip' never does; anything else falls back to trigger matching.
+function cardActive(card, text) {
+  if (card.force === 'include') return true
+  if (card.force === 'skip') return false
+  return cardHits(card, text)
+}
+
 // Content of every activated card. One entry per card => dedup is automatic
 // even when several of a card's phrases match.
 export function matchCards(cards, messages, scanAssistant) {
   const text = scanText(messages, scanAssistant)
-  return (cards || []).filter((c) => cardHits(c, text)).map((c) => c.content)
+  return (cards || []).filter((c) => cardActive(c, text)).map((c) => c.content)
 }
 
 // Set of activated card ids — for live "active" indicators in the UI.
 export function matchedCardIds(cards, messages, scanAssistant) {
   const text = scanText(messages, scanAssistant)
-  return new Set((cards || []).filter((c) => cardHits(c, text)).map((c) => c.id))
+  return new Set((cards || []).filter((c) => cardActive(c, text)).map((c) => c.id))
 }
 
 // Build the {system, messages} payload for the API from a conversation + settings.

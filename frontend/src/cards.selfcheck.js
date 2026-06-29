@@ -40,6 +40,13 @@ const p2 = buildPayload(convo, {
 })
 assert.ok(!p2.system.includes('bard') && p2.system.includes('DRAGON_LORE'))
 
+// force override: 'include' sends without a trigger, 'skip' suppresses a matched trigger
+const forced = [
+  { id: 'i', triggers: 'never', content: 'ALWAYS', force: 'include' },
+  { id: 's', triggers: 'dragon', content: 'SUPPRESSED', force: 'skip' },
+]
+assert.deepEqual(matchCards(forced, [{ role: 'user', content: 'a dragon' }], false), ['ALWAYS'])
+
 assert.deepEqual(parseTriggers(' a , b ,, c '), ['a', 'b', 'c'])
 
 // pinned turns lead the messages array and bypass the send-window limit; deduped vs the window

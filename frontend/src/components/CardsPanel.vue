@@ -1,5 +1,5 @@
 <script setup>
-import { GripVertical, X } from 'lucide-vue-next'
+import { Ban, CircleCheck, GripVertical, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { matchedCardIds } from '../cards.js'
 import { effectiveSettings } from '../store.js'
@@ -56,6 +56,11 @@ function onDrop(target) {
   cards.splice(cards.findIndex((c) => c.id === target.id), 0, moved)
 }
 
+// Tri-state override: click to set, click again to clear back to trigger matching.
+function toggleForce(card, mode) {
+  card.force = card.force === mode ? null : mode
+}
+
 function addCard() {
   props.convo.cards.push({ id: crypto.randomUUID(), triggers: '', content: '' })
 }
@@ -76,7 +81,7 @@ function removeCard(id) {
       <details
         v-else
         class="rounded border"
-        :class="[active.has(row.card.id) ? 'border-green-500' : 'border-edge', dragId === row.card.id ? 'opacity-50' : '']"
+        :class="[row.card.force === 'skip' ? 'border-yellow-500' : active.has(row.card.id) ? 'border-green-500' : 'border-edge', dragId === row.card.id ? 'opacity-50' : '']"
         @dragover.prevent
         @drop="onDrop(row.card)"
       >
@@ -84,7 +89,9 @@ function removeCard(id) {
           <span class="shrink-0 cursor-grab text-muted active:cursor-grabbing" draggable="true" title="Drag to reorder or move folder" @click.stop.prevent @dragstart="onDragStart($event, row.card.id)"><GripVertical :size="14" /></span>
           <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(row.card.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(row.card.id) ? 'Active for next send' : 'Inactive'"></span>
           <span class="flex-1 truncate text-muted">{{ row.card.triggers || 'No triggers' }}</span>
-          <button class="shrink-0 text-muted hover:text-red-500" @click.stop.prevent="removeCard(row.card.id)"><X :size="14" /></button>
+          <button class="shrink-0" :class="row.card.force === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" title="Force include — always send this card" @click.stop.prevent="toggleForce(row.card, 'include')"><CircleCheck :size="14" /></button>
+          <button class="shrink-0" :class="row.card.force === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" title="Force skip — never send this card" @click.stop.prevent="toggleForce(row.card, 'skip')"><Ban :size="14" /></button>
+          <button class="shrink-0 border-l border-edge pl-2 text-muted hover:text-red-500" title="Delete card" @click.stop.prevent="removeCard(row.card.id)"><X :size="14" /></button>
         </summary>
         <div class="space-y-2 border-t border-edge p-2">
           <input v-model="row.card.path" placeholder="Folder (optional)" class="w-full rounded bg-surface2 px-2 py-1 text-xs text-muted" />
