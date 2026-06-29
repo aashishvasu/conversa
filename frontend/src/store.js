@@ -143,8 +143,10 @@ export function effectiveSettings(convo) {
 export function setGlobalSettings(serverDefaults) {
   // Server defaults seed any missing keys; the user's saved edits win.
   globalSettings.value = { ...serverDefaults, ...(savedGlobal || {}) }
-  if (!state.conversations.length) createConversation()
-  else if (!currentId.value) currentId.value = state.conversations[0].id
+  if (currentId.value) return
+  // Open the first real conversation, never a template; if there are none, start fresh.
+  currentId.value = conversations.value[0]?.id
+  if (!currentId.value) createConversation()
 }
 
 // Persist the current global settings as the user's defaults for new conversations.
