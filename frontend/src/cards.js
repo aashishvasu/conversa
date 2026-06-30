@@ -35,6 +35,12 @@ function cardHits(card, text) {
   return parseTriggers(card.triggers).some((p) => wholePhraseMatch(text, p))
 }
 
+// First trigger phrase that matched, or null. Null only for force-include cards,
+// which send with no matching phrase.
+function firstHit(card, text) {
+  return parseTriggers(card.triggers).find((p) => wholePhraseMatch(text, p)) || null
+}
+
 // Whether a card sends this turn. `force` overrides triggers: 'include' always
 // sends, 'skip' never does; anything else falls back to trigger matching.
 function cardActive(card, text) {
@@ -43,11 +49,15 @@ function cardActive(card, text) {
   return cardHits(card, text)
 }
 
-// Content of every activated card. One entry per card => dedup is automatic
-// even when several of a card's phrases match.
+// Content of every activated card, prefixed with the phrase that triggered it
+// ("phrase: content") so the model sees why the card fired. Force-include cards
+// with no matching phrase send bare content. One entry per card => dedup is automatic.
 export function matchCards(cards, messages, scanAssistant) {
   const text = scanText(messages, scanAssistant)
-  return (cards || []).filter((c) => cardActive(c, text)).map((c) => c.content)
+  return (cards || []).filter((c) => cardActive(c, text)).map((c) => {
+    const hit = firstHit(c, text)
+    return hit ? `${hit}: ${c.content}` : c.content
+  })
 }
 
 // Set of activated card ids — for live "active" indicators in the UI.
@@ -63,10 +73,10 @@ export function matchedCardIds(cards, messages, scanAssistant) {
 // With memory on, the window is everything not yet folded into memory (kept verbatim);
 // compression (see memory.js) must run first so memoryCount/memory are current. With
 // memory off, it's the last num_messages_to_send turns.
-export function buildPayload(conversation, settings) {
-  const turns = conversation.messages.filter((m) => m.role !== 'system')
+export function buildPayload(convo, settings) {
+  const turns = convo.messages.filter((m) => m.role !== 'system')
   const window = settings.use_memory
-    ? turns.slice(conversation.memoryCount || 0)
+    ? turns.slice(convo.memoryCount || 0)
     : turns.slice(-settings.num_messages_to_send)
 
   // Pinned turns bypass the send-window limit and lead the messages array, ahead of the
@@ -78,15 +88,15 @@ export function buildPayload(conversation, settings) {
 
   const parts = []
   if (settings.send_system_prompt) {
-    for (const m of conversation.messages) {
+    for (const m of convo.messages) {
       if (m.role === 'system' && m.content.trim()) parts.push(m.content)
     }
   }
-  if (settings.use_memory && conversation.memory) {
-    parts.push(`Summary of earlier conversation:\n${conversation.memory}`)
+  if (settings.use_memory && convo.memory) {
+    parts.push(`Summary of earlier conversation:\n${convo.memory}`)
   }
   // Cards are intentional, trigger-gated context — injected even if base system is off.
-  parts.push(...matchCards(conversation.cards, window, conversation.scanAssistant))
+  parts.push(...matchCards(convo.cards, window, convo.scanAssistant))
 
   return {
     system: parts.join('\n\n') || undefined,
