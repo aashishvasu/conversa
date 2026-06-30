@@ -2,6 +2,7 @@
 import { Ban, CircleCheck, GripVertical, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { matchedCardIds } from '../cards.js'
+import { confirmDelete } from '../confirm.js'
 import { effectiveSettings } from '../store.js'
 
 const props = defineProps({ convo: Object })
@@ -74,8 +75,10 @@ function toggleForce(e, card, mode) {
 function addCard() {
   props.convo.cards.push({ id: crypto.randomUUID(), triggers: '', content: '' })
 }
-function removeCard(id) {
-  props.convo.cards = props.convo.cards.filter((c) => c.id !== id)
+async function removeCard(id) {
+  if (await confirmDelete('Delete this card?')) {
+    props.convo.cards = props.convo.cards.filter((c) => c.id !== id)
+  }
 }
 </script>
 

@@ -1,6 +1,7 @@
 <script setup>
 import { X } from 'lucide-vue-next'
 import { computed } from 'vue'
+import { confirmDelete } from '../confirm.js'
 
 const props = defineProps({ convo: Object })
 
@@ -13,10 +14,13 @@ const contextMessages = computed(() =>
 function addSystem() {
   props.convo.messages.unshift({ id: crypto.randomUUID(), role: 'system', content: '', createdAt: Date.now() })
 }
-// System messages are deleted; pinned turns are just unpinned (they stay in the chat).
-function remove(m) {
-  if (m.role === 'system') props.convo.messages = props.convo.messages.filter((x) => x.id !== m.id)
-  else m.pinned = false
+// System messages are deleted (confirm first); pinned turns are just unpinned —
+// reversible, so no confirmation.
+async function remove(m) {
+  if (m.role !== 'system') { m.pinned = false; return }
+  if (await confirmDelete('Delete this system message?')) {
+    props.convo.messages = props.convo.messages.filter((x) => x.id !== m.id)
+  }
 }
 </script>
 

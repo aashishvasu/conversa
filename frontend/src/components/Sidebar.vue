@@ -2,6 +2,7 @@
 import { CopyPlus, LogOut, Moon, Plus, SlidersHorizontal, Sun, X } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { logout } from '../api.js'
+import { confirmDelete } from '../confirm.js'
 import { formatShort } from '../format.js'
 import {
   conversations,
@@ -22,6 +23,12 @@ const showGlobal = ref(false)
 function pick(id) {
   selectConversation(id)
   sidebarOpen.value = false
+}
+async function removeConversation(id) {
+  if (await confirmDelete('Delete this conversation? This cannot be undone.')) deleteConversation(id)
+}
+async function removeTemplate(id) {
+  if (await confirmDelete('Delete this template?')) deleteConversation(id)
 }
 const lastTs = (c) => c.messages.at(-1)?.createdAt
 </script>
@@ -52,7 +59,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         <button class="w-full truncate px-2 py-1.5 pr-14 text-left text-sm" @click="pick(t.id)">{{ t.title }}</button>
         <div class="absolute right-1 top-1.5 hidden gap-0.5 group-hover:flex">
           <button class="rounded p-1 text-muted hover:text-base" title="New conversation from template" @click="createFromTemplate(t)"><CopyPlus :size="14" /></button>
-          <button class="rounded p-1 text-muted hover:text-red-500" title="Delete template" @click="deleteConversation(t.id)"><X :size="14" /></button>
+          <button class="rounded p-1 text-muted hover:text-red-500" title="Delete template" @click="removeTemplate(t.id)"><X :size="14" /></button>
         </div>
       </div>
     </div>
@@ -74,7 +81,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         <button
           class="absolute right-1 top-1.5 rounded p-1 text-muted opacity-0 hover:text-red-500 group-hover:opacity-100"
           title="Delete"
-          @click="deleteConversation(c.id)"
+          @click="removeConversation(c.id)"
         >
           <X :size="14" />
         </button>

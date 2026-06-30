@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue'
+import { confirmDelete } from '../confirm.js'
 import { effectiveSettings, globalSettings, models, saveAsTemplate } from '../store.js'
 
 const props = defineProps({ convo: Object })
@@ -20,7 +21,8 @@ function makeTemplate() {
   setTimeout(() => (templateSaved.value = false), 1500)
 }
 
-function clearMemory() {
+async function clearMemory() {
+  if (!(await confirmDelete('Clear the memory summary? It will be rebuilt from history.', 'Clear'))) return
   props.convo.memory = ''
   props.convo.memoryCount = 0
 }
