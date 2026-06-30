@@ -7,15 +7,15 @@ const cards = [
   { id: '2', triggers: 'castle', content: 'CASTLE_LORE' },
 ]
 
-// whole-phrase, case-insensitive
-assert.deepEqual(matchCards(cards, [{ role: 'user', content: 'The DRAGON flew' }], false), ['DRAGON_LORE'])
+// whole-phrase, case-insensitive; content prefixed with the matched trigger phrase
+assert.deepEqual(matchCards(cards, [{ role: 'user', content: 'The DRAGON flew' }], false), ['dragon: DRAGON_LORE'])
 // word boundary: "dragonfly" must NOT trigger "dragon"
 assert.deepEqual(matchCards(cards, [{ role: 'user', content: 'a dragonfly' }], false), [])
-// multiple phrases of same card hit once (dedup)
-assert.deepEqual(matchCards(cards, [{ role: 'user', content: 'dragon and wyrm' }], false), ['DRAGON_LORE'])
+// multiple phrases of same card hit once (dedup); prefix is the first matching phrase
+assert.deepEqual(matchCards(cards, [{ role: 'user', content: 'dragon and wyrm' }], false), ['dragon: DRAGON_LORE'])
 // assistant scanned only when enabled
 assert.deepEqual(matchCards(cards, [{ role: 'assistant', content: 'castle' }], false), [])
-assert.deepEqual(matchCards(cards, [{ role: 'assistant', content: 'castle' }], true), ['CASTLE_LORE'])
+assert.deepEqual(matchCards(cards, [{ role: 'assistant', content: 'castle' }], true), ['castle: CASTLE_LORE'])
 
 // buildPayload: system msg + activated card both land in system; window trims turns
 const convo = {
