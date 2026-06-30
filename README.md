@@ -116,7 +116,7 @@ Set these as environment variables when you start the container.
 | `MODELS` | no | Sonnet/Opus/Haiku | Models you can pick from, as `id:Label,id:Label`. |
 
 Every default above is just a starting point — you can change any of them globally
-(in **Global settings**) or per conversation (in **Settings**).
+(in **Global settings**) or per conversation (in **Conversation settings**).
 
 ## How it works
 
@@ -135,9 +135,9 @@ reply. Two kinds of note live there:
 
 ### Cards — notes that appear only when relevant
 
-A **card** is like an index card in a box. Each card has some **trigger words** and
+A **card** is like an index card in a box. Each card has some **trigger phrases** and
 a **note**. Before every reply, conversa scans your recent messages; if a card's
-trigger word shows up, that card's note is quietly handed to the assistant for
+trigger phrase shows up, that card's note is quietly handed to the assistant for
 that reply — and dropped again once the word stops coming up.
 
 It's a lightweight way to give the assistant background knowledge ("when I say
@@ -153,11 +153,11 @@ it'll group under that heading — purely visual, it has no effect on triggering
 
 ### Memory — so long chats don't get forgotten or expensive
 
-Turn on **memory** and conversa keeps a running summary of the older parts of a
+Turn on **Compress history into memory** and conversa keeps a running summary of the older parts of a
 conversation (written by the cheap utility model) instead of re-sending every
 message forever. Recent messages stay word-for-word; everything past the
 threshold gets folded into the summary. You can read, edit, or clear that summary
-in **Settings**.
+in **Conversation settings**.
 
 ### Templates
 

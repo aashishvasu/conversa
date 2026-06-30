@@ -63,10 +63,10 @@ export function matchedCardIds(cards, messages, scanAssistant) {
 // With memory on, the window is everything not yet folded into memory (kept verbatim);
 // compression (see memory.js) must run first so memoryCount/memory are current. With
 // memory off, it's the last num_messages_to_send turns.
-export function buildPayload(conversation, settings) {
-  const turns = conversation.messages.filter((m) => m.role !== 'system')
+export function buildPayload(convo, settings) {
+  const turns = convo.messages.filter((m) => m.role !== 'system')
   const window = settings.use_memory
-    ? turns.slice(conversation.memoryCount || 0)
+    ? turns.slice(convo.memoryCount || 0)
     : turns.slice(-settings.num_messages_to_send)
 
   // Pinned turns bypass the send-window limit and lead the messages array, ahead of the
@@ -78,15 +78,15 @@ export function buildPayload(conversation, settings) {
 
   const parts = []
   if (settings.send_system_prompt) {
-    for (const m of conversation.messages) {
+    for (const m of convo.messages) {
       if (m.role === 'system' && m.content.trim()) parts.push(m.content)
     }
   }
-  if (settings.use_memory && conversation.memory) {
-    parts.push(`Summary of earlier conversation:\n${conversation.memory}`)
+  if (settings.use_memory && convo.memory) {
+    parts.push(`Summary of earlier conversation:\n${convo.memory}`)
   }
   // Cards are intentional, trigger-gated context — injected even if base system is off.
-  parts.push(...matchCards(conversation.cards, window, conversation.scanAssistant))
+  parts.push(...matchCards(convo.cards, window, convo.scanAssistant))
 
   return {
     system: parts.join('\n\n') || undefined,

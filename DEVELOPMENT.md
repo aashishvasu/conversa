@@ -42,7 +42,7 @@ origin (`StaticFiles` mount), so CORS is irrelevant; `CORS_ORIGINS` is dev-only.
 
 ### How a request is assembled (`frontend/src/cards.js`)
 
-`buildPayload(conversation, settings)` turns a conversation into the Anthropic
+`buildPayload(convo, settings)` turns a conversation into the Anthropic
 request:
 
 - **`system` param** ← all system messages (if `send_system_prompt`), the memory
@@ -63,7 +63,7 @@ under `compression_threshold` chars, advancing `memoryCount`. The summary is
 cached on the conversation and only re-runs when enough new old turns accumulate.
 
 > Known limitation: editing or deleting an already-summarized message desyncs the
-> memory. **Clear** in Settings rebuilds it.
+> memory. **Clear** in Conversation settings rebuilds it.
 
 ### Frontend module map (`frontend/src/`)
 
@@ -77,6 +77,7 @@ cached on the conversation and only re-runs when enough new old turns accumulate
 | `md.js` | Markdown → sanitized, highlighted HTML. |
 | `format.js` | Timestamp formatting (native `Intl`). |
 | `theme.js` | Light/dark toggle. |
+| `prefs.js` | Frontend-only UI prefs (font scale, Enter-to-send), persisted to localStorage. |
 | `components/ChatPane.vue` | The chat window: messages, actions, composer, toolbar. |
 | `components/ContextPanel.vue` | Edits system + pinned messages together. |
 | `components/CardsPanel.vue` | Card editor with live "active" indicators. |

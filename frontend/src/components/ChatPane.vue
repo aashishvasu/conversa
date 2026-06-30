@@ -173,7 +173,7 @@ async function send() {
 
 // Regenerate: keep everything up to and including the triggered message, then re-stream.
 // Same for any role — double messages are fine.
-function reload(m) {
+function regenerate(m) {
   if (streaming.value || !convo.value) return
   const c = convo.value
   const idx = c.messages.findIndex((x) => x.id === m.id)
@@ -262,7 +262,7 @@ async function regenTitle() {
                 <div v-else-if="m.content" class="md [overflow-wrap:anywhere]" v-html="renderMarkdown(m.content)"></div>
                 <div v-else class="text-muted">…</div>
                 <div class="absolute -top-3 right-2 hidden gap-0.5 rounded-md border border-edge bg-surface p-0.5 text-muted shadow group-hover:flex">
-                  <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Regenerate from here" @click="reload(m)"><RotateCcw :size="14" /></button>
+                  <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Regenerate from here" @click="regenerate(m)"><RotateCcw :size="14" /></button>
                   <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Edit" @click="startEdit(m)"><Pencil :size="14" /></button>
                   <button v-if="m.role !== 'system'" class="rounded p-1 hover:bg-surface2" :class="m.pinned ? 'text-indigo-400' : 'hover:text-base'" :title="m.pinned ? 'Unpin' : 'Pin (always sent)'" @click="togglePin(m)"><Pin :size="14" :class="m.pinned && 'fill-current'" /></button>
                   <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Copy raw" @click="copyMessage(m)">
@@ -309,7 +309,7 @@ async function regenTitle() {
         <div class="ml-auto flex gap-1">
           <button class="rounded p-1.5 hover:bg-surface2" title="Context editor" @click="panel = 'context'"><NotebookText :size="16" /></button>
           <button class="rounded p-1.5 hover:bg-surface2" title="Cards" @click="panel = 'cards'"><Layers :size="16" /></button>
-          <button class="rounded p-1.5 hover:bg-surface2" title="Settings" @click="panel = 'settings'"><SlidersHorizontal :size="16" /></button>
+          <button class="rounded p-1.5 hover:bg-surface2" title="Conversation settings" @click="panel = 'settings'"><SlidersHorizontal :size="16" /></button>
         </div>
       </div>
       <div class="flex items-stretch gap-2 px-3 pb-3">

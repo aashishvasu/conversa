@@ -96,7 +96,7 @@ function removeCard(id) {
         <div class="space-y-2 border-t border-edge p-2">
           <input v-model="row.card.path" placeholder="Folder (optional)" class="w-full rounded bg-surface2 px-2 py-1 text-xs text-muted" />
           <input v-model="row.card.triggers" placeholder="dragon, red wyrm, ancient lizard" class="w-full rounded bg-surface2 px-2 py-1" />
-          <textarea v-model="row.card.content" rows="4" placeholder="Context to inject when triggered…" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
+          <textarea v-model="row.card.content" rows="4" placeholder="What this card adds when triggered…" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
         </div>
       </details>
     </template>
