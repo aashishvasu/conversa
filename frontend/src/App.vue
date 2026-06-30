@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { authed, fetchModels, fetchSettings, getToken, logout } from './api.js'
 import { cacheModels, initStore, setGlobalSettings } from './store.js'
 import ChatPane from './components/ChatPane.vue'
+import ConfirmModal from './components/ConfirmModal.vue'
 import Login from './components/Login.vue'
 import Sidebar from './components/Sidebar.vue'
 
@@ -38,4 +39,5 @@ async function onAuthed(settings) {
     <Sidebar />
     <ChatPane />
   </div>
+  <ConfirmModal />
 </template>
