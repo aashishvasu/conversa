@@ -24,6 +24,7 @@ const panel = ref(null)
 const editingId = ref(null)
 let editBackup = null // original {content, role} so Cancel can revert; null = newly added
 const copiedId = ref(null)
+const activeId = ref(null) // tapped bubble: shows its action toolbar (mobile has no hover)
 const atBottom = ref(true)
 const scroller = ref(null)
 let controller = null
@@ -241,7 +242,7 @@ async function regenTitle() {
         </div>
         <!-- v-memo: re-render a bubble only when something it shows changes, so streaming
              one message doesn't re-parse markdown for every other visible message. -->
-        <div v-for="m in visibleMessages" :key="m.id" v-memo="[m.content, m.role, m.pinned, editingId === m.id, copiedId === m.id]" class="group">
+        <div v-for="m in visibleMessages" :key="m.id" v-memo="[m.content, m.role, m.pinned, editingId === m.id, copiedId === m.id, activeId === m.id]" class="group">
           <!-- edit mode -->
           <div v-if="editingId === m.id" class="rounded-lg border border-edge bg-surface p-2">
             <div class="mb-2 flex items-center gap-2">
@@ -257,7 +258,7 @@ async function regenTitle() {
           </div>
 
           <!-- view mode -->
-          <div v-else class="flex" :class="rowAlign(m.role)">
+          <div v-else class="flex" :class="rowAlign(m.role)" @click="activeId = m.id">
             <div class="flex min-w-0 max-w-2xl flex-col" :class="colAlign(m.role)">
               <div class="relative rounded-lg px-4 py-2" :class="bubbleClass(m.role)">
                 <div class="mb-1 flex items-center gap-1 opacity-60">
@@ -267,7 +268,7 @@ async function regenTitle() {
                 <div v-if="m.role === 'system'" class="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm" :class="!m.content && 'italic text-muted'">{{ m.content || 'You are a helpful assistant.' }}</div>
                 <div v-else-if="m.content" class="md [overflow-wrap:anywhere]" v-html="renderMarkdown(m.content)"></div>
                 <div v-else class="text-muted">…</div>
-                <div class="absolute -top-3 right-2 hidden gap-0.5 rounded-md border border-edge bg-surface p-0.5 text-muted shadow group-hover:flex">
+                <div class="absolute -top-3 right-2 hidden gap-0.5 rounded-md border border-edge bg-surface p-0.5 text-muted shadow group-hover:flex" :class="{ '!flex': activeId === m.id }">
                   <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Regenerate from here" @click="regenerate(m)"><RotateCcw :size="14" /></button>
                   <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Edit" @click="startEdit(m)"><Pencil :size="14" /></button>
                   <button v-if="m.role !== 'system'" class="rounded p-1 hover:bg-surface2" :class="m.pinned ? 'text-indigo-400' : 'hover:text-base'" :title="m.pinned ? 'Unpin' : 'Pin (always sent)'" @click="togglePin(m)"><Pin :size="14" :class="m.pinned && 'fill-current'" /></button>
