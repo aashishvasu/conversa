@@ -1,5 +1,5 @@
 <script setup>
-import { Bot, Check, ChevronDown, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User, X } from 'lucide-vue-next'
+import { Bot, Bug, Check, ChevronDown, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
 import { buildPayload } from '../cards.js'
@@ -11,6 +11,7 @@ import { enterToSend } from '../prefs.js'
 import { currentConversation, effectiveSettings, models, persistNow, sidebarOpen } from '../store.js'
 import { generateTitle } from '../titles.js'
 import CardsPanel from './CardsPanel.vue'
+import DebugPanel from './DebugPanel.vue'
 import Modal from './Modal.vue'
 import ContextPanel from './ContextPanel.vue'
 import SettingsPanel from './SettingsPanel.vue'
@@ -317,6 +318,8 @@ async function regenTitle() {
           <button class="rounded p-1.5 hover:bg-surface2" title="Context editor" @click="panel = 'context'"><NotebookText :size="16" /></button>
           <button class="rounded p-1.5 hover:bg-surface2" title="Cards" @click="panel = 'cards'"><Layers :size="16" /></button>
           <button class="rounded p-1.5 hover:bg-surface2" title="Conversation settings" @click="panel = 'settings'"><SlidersHorizontal :size="16" /></button>
+          <!-- debug peek, deliberately lighter weight than the real panels -->
+          <button class="rounded p-1.5 opacity-50 hover:bg-surface2 hover:opacity-100" title="Debug: live system prompt" @click="panel = 'debug'"><Bug :size="16" /></button>
         </div>
       </div>
       <div class="flex items-stretch gap-2 px-3 pb-3">
@@ -344,6 +347,9 @@ async function regenTitle() {
     </Modal>
     <Modal v-if="panel === 'cards'" title="Cards" @close="panel = null">
       <CardsPanel :convo="convo" />
+    </Modal>
+    <Modal v-if="panel === 'debug'" title="System prompt (live)" @close="panel = null">
+      <DebugPanel :convo="convo" />
     </Modal>
   </section>
 

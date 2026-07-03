@@ -86,6 +86,7 @@ cached on the conversation and only re-runs when enough new old turns accumulate
 | `components/ChatPane.vue` | The chat window: messages, actions, composer, toolbar. |
 | `components/ContextPanel.vue` | Edits system + pinned messages together. |
 | `components/CardsPanel.vue` | Card editor with live "active" indicators. |
+| `components/DebugPanel.vue` | Read-only live preview of the assembled `system` param (via `buildPayload`). |
 | `components/SettingsPanel.vue` / `GlobalSettings.vue` | Per-conversation overrides / global defaults. |
 | `components/Sidebar.vue` | Conversation + template list. |
 | `components/Modal.vue` / `ConfirmModal.vue` | Generic modal shell / shared delete-confirmation dialog. |
