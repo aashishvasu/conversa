@@ -7,7 +7,7 @@ import { confirmDelete } from '../confirm.js'
 import { formatTime } from '../format.js'
 import { CHECK_SVG, COPY_SVG, renderMarkdown } from '../md.js'
 import { compressIfNeeded } from '../memory.js'
-import { enterToSend } from '../prefs.js'
+import { enterToSend, fontScale } from '../prefs.js'
 import { currentConversation, effectiveSettings, models, persistNow, sidebarOpen } from '../store.js'
 import { generateTitle } from '../titles.js'
 import CardsPanel from './CardsPanel.vue'
@@ -170,6 +170,17 @@ function onComposerKeydown(e) {
   }
 }
 
+// Auto-grow the composer with its content, capped by max-h; shrinks back when cleared
+// (watch also fires when send() empties it). Native field-sizing:content would be one
+// line of CSS, but Firefox still lacks it. fontScale reflows the text, so re-measure.
+const composerEl = ref(null)
+watch([input, fontScale], () => {
+  const el = composerEl.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
+}, { flush: 'post' })
+
 async function send() {
   const text = input.value.trim()
   if (!text || streaming.value || !convo.value) return
@@ -324,10 +335,11 @@ async function regenTitle() {
       </div>
       <div class="flex items-stretch gap-2 px-3 pb-3">
         <textarea
+          ref="composerEl"
           v-model="input"
           rows="2"
           :placeholder="`Message…  (${composerHint})`"
-          class="flex-1 resize-none rounded bg-surface2 px-3 py-2 outline-none"
+          class="min-h-16 max-h-40 flex-1 resize-none rounded bg-surface2 px-3 py-2 outline-none"
           @keydown="onComposerKeydown"
         ></textarea>
         <button v-if="!streaming" class="flex items-center justify-center rounded bg-indigo-600 px-4 text-white hover:bg-indigo-500" title="Send" @click="send">
