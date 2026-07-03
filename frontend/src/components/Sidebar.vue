@@ -20,6 +20,7 @@ import GlobalSettings from './GlobalSettings.vue'
 import Modal from './Modal.vue'
 
 const showGlobal = ref(false)
+const version = __APP_VERSION__ // injected by Vite at build time (latest git tag)
 
 function pick(id) {
   selectConversation(id)
@@ -95,6 +96,13 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         <LogOut :size="16" />
       </button>
     </div>
+
+    <a
+      href="https://github.com/aashishvasu/conversa"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="block border-t border-edge px-3 py-1.5 text-center text-[10px] text-muted hover:text-base"
+    >conversa{{ version ? ` ${version}` : '' }}</a>
 
     <Modal v-if="showGlobal" title="Global settings" @close="showGlobal = false">
       <GlobalSettings />
