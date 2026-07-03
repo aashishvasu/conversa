@@ -31,6 +31,8 @@ Browser (Vue SPA, IndexedDB)  ──HTTPS──>  FastAPI  ──>  Anthropic AP
 
 - `POST /api/login` — exchanges `APP_PASSWORD` (constant-time compared) for a
   signed, expiring JWT.
+- `POST /api/refresh` — trades a still-valid token for a fresh full-TTL one. The
+  client calls it opportunistically once a token is past half-life (sliding session).
 - `GET  /api/settings` — global setting defaults from env vars.
 - `GET  /api/models` — selectable models with labels.
 - `POST /api/chat` — streams a completion from Anthropic as SSE. The API key

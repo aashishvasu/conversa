@@ -63,6 +63,12 @@ app.add_middleware(
 )
 
 
+def mint_token():
+    # iat lets the client compute the half-life for sliding renewal.
+    now = int(time.time())
+    return jwt.encode({"iat": now, "exp": now + TOKEN_TTL}, JWT_SECRET, algorithm="HS256")
+
+
 def require_auth(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "missing token")
@@ -97,8 +103,13 @@ def login(body: LoginBody):
         raise HTTPException(503, "server password not configured")
     if not hmac.compare_digest(body.password, APP_PASSWORD):  # constant-time
         raise HTTPException(401, "bad password")
-    token = jwt.encode({"exp": int(time.time()) + TOKEN_TTL}, JWT_SECRET, algorithm="HS256")
-    return {"token": token}
+    return {"token": mint_token()}
+
+
+@app.post("/api/refresh")
+def refresh(_=Depends(require_auth)):
+    # Sliding session: any still-valid token can be traded for a fresh full-TTL one.
+    return {"token": mint_token()}
 
 
 @app.get("/api/settings")
