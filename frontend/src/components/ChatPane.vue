@@ -3,6 +3,7 @@ import { Bot, Check, ChevronDown, Cog, Copy, Layers, Menu, NotebookText, Pencil,
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
 import { buildPayload } from '../cards.js'
+import { confirmDelete } from '../confirm.js'
 import { formatTime } from '../format.js'
 import { CHECK_SVG, COPY_SVG, renderMarkdown } from '../md.js'
 import { compressIfNeeded } from '../memory.js'
@@ -75,6 +76,11 @@ function cancelEdit(m) {
 function removeMessage(id) {
   convo.value.messages = convo.value.messages.filter((m) => m.id !== id)
   if (editingId.value === id) editingId.value = null
+}
+// Trash button: confirm first. (cancelEdit calls removeMessage directly — discarding
+// a blank new message needs no confirmation.)
+async function confirmRemoveMessage(id) {
+  if (await confirmDelete('Delete this message?')) removeMessage(id)
 }
 function togglePin(m) {
   m.pinned = !m.pinned
@@ -270,7 +276,7 @@ async function regenTitle() {
                     <Check v-if="copiedId === m.id" :size="14" class="text-green-500" />
                     <Copy v-else :size="14" />
                   </button>
-                  <button class="rounded p-1 hover:bg-surface2 hover:text-red-500" title="Delete" @click="removeMessage(m.id)"><Trash2 :size="14" /></button>
+                  <button class="rounded p-1 hover:bg-surface2 hover:text-red-500" title="Delete" @click="confirmRemoveMessage(m.id)"><Trash2 :size="14" /></button>
                 </div>
               </div>
               <div v-if="m.role !== 'system' && m.createdAt" class="mt-0.5 px-1 text-[10px] text-muted">

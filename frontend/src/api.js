@@ -26,7 +26,33 @@ function check(res) {
     throw new Error('Session expired')
   }
   if (!res.ok) throw new Error(`Server error ${res.status}`)
+  maybeRefresh() // fire-and-forget sliding renewal on any successful call
   return res
+}
+
+// Past the token's half-life, trade it for a fresh full-TTL one. Best-effort: on any
+// failure the current token keeps working until exp. The refresh response runs through
+// check() too, but the new token is young, so this can't loop.
+let refreshing = false
+async function maybeRefresh() {
+  const token = getToken()
+  if (!token || refreshing) return
+  try {
+    // JWT payloads are base64url; atob wants plain base64.
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    const { iat, exp } = JSON.parse(atob(b64))
+    // Pre-renewal tokens have no iat → NaN comparison is false → refresh them now.
+    if (Date.now() / 1000 < (iat + exp) / 2) return
+  } catch {
+    return
+  }
+  refreshing = true
+  try {
+    const res = check(await fetch('/api/refresh', { method: 'POST', headers: authHeaders(false) }))
+    localStorage.setItem(TOKEN_KEY, (await res.json()).token)
+  } catch { /* keep the old token */ } finally {
+    refreshing = false
+  }
 }
 
 // Exchange password for a token. Throws on wrong password.

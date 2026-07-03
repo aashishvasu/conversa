@@ -1,10 +1,25 @@
 <script setup>
-import { globalSettings, models, persistGlobal } from '../store.js'
+import { ref } from 'vue'
+import { downloadExport, globalSettings, importData, models, persistGlobal } from '../store.js'
 import { enterToSend, fontScale } from '../prefs.js'
 
 // Edits the global defaults (absolute values, no inherit). New conversations copy these.
 const g = globalSettings // ref auto-unwraps in template
 // fontScale / enterToSend are frontend-only prefs; their own watchers persist on change.
+
+const importMsg = ref('')
+
+async function onImportFile(e) {
+  const file = e.target.files[0]
+  e.target.value = '' // so picking the same file again re-fires @change
+  if (!file) return
+  try {
+    const n = importData(JSON.parse(await file.text()))
+    importMsg.value = n ? `Imported ${n} conversation${n === 1 ? '' : 's'}` : 'Nothing new to import'
+  } catch (err) {
+    importMsg.value = `Import failed: ${err.message}`
+  }
+}
 </script>
 
 <template>
@@ -76,5 +91,18 @@ const g = globalSettings // ref auto-unwraps in template
       <input v-model="enterToSend" type="checkbox" />
       Enter sends message (off: Shift+Enter sends, Enter makes a newline)
     </label>
+
+    <div>
+      <label class="mb-1 block text-muted">Backup (conversations, templates &amp; cards)</label>
+      <div class="flex gap-2">
+        <button class="flex-1 rounded bg-surface2 py-2 hover:opacity-80" @click="downloadExport()">Export</button>
+        <!-- native file input, hidden inside the label so the button triggers the picker -->
+        <label class="flex-1 cursor-pointer rounded bg-surface2 py-2 text-center hover:opacity-80">
+          Import
+          <input type="file" accept=".json,application/json" class="hidden" @change="onImportFile" />
+        </label>
+      </div>
+      <p v-if="importMsg" class="mt-1 text-xs text-muted">{{ importMsg }}</p>
+    </div>
   </div>
 </template>

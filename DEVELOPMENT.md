@@ -31,6 +31,8 @@ Browser (Vue SPA, IndexedDB)  ──HTTPS──>  FastAPI  ──>  Anthropic AP
 
 - `POST /api/login` — exchanges `APP_PASSWORD` (constant-time compared) for a
   signed, expiring JWT.
+- `POST /api/refresh` — trades a still-valid token for a fresh full-TTL one. The
+  client calls it opportunistically once a token is past half-life (sliding session).
 - `GET  /api/settings` — global setting defaults from env vars.
 - `GET  /api/models` — selectable models with labels.
 - `POST /api/chat` — streams a completion from Anthropic as SSE. The API key
@@ -46,7 +48,9 @@ origin (`StaticFiles` mount), so CORS is irrelevant; `CORS_ORIGINS` is dev-only.
 request:
 
 - **`system` param** ← all system messages (if `send_system_prompt`), the memory
-  summary (if `use_memory`), and the content of any triggered cards.
+  summary (if `use_memory`), and the content of any triggered cards. Each card is
+  prefixed with the phrase that triggered it (`phrase: content`); force-include
+  cards with no matching phrase send bare content.
 - **`messages` array** ← pinned turns first (deduped), then the *send window*
   (the last `num_messages_to_send` turns, or everything not yet folded into memory
   when memory is on). Only user/assistant turns go here — Anthropic keeps `system`
@@ -78,11 +82,13 @@ cached on the conversation and only re-runs when enough new old turns accumulate
 | `format.js` | Timestamp formatting (native `Intl`). |
 | `theme.js` | Light/dark toggle. |
 | `prefs.js` | Frontend-only UI prefs (font scale, Enter-to-send), persisted to localStorage. |
+| `confirm.js` | Promise-based confirm: `await confirmDelete(msg)`, backed by one `ConfirmModal` at app root. |
 | `components/ChatPane.vue` | The chat window: messages, actions, composer, toolbar. |
 | `components/ContextPanel.vue` | Edits system + pinned messages together. |
 | `components/CardsPanel.vue` | Card editor with live "active" indicators. |
 | `components/SettingsPanel.vue` / `GlobalSettings.vue` | Per-conversation overrides / global defaults. |
 | `components/Sidebar.vue` | Conversation + template list. |
+| `components/Modal.vue` / `ConfirmModal.vue` | Generic modal shell / shared delete-confirmation dialog. |
 
 ## Local development
 
@@ -108,11 +114,13 @@ pnpm dev
 
 ## Checks
 
-Card / payload logic has a dependency-free self-check:
+Card / payload logic, the confirm dialog, and export/import each have a self-check:
 
 ```sh
 cd frontend
 node src/cards.selfcheck.js
+node src/confirm.selfcheck.js
+node src/store.selfcheck.js
 ```
 
 Production build (also what the container runs):

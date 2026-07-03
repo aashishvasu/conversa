@@ -97,14 +97,19 @@ export function createConversation() {
   return c
 }
 
-export function createFromTemplate(template) {
-  const c = JSON.parse(JSON.stringify(template))
+// Deep copy with fresh ids throughout (conversation, messages, cards).
+function cloneWithNewIds(convo) {
+  const c = JSON.parse(JSON.stringify(convo))
   c.id = crypto.randomUUID()
-  c.isTemplate = false
-  c.title = template.title
-  c.createdAt = c.updatedAt = Date.now()
   c.messages = c.messages.map((m) => ({ ...m, id: crypto.randomUUID() }))
   c.cards = (c.cards || []).map((cd) => ({ ...cd, id: crypto.randomUUID() }))
+  return c
+}
+
+export function createFromTemplate(template) {
+  const c = cloneWithNewIds(template)
+  c.isTemplate = false
+  c.createdAt = c.updatedAt = Date.now()
   state.conversations.unshift(c)
   currentId.value = c.id
   return c
@@ -112,12 +117,9 @@ export function createFromTemplate(template) {
 
 // Copy the current conversation into a new template (does not move/modify the original).
 export function saveAsTemplate(convo) {
-  const t = JSON.parse(JSON.stringify(convo))
-  t.id = crypto.randomUUID()
+  const t = cloneWithNewIds(convo)
   t.isTemplate = true
   t.createdAt = t.updatedAt = Date.now()
-  t.messages = t.messages.map((m) => ({ ...m, id: crypto.randomUUID() }))
-  t.cards = (t.cards || []).map((cd) => ({ ...cd, id: crypto.randomUUID() }))
   state.conversations.unshift(t)
   return t
 }
@@ -159,4 +161,39 @@ export function persistGlobal() {
 export async function clearAll() {
   state.conversations = []
   await del(STORE_KEY)
+}
+
+// Backup: conversations + templates (global settings are trivial to redo).
+// Always an array — a single-conversation export round-trips through the same import.
+export function exportData(id) {
+  const list = id ? state.conversations.filter((c) => c.id === id) : state.conversations
+  return JSON.parse(JSON.stringify(list))
+}
+
+// Download an export file: everything, or one conversation when id is given.
+export function downloadExport(id) {
+  const list = exportData(id)
+  const name = (id ? list[0]?.title || 'conversation' : 'export').replace(/[^\w-]+/g, '_').slice(0, 40)
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' }))
+  a.download = `conversa-${name}-${new Date().toISOString().slice(0, 10)}.json`
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+// Import: new ids come in as-is; a colliding id becomes a copy with fresh ids (same
+// clone path as template copies), so nothing local is ever overwritten. Returns count.
+// ponytail: re-importing the same file duplicates collided convos; diff-aware skip if it annoys.
+export function importData(list) {
+  if (!Array.isArray(list)) throw new Error('Not a conversa export')
+  const have = new Set(state.conversations.map((c) => c.id))
+  let added = 0
+  for (const c of list) {
+    if (!c?.id || !Array.isArray(c.messages)) continue
+    state.conversations.unshift(have.has(c.id) ? cloneWithNewIds(c) : c)
+    have.add(c.id)
+    added++
+  }
+  if (added) persistNow()
+  return added
 }
