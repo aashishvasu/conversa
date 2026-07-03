@@ -112,12 +112,13 @@ pnpm dev
 
 ## Checks
 
-Card / payload logic and the confirm dialog each have a self-check:
+Card / payload logic, the confirm dialog, and export/import each have a self-check:
 
 ```sh
 cd frontend
 node src/cards.selfcheck.js
 node src/confirm.selfcheck.js
+node src/store.selfcheck.js
 ```
 
 Production build (also what the container runs):

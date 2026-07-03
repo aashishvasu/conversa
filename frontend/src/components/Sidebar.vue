@@ -1,5 +1,5 @@
 <script setup>
-import { CopyPlus, LogOut, Moon, Plus, SlidersHorizontal, Sun, X } from 'lucide-vue-next'
+import { CopyPlus, Download, LogOut, Moon, Plus, SlidersHorizontal, Sun, X } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { logout } from '../api.js'
 import { confirmDelete } from '../confirm.js'
@@ -10,6 +10,7 @@ import {
   createFromTemplate,
   currentId,
   deleteConversation,
+  downloadExport,
   selectConversation,
   sidebarOpen,
   templates,
@@ -69,19 +70,16 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         :class="c.id === currentId && 'bg-surface2'"
       >
         <button class="w-full px-2 py-2 text-left" @click="pick(c.id)">
-          <div class="truncate pr-5 text-sm">{{ c.title }}</div>
+          <div class="truncate pr-12 text-sm">{{ c.title }}</div>
           <div class="mt-0.5 flex justify-between text-[10px] text-muted">
             <span>{{ c.messages.length }} msgs</span>
             <span>{{ formatShort(lastTs(c)) }}</span>
           </div>
         </button>
-        <button
-          class="absolute right-1 top-1.5 rounded p-1 text-muted opacity-0 hover:text-red-500 group-hover:opacity-100"
-          title="Delete"
-          @click="remove(c.id, 'Delete this conversation? This cannot be undone.')"
-        >
-          <X :size="14" />
-        </button>
+        <div class="absolute right-1 top-1.5 hidden gap-0.5 group-hover:flex">
+          <button class="rounded p-1 text-muted hover:text-base" title="Export conversation" @click="downloadExport(c.id)"><Download :size="14" /></button>
+          <button class="rounded p-1 text-muted hover:text-red-500" title="Delete" @click="remove(c.id, 'Delete this conversation? This cannot be undone.')"><X :size="14" /></button>
+        </div>
       </div>
     </div>
 
