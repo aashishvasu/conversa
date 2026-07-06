@@ -48,9 +48,10 @@ origin (`StaticFiles` mount), so CORS is irrelevant; `CORS_ORIGINS` is dev-only.
 request:
 
 - **`system` param** ← all system messages (if `send_system_prompt`), the memory
-  summary (if `use_memory`), and the content of any triggered cards. Each card is
-  prefixed with the phrase that triggered it (`phrase: content`); force-include
-  cards with no matching phrase send bare content.
+  summary (if `use_memory`), and the content of any triggered cards. Card triggers
+  are comma-separated clauses (comma = OR, `&` inside a clause = AND). Each card is
+  prefixed with the clause that triggered it (`phrase: content`); force-include
+  cards with no matching clause send bare content.
 - **`messages` array** ← pinned turns first (deduped), then the *send window*
   (the last `num_messages_to_send` turns, or everything not yet folded into memory
   when memory is on). Only user/assistant turns go here — Anthropic keeps `system`

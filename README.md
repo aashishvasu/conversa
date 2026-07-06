@@ -144,6 +144,11 @@ It's a lightweight way to give the assistant background knowledge ("when I say
 *Aria*, that's my D&D character, a half-elf rogue…") without pasting it into every
 message or burning tokens on context you don't currently need.
 
+Triggers are comma-separated, and commas mean *or* — any one phrase fires the
+card. Use `&` when a card should only fire if several words all appear:
+`dragon & red, wyrm` triggers on "wyrm", or on "dragon" and "red" both showing
+up in recent messages.
+
 You can override the trigger matching per card with two buttons on the card's
 row: **force include** (✓) always sends the card regardless of triggers, and
 **force skip** (⃠) never sends it. Click again to clear the override and return

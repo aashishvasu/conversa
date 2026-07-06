@@ -47,7 +47,13 @@ const forced = [
 ]
 assert.deepEqual(matchCards(forced, [{ role: 'user', content: 'a dragon' }], false), ['ALWAYS'])
 
-assert.deepEqual(parseTriggers(' a , b ,, c '), ['a', 'b', 'c'])
+// comma = OR of clauses; & inside a clause = AND of phrases
+assert.deepEqual(parseTriggers(' a , b ,, c '), [['a'], ['b'], ['c']])
+assert.deepEqual(parseTriggers('dragon & red, wyrm'), [['dragon', 'red'], ['wyrm']])
+const andCards = [{ id: 'x', triggers: 'dragon & red, wyrm', content: 'RED_DRAGON' }]
+assert.deepEqual(matchCards(andCards, [{ role: 'user', content: 'a dragon appears' }], false), [], 'partial AND clause must not fire')
+assert.deepEqual(matchCards(andCards, [{ role: 'user', content: 'a red dragon' }], false), ['dragon & red: RED_DRAGON'])
+assert.deepEqual(matchCards(andCards, [{ role: 'user', content: 'a wyrm' }], false), ['wyrm: RED_DRAGON'], 'OR clause fires alone')
 
 // pinned turns lead the messages array and bypass the send-window limit; deduped vs the window
 const pinConvo = {

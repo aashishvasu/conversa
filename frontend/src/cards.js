@@ -1,7 +1,8 @@
 // Card matching + system-prompt assembly. Pure functions, no Vue — testable in node.
 //
 // A card = { id, triggers, content }. `triggers` is a comma-separated string of
-// phrases. A card activates if ANY of its phrases appears as a whole phrase
+// clauses; comma = OR, `&` inside a clause = AND ("dragon & red, wyrm" fires on
+// wyrm, or on dragon and red together). Each phrase must appear whole
 // (case-insensitive, word-boundary) in the scanned text. Activated cards inject
 // their content into the system prompt exactly once each.
 
@@ -16,11 +17,14 @@ function wholePhraseMatch(text, phrase) {
   return new RegExp(`\\b${escapeRegex(phrase)}\\b`, 'i').test(text)
 }
 
+// Returns clauses: [['dragon','red'],['wyrm']] for "dragon & red, wyrm".
+// A literal & inside a phrase becomes an AND of its words — looser
+// match, not broken; quoting syntax only if someone actually hits it.
 export function parseTriggers(triggers) {
   return (triggers || '')
     .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
+    .map((clause) => clause.split('&').map((p) => p.trim()).filter(Boolean))
+    .filter((c) => c.length)
 }
 
 // Scans user messages always; assistant messages only if scanAssistant.
@@ -32,13 +36,14 @@ function scanText(messages, scanAssistant) {
 }
 
 function cardHits(card, text) {
-  return parseTriggers(card.triggers).some((p) => wholePhraseMatch(text, p))
+  return parseTriggers(card.triggers).some((clause) => clause.every((p) => wholePhraseMatch(text, p)))
 }
 
-// First trigger phrase that matched, or null. Null only for force-include cards,
-// which send with no matching phrase.
+// First clause that fully matched, joined for display ("dragon & red"), or null.
+// Null only for force-include cards, which send with no matching clause.
 function firstHit(card, text) {
-  return parseTriggers(card.triggers).find((p) => wholePhraseMatch(text, p)) || null
+  const clause = parseTriggers(card.triggers).find((c) => c.every((p) => wholePhraseMatch(text, p)))
+  return clause ? clause.join(' & ') : null
 }
 
 // Whether a card sends this turn. `force` overrides triggers: 'include' always

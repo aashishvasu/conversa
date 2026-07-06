@@ -85,8 +85,9 @@ async function removeCard(id) {
 <template>
   <div class="space-y-2 text-sm">
     <p class="text-muted">
-      Trigger phrases (comma-separated). When one appears in the last messages sent,
-      the card's text is added to the system prompt. Click a card to expand.
+      Trigger phrases: comma = OR, &amp; = AND ("dragon &amp; red, wyrm" fires on wyrm, or on
+      dragon and red together). When a clause matches the last messages sent, the card's
+      text is added to the system prompt. Click a card to expand.
     </p>
 
     <template v-for="row in rows" :key="row.key">
@@ -107,7 +108,7 @@ async function removeCard(id) {
         </summary>
         <div class="space-y-2 border-t border-edge p-2">
           <input v-model="row.card.path" placeholder="Folder (optional)" class="w-full rounded bg-surface2 px-2 py-1 text-xs text-muted" />
-          <input v-model="row.card.triggers" placeholder="dragon, red wyrm, ancient lizard" class="w-full rounded bg-surface2 px-2 py-1" />
+          <input v-model="row.card.triggers" placeholder="dragon &amp; red, wyrm, ancient lizard" class="w-full rounded bg-surface2 px-2 py-1" />
           <textarea v-model="row.card.content" rows="4" placeholder="What this card adds when triggered…" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
         </div>
       </details>
