@@ -39,6 +39,9 @@ const rows = computed(() => {
   return out
 })
 
+// Folder-name autocomplete: reactivity is the cache.
+const paths = computed(() => [...new Set(props.convo.cards.map((c) => c.path).filter(Boolean))])
+
 // ponytail: collapsed folders are session-only; persist in prefs.js if it ever matters.
 const collapsed = ref(new Set())
 function toggleFolder(path) {
@@ -117,7 +120,7 @@ async function removeCard(id) {
           <button class="shrink-0 border-l border-edge pl-2 text-muted hover:text-red-500" title="Delete card" @click.stop.prevent="removeCard(row.card.id)"><X :size="14" /></button>
         </summary>
         <div class="space-y-2 border-t border-edge p-2">
-          <input v-model="row.card.path" placeholder="Folder (optional)" class="w-full rounded bg-surface2 px-2 py-1 text-xs text-muted" />
+          <input v-model="row.card.path" list="folder-paths" placeholder="Folder (optional)" class="w-full rounded bg-surface2 px-2 py-1 text-xs text-muted" />
           <input v-model="row.card.triggers" placeholder="dragon &amp; red, wyrm, ancient lizard" class="w-full rounded bg-surface2 px-2 py-1" />
           <textarea v-model="row.card.content" rows="4" placeholder="What this card adds when triggered…" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
         </div>
@@ -125,5 +128,6 @@ async function removeCard(id) {
     </template>
 
     <button class="w-full rounded bg-surface2 py-2 hover:opacity-80" @click="addCard()">+ Add card</button>
+    <datalist id="folder-paths"><option v-for="p in paths" :key="p" :value="p" /></datalist>
   </div>
 </template>
