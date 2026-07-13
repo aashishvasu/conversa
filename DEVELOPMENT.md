@@ -139,6 +139,5 @@ A single image builds the SPA and serves it from the backend — see
 `logo.png`) is emitted into `dist/` and served as static files, so the favicon
 and in-app logo ship automatically.
 
-The sidebar footer version comes from `git describe --tags` at build time; the
-container has no `.git`, so pass it explicitly:
-`--build-arg APP_VERSION=$(git describe --tags --abbrev=0)`.
+The sidebar footer version comes from the `version` field in
+`frontend/package.json` — bump it when tagging a release.

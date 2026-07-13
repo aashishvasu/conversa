@@ -5,10 +5,6 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
-# No .git in the build context — pass the version in:
-#   --build-arg APP_VERSION=$(git describe --tags --abbrev=0)
-ARG APP_VERSION=
-ENV APP_VERSION=$APP_VERSION
 RUN pnpm build
 
 # Stage 2: FastAPI backend serving the built SPA from ./static
