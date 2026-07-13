@@ -1,5 +1,5 @@
 <script setup>
-import { Ban, CircleCheck, GripVertical, X } from 'lucide-vue-next'
+import { Ban, ChevronDown, CircleCheck, GripVertical, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { matchedCardIds } from '../cards.js'
 import { confirmDelete } from '../confirm.js'
@@ -34,10 +34,21 @@ const rows = computed(() => {
   const out = []
   for (const [path, cards] of groups.value) {
     if (path) out.push({ key: `h:${path}`, header: path })
-    for (const card of cards) out.push({ key: card.id, card })
+    for (const card of cards) out.push({ key: card.id, card, path })
   }
   return out
 })
+
+// Folder-name autocomplete: reactivity is the cache.
+const paths = computed(() => [...new Set(props.convo.cards.map((c) => c.path).filter(Boolean))])
+
+// ponytail: collapsed folders are session-only; persist in prefs.js if it ever matters.
+const collapsed = ref(new Set())
+function toggleFolder(path) {
+  const s = new Set(collapsed.value)
+  s.has(path) ? s.delete(path) : s.add(path)
+  collapsed.value = s
+}
 
 // Drag-to-reorder. Dropping onto a card moves the dragged card next to it and
 // adopts its folder — so one gesture reorders and re-files across groups.
@@ -91,9 +102,11 @@ async function removeCard(id) {
     </p>
 
     <template v-for="row in rows" :key="row.key">
-      <p v-if="row.header" class="px-1 pt-1 text-xs text-muted">{{ row.header }}</p>
+      <p v-if="row.header" class="flex cursor-pointer select-none items-center gap-1 px-1 pt-1 text-xs text-muted" @click="toggleFolder(row.header)">
+        <ChevronDown :size="12" class="shrink-0 transition-transform" :class="collapsed.has(row.header) ? '-rotate-90' : ''" />{{ row.header }}
+      </p>
       <details
-        v-else
+        v-else-if="!collapsed.has(row.path)"
         class="rounded border"
         :data-card-id="row.card.id"
         :class="[row.card.force === 'skip' ? 'border-yellow-500' : active.has(row.card.id) ? 'border-green-500' : 'border-edge', dragId === row.card.id ? 'opacity-50' : '', dragId && dragId !== row.card.id && overId === row.card.id ? 'border-t-2 border-t-blue-500' : '']"
@@ -107,7 +120,7 @@ async function removeCard(id) {
           <button class="shrink-0 border-l border-edge pl-2 text-muted hover:text-red-500" title="Delete card" @click.stop.prevent="removeCard(row.card.id)"><X :size="14" /></button>
         </summary>
         <div class="space-y-2 border-t border-edge p-2">
-          <input v-model="row.card.path" placeholder="Folder (optional)" class="w-full rounded bg-surface2 px-2 py-1 text-xs text-muted" />
+          <input v-model="row.card.path" list="folder-paths" placeholder="Folder (optional)" class="w-full rounded bg-surface2 px-2 py-1 text-xs text-muted" />
           <input v-model="row.card.triggers" placeholder="dragon &amp; red, wyrm, ancient lizard" class="w-full rounded bg-surface2 px-2 py-1" />
           <textarea v-model="row.card.content" rows="4" placeholder="What this card adds when triggered…" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
         </div>
@@ -115,5 +128,6 @@ async function removeCard(id) {
     </template>
 
     <button class="w-full rounded bg-surface2 py-2 hover:opacity-80" @click="addCard()">+ Add card</button>
+    <datalist id="folder-paths"><option v-for="p in paths" :key="p" :value="p" /></datalist>
   </div>
 </template>

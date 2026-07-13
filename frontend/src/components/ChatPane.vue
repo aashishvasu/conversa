@@ -2,7 +2,7 @@
 import { Bot, Bug, Check, ChevronDown, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
-import { buildPayload } from '../cards.js'
+import { buildPayload, sendWindow } from '../cards.js'
 import { confirmDelete } from '../confirm.js'
 import { formatTime } from '../format.js'
 import { CHECK_SVG, COPY_SVG, renderMarkdown } from '../md.js'
@@ -41,6 +41,13 @@ const visibleMessages = computed(() => {
 })
 
 const ROLE_ICON = { user: User, assistant: Bot, system: Cog }
+
+// First message of the send window — a divider renders above it so the user can
+// see how much of the conversation goes to the model. Pins/system are always sent
+// regardless and aren't marked.
+const windowStartId = computed(() =>
+  convo.value ? sendWindow(convo.value, effectiveSettings(convo.value))[0]?.id : null,
+)
 
 function setModel(id) {
   convo.value.settings.model = id
@@ -190,14 +197,20 @@ async function send() {
   runCompletion(c)
 }
 
-// Regenerate: keep everything up to and including the triggered message, then re-stream.
-// Same for any role — double messages are fine.
+// Regenerate: re-stream from a message, discarding everything after it. From an
+// assistant turn, the turn itself is discarded too — back to the last user turn,
+// which is kept. System messages are never discarded (they're standing instructions).
 function regenerate(m) {
   if (streaming.value || !convo.value) return
   const c = convo.value
   const idx = c.messages.findIndex((x) => x.id === m.id)
   if (idx < 0) return
-  c.messages = c.messages.slice(0, idx + 1)
+  let cut = idx
+  if (m.role === 'assistant') {
+    while (cut >= 0 && c.messages[cut].role !== 'user') cut--
+    if (cut < 0) return // no user turn before it — nothing to regenerate from
+  }
+  c.messages = c.messages.filter((x, i) => i <= cut || x.role === 'system')
   runCompletion(c)
 }
 
@@ -254,7 +267,12 @@ async function regenTitle() {
         </div>
         <!-- v-memo: re-render a bubble only when something it shows changes, so streaming
              one message doesn't re-parse markdown for every other visible message. -->
-        <div v-for="m in visibleMessages" :key="m.id" v-memo="[m.content, m.role, m.pinned, editingId === m.id, copiedId === m.id, activeId === m.id]" class="group">
+        <div v-for="m in visibleMessages" :key="m.id" v-memo="[m.content, m.role, m.pinned, editingId === m.id, copiedId === m.id, activeId === m.id, windowStartId === m.id]" class="group">
+          <div v-if="windowStartId === m.id" class="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-wide text-indigo-400" title="Messages from here down are sent to the model">
+            <div class="h-px flex-1 bg-indigo-500/40"></div>
+            sent from here
+            <div class="h-px flex-1 bg-indigo-500/40"></div>
+          </div>
           <!-- edit mode -->
           <div v-if="editingId === m.id" class="rounded-lg border border-edge bg-surface p-2">
             <div class="mb-2 flex items-center gap-2">
