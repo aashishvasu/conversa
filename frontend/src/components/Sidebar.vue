@@ -56,7 +56,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         :class="t.id === currentId && 'bg-surface2'"
       >
         <button class="w-full truncate px-2 py-1.5 pr-14 text-left text-sm" @click="pick(t.id)">{{ t.title }}</button>
-        <div class="absolute right-1 top-1.5 hidden gap-0.5 group-hover:flex">
+        <div class="absolute right-1 top-1.5 hidden gap-0.5 pointer-coarse:flex group-hover:flex">
           <button class="rounded p-1 text-muted hover:text-base" title="New conversation from template" @click="createFromTemplate(t)"><CopyPlus :size="14" /></button>
           <button class="rounded p-1 text-muted hover:text-red-500" title="Delete template" @click="remove(t.id, 'Delete this template?')"><X :size="14" /></button>
         </div>
@@ -77,7 +77,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
             <span>{{ formatShort(lastTs(c)) }}</span>
           </div>
         </button>
-        <div class="absolute right-1 top-1.5 hidden gap-0.5 group-hover:flex">
+        <div class="absolute right-1 top-1.5 hidden gap-0.5 pointer-coarse:flex group-hover:flex">
           <button class="rounded p-1 text-muted hover:text-base" title="Export conversation" @click="downloadExport(c.id)"><Download :size="14" /></button>
           <button class="rounded p-1 text-muted hover:text-red-500" title="Delete" @click="remove(c.id, 'Delete this conversation? This cannot be undone.')"><X :size="14" /></button>
         </div>
