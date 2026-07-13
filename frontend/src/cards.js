@@ -71,18 +71,25 @@ export function matchedCardIds(cards, messages, scanAssistant) {
   return new Set((cards || []).filter((c) => cardActive(c, text)).map((c) => c.id))
 }
 
+// The turns sent verbatim this round. With memory on, everything not yet folded
+// into memory; with memory off, the last num_messages_to_send turns. Exported so
+// the UI can mark where the window starts.
+export function sendWindow(convo, settings) {
+  const turns = convo.messages.filter((m) => m.role !== 'system')
+  return settings.use_memory
+    ? turns.slice(convo.memoryCount || 0)
+    : turns.slice(-settings.num_messages_to_send)
+}
+
 // Build the {system, messages} payload for the API from a conversation + settings.
 // System-role messages, memory, and activated cards all feed the top-level `system`
 // param; only user/assistant turns go in `messages` (Anthropic requirement).
 //
-// With memory on, the window is everything not yet folded into memory (kept verbatim);
-// compression (see memory.js) must run first so memoryCount/memory are current. With
-// memory off, it's the last num_messages_to_send turns.
+// With memory on, compression (see memory.js) must run first so memoryCount/memory
+// are current.
 export function buildPayload(convo, settings) {
   const turns = convo.messages.filter((m) => m.role !== 'system')
-  const window = settings.use_memory
-    ? turns.slice(convo.memoryCount || 0)
-    : turns.slice(-settings.num_messages_to_send)
+  const window = sendWindow(convo, settings)
 
   // Pinned turns bypass the send-window limit and lead the messages array, ahead of the
   // window; dedup so a pinned turn that's also recent isn't sent twice.
