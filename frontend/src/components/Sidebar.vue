@@ -20,7 +20,7 @@ import GlobalSettings from './GlobalSettings.vue'
 import Modal from './Modal.vue'
 
 const showGlobal = ref(false)
-const version = __APP_VERSION__ // injected by Vite at build time (latest git tag)
+const version = __APP_VERSION__ // injected by Vite at build time (package.json version)
 
 function pick(id) {
   selectConversation(id)
