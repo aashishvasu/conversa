@@ -197,14 +197,20 @@ async function send() {
   runCompletion(c)
 }
 
-// Regenerate: keep everything up to and including the triggered message, then re-stream.
-// Same for any role — double messages are fine.
+// Regenerate: re-stream from a message, discarding everything after it. From an
+// assistant turn, the turn itself is discarded too — back to the last user turn,
+// which is kept. System messages are never discarded (they're standing instructions).
 function regenerate(m) {
   if (streaming.value || !convo.value) return
   const c = convo.value
   const idx = c.messages.findIndex((x) => x.id === m.id)
   if (idx < 0) return
-  c.messages = c.messages.slice(0, idx + 1)
+  let cut = idx
+  if (m.role === 'assistant') {
+    while (cut >= 0 && c.messages[cut].role !== 'user') cut--
+    if (cut < 0) return // no user turn before it — nothing to regenerate from
+  }
+  c.messages = c.messages.filter((x, i) => i <= cut || x.role === 'system')
   runCompletion(c)
 }
 
