@@ -79,6 +79,11 @@ async function onImportFile(e) {
       <input v-model.number="g.compression_threshold" type="number" min="500" step="500" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal" />
     </div>
 
+    <label class="flex items-center gap-2">
+      <input v-model="g.use_recall" type="checkbox" @change="persistGlobal" />
+      Recall relevant old messages
+    </label>
+
     <hr class="border-edge" />
     <p class="text-muted">Appearance &amp; input. Applies to this browser only.</p>
 

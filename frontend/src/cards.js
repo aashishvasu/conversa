@@ -81,6 +81,51 @@ export function sendWindow(convo, settings) {
     : turns.slice(-settings.num_messages_to_send)
 }
 
+// --- Lexical recall -----------------------------------------------------------
+// With use_recall on, the few dropped turns (not pinned, not in the send window)
+// most relevant to the latest user message are resent verbatim via the system
+// prompt. Complements the lossy memory summary; nothing is ever destructively
+// folded, so edits/deletes can't desync it.
+// ponytail: bag-of-words overlap, ASCII-only tokens — BM25/embeddings if quality
+// disappoints; no CJK (same limitation as card matching above).
+
+const RECALL_COUNT = 3
+
+// Common words that carry no retrieval signal ("what was the..." shouldn't match
+// everything). Tokens under 3 chars never tokenize, so none shorter are listed.
+const STOPWORDS = new Set(
+  ('the and you are was were not but for with this that have had has his her its from they will would could ' +
+    'should there their been when where how why can just like about them then than your all any who did does ' +
+    'say said get got out now one also very really what which while into onto some more most much such').split(' '),
+)
+
+function tokenize(s) {
+  return new Set(((s || '').toLowerCase().match(/[a-z0-9]{3,}/g) || []).filter((w) => !STOPWORDS.has(w)))
+}
+
+// Top dropped turns by token overlap with the latest user message, returned
+// chronologically as "role: content" strings. Empty when nothing overlaps.
+export function recallMessages(convo, outgoing) {
+  const query = tokenize(outgoing.findLast((m) => m.role === 'user')?.content)
+  if (!query.size) return []
+  const sent = new Set(outgoing.map((m) => m.id))
+  return convo.messages
+    .map((m, i) => ({ m, i }))
+    .filter(({ m }) => m.role !== 'system' && !sent.has(m.id) && m.content)
+    .map((x) => {
+      const words = tokenize(x.m.content)
+      let shared = 0
+      for (const w of words) if (query.has(w)) shared++
+      // normalize by length so long rambly turns don't always outrank short relevant ones
+      return { ...x, shared, score: shared / Math.sqrt(words.size || 1) }
+    })
+    .filter((x) => x.shared > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, RECALL_COUNT)
+    .sort((a, b) => a.i - b.i) // chronological reads better in the prompt
+    .map((x) => `${x.m.role}: ${x.m.content}`)
+}
+
 // Build the {system, messages} payload for the API from a conversation + settings.
 // System-role messages, memory, and activated cards all feed the top-level `system`
 // param; only user/assistant turns go in `messages` (Anthropic requirement).
@@ -106,6 +151,10 @@ export function buildPayload(convo, settings) {
   }
   if (settings.use_memory && convo.memory) {
     parts.push(`Summary of earlier conversation:\n${convo.memory}`)
+  }
+  if (settings.use_recall) {
+    const recalled = recallMessages(convo, outgoing)
+    if (recalled.length) parts.push(`Relevant earlier messages (verbatim, for reference):\n\n${recalled.join('\n\n')}`)
   }
   // Cards are intentional, trigger-gated context — injected even if base system is off.
   parts.push(...matchCards(convo.cards, window, convo.scanAssistant))

@@ -90,6 +90,12 @@ async function clearMemory() {
       <input type="number" min="500" step="500" :value="eff('compression_threshold')" class="w-full rounded bg-surface2 px-2 py-1" @input="setOv('compression_threshold', Number($event.target.value))" />
     </div>
 
+    <label class="flex items-center gap-2">
+      <input type="checkbox" :checked="eff('use_recall')" @change="setOv('use_recall', $event.target.checked)" />
+      Recall relevant old messages
+      <button v-if="overridden('use_recall')" class="text-indigo-500" @click="reset('use_recall')">↺</button>
+    </label>
+
     <div v-if="eff('use_memory')">
       <label class="mb-1 flex items-center justify-between text-muted">
         <span>Memory ({{ convo.memoryCount || 0 }} msgs folded)</span>
