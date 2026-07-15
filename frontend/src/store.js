@@ -16,6 +16,7 @@ export const SETTING_KEYS = [
   'utility_model',
   'use_memory',
   'compression_threshold',
+  'use_recall',
 ]
 
 const state = reactive({ conversations: [] })

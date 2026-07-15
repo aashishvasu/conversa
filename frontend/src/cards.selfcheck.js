@@ -1,6 +1,6 @@
 // Run: node src/cards.selfcheck.js  — fails loudly if card logic breaks.
 import assert from 'node:assert'
-import { buildPayload, matchCards, parseTriggers } from './cards.js'
+import { buildPayload, matchCards, parseTriggers, recallMessages } from './cards.js'
 
 const cards = [
   { id: '1', triggers: 'dragon, wyrm', content: 'DRAGON_LORE' },
@@ -96,5 +96,43 @@ const mp = buildPayload(memConvo, {
 assert.equal(mp.messages.length, 2, 'memory window should drop the folded turn')
 assert.equal(mp.messages[0].content, 'reply')
 assert.ok(mp.system.includes('EARLIER_SUMMARY') && mp.system.includes('sys'))
+
+// recall: dropped turns relevant to the latest user message are resent via system
+const recallConvo = {
+  scanAssistant: false,
+  cards: [],
+  messages: [
+    { id: 's', role: 'system', content: 'sys' },
+    { id: '1', role: 'user', content: 'my dragon is called Smaug' },
+    { id: '2', role: 'assistant', content: 'Smaug, a fine dragon name.' },
+    { id: '3', role: 'user', content: 'unrelated filler regarding weather' },
+    { id: '4', role: 'assistant', content: 'sunny tomorrow' },
+    { id: '5', role: 'user', content: 'remind me what my dragon is called?' },
+  ],
+}
+const rSettings = { model: 'm', max_tokens: 10, num_messages_to_send: 1, send_system_prompt: true, use_recall: true }
+const rp = buildPayload(recallConvo, rSettings)
+assert.ok(rp.system.includes('Smaug'), 'recall should resend the relevant dropped turn')
+assert.ok(!rp.system.includes('weather'), 'irrelevant dropped turns must not be recalled')
+// recalled turns come back in chronological order
+assert.ok(rp.system.indexOf('my dragon is called') < rp.system.indexOf('a fine dragon name'))
+// off by default: same convo without use_recall sends no old turns
+const rpOff = buildPayload(recallConvo, { ...rSettings, use_recall: false })
+assert.ok(!rpOff.system.includes('Smaug'), 'recall off: dropped turns stay dropped')
+
+// stopwords/short words alone never trigger recall ("what was the..." matches nothing)
+const noSignal = recallMessages(recallConvo, [{ id: 'q', role: 'user', content: 'what was the it?' }])
+assert.deepEqual(noSignal, [])
+// turns already outgoing (in window or pinned) are never recalled
+const dup = recallMessages(recallConvo, [recallConvo.messages[1], recallConvo.messages[5]])
+assert.ok(!dup.some((s) => s.includes('called Smaug')), 'outgoing turn must not also be recalled')
+// capped at 3, best-scoring first
+const manyConvo = {
+  messages: [
+    ...['a', 'b', 'c', 'd'].map((id) => ({ id, role: 'user', content: `dragon fact ${id}` })),
+    { id: 'q', role: 'user', content: 'dragon?' },
+  ],
+}
+assert.equal(recallMessages(manyConvo, [manyConvo.messages.at(-1)]).length, 3)
 
 console.log('cards selfcheck OK')
