@@ -76,8 +76,10 @@ export async function fetchModels() {
   return check(await fetch('/api/models', { headers: authHeaders(false) })).json()
 }
 
-// Streams assistant text. Calls onText(chunk) per token; resolves when done.
-export async function streamChat(payload, onText, signal) {
+// Streams assistant text. Calls onText(chunk) per token; onTrace(type, value) for
+// non-visible activity (type 'thinking' | 'search' → string, 'results' → [{title,url}]);
+// resolves when done.
+export async function streamChat(payload, onText, signal, onTrace) {
   const res = check(
     await fetch('/api/chat', {
       method: 'POST',
@@ -102,6 +104,9 @@ export async function streamChat(payload, onText, signal) {
       const data = JSON.parse(line.slice(6))
       if (data.error) throw new Error(data.error)
       if (data.text) onText(data.text)
+      else if (data.think && onTrace) onTrace('thinking', data.think)
+      else if (data.search && onTrace) onTrace('search', data.search)
+      else if (data.results && onTrace) onTrace('results', data.results)
     }
   }
 }

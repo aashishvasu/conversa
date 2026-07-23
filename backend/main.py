@@ -31,6 +31,8 @@ DEFAULT_MAX_TOKENS = int(os.environ.get("DEFAULT_MAX_TOKENS", "4096"))
 DEFAULT_UTILITY_MODEL = os.environ.get("DEFAULT_UTILITY_MODEL", "claude-haiku-4-5")
 DEFAULT_USE_MEMORY = os.environ.get("DEFAULT_USE_MEMORY", "false").lower() == "true"
 DEFAULT_COMPRESSION_THRESHOLD = int(os.environ.get("DEFAULT_COMPRESSION_THRESHOLD", "4000"))
+# Anthropic's server-side web search tool. Model-invoked: it searches only when a message warrants it.
+WEB_SEARCH_TOOL = os.environ.get("WEB_SEARCH_TOOL_VERSION", "web_search_20250305")
 
 # Selectable models, labelled. Format: "id:Label,id2:Label2" (label optional).
 MODELS_RAW = os.environ.get(
@@ -144,13 +146,30 @@ async def chat(req: ChatRequest, _=Depends(require_auth)):
     )
     if req.system:
         kwargs["system"] = req.system
+    if WEB_SEARCH_TOOL:
+        kwargs["tools"] = [{"type": WEB_SEARCH_TOOL, "name": "web_search", "max_uses": 5}]
 
     async def gen():
         # json-encode each chunk so newlines/special chars can't break SSE framing.
         try:
             async with client.messages.stream(**kwargs) as stream:
-                async for text in stream.text_stream:
-                    yield f"data: {json.dumps({'text': text})}\n\n"
+                async for event in stream:
+                    if event.type == "content_block_delta":
+                        d = event.delta
+                        if d.type == "text_delta":
+                            yield f"data: {json.dumps({'text': d.text})}\n\n"
+                        elif d.type == "thinking_delta":  # extended-thinking models
+                            yield f"data: {json.dumps({'think': d.thinking})}\n\n"
+                    # server-side web search: content_block_stop carries the finalized block
+                    elif event.type == "content_block_stop":
+                        block = event.content_block
+                        if getattr(block, "type", "") == "server_tool_use":
+                            yield f"data: {json.dumps({'search': block.input.get('query')})}\n\n"
+                        elif getattr(block, "type", "") == "web_search_tool_result" and isinstance(block.content, list):
+                            links = [{"title": getattr(r, "title", None), "url": getattr(r, "url", None)}
+                                     for r in block.content if getattr(r, "type", "") == "web_search_result"]
+                            if links:
+                                yield f"data: {json.dumps({'results': links})}\n\n"
             yield f"data: {json.dumps({'done': True})}\n\n"
         except Exception as e:  # surface API errors to the client instead of a dead stream
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
