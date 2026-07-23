@@ -1,5 +1,5 @@
 <script setup>
-import { Bot, Bug, Check, ChevronDown, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User, X } from 'lucide-vue-next'
+import { Bot, Bug, Check, ChevronDown, ChevronRight, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
 import { buildPayload, sendWindow } from '../cards.js'
@@ -26,6 +26,12 @@ const editingId = ref(null)
 let editBackup = null // original {content, role} so Cancel can revert; null = newly added
 const copiedId = ref(null)
 const activeId = ref(null) // tapped bubble: shows its action toolbar (mobile has no hover)
+// Live thinking/search trace for the latest turn. Deliberately ephemeral: not on the
+// message, not persisted — a reload wipes it. It stays visible after the turn completes
+// (until the next send resets it), and can be collapsed via liveOpen.
+const streamId = ref(null)
+const liveTrace = ref([])
+const liveOpen = ref(true)
 const atBottom = ref(true)
 const scroller = ref(null)
 let controller = null
@@ -147,7 +153,14 @@ async function runCompletion(c) {
     const payload = buildPayload(c, settings) // built BEFORE the empty assistant placeholder
     c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() })
     assistant = c.messages.at(-1) // reactive proxy, not the raw object — so streamed tokens render live
-    await streamChat(payload, (t) => (assistant.content += t), controller.signal)
+    liveTrace.value = []
+    streamId.value = assistant.id
+    await streamChat(payload, (t) => (assistant.content += t), controller.signal, (type, value) => {
+      const last = liveTrace.value.at(-1) // coalesce a run of thinking deltas into one entry
+      if (type === 'thinking' && last?.type === 'thinking') last.text += value
+      else if (type === 'results') liveTrace.value.push({ type, links: value })
+      else liveTrace.value.push({ type, text: value })
+    })
     if (c.title === 'New conversation') {
       try {
         const t = await generateTitle(c, settings.utility_model)
@@ -267,7 +280,26 @@ async function regenTitle() {
         </div>
         <!-- v-memo: re-render a bubble only when something it shows changes, so streaming
              one message doesn't re-parse markdown for every other visible message. -->
-        <div v-for="m in visibleMessages" :key="m.id" v-memo="[m.content, m.role, m.pinned, editingId === m.id, copiedId === m.id, activeId === m.id, windowStartId === m.id]" class="group">
+        <template v-for="m in visibleMessages" :key="m.id">
+          <!-- Ephemeral live trace, rendered ABOVE the streaming bubble and OUTSIDE the
+               v-memo below, so it appears the instant search/thinking events arrive rather
+               than waiting for the first text token to invalidate the memo. -->
+          <div v-if="m.id === streamId && liveTrace.length" class="mb-1 text-xs text-muted">
+            <button class="flex items-center gap-0.5 hover:text-base" @click.stop="liveOpen = !liveOpen">
+              <ChevronRight :size="12" class="transition-transform" :class="liveOpen && 'rotate-90'" />
+              {{ liveTrace.length }} step{{ liveTrace.length > 1 ? 's' : '' }}
+            </button>
+            <div v-if="liveOpen" class="mt-1 flex flex-col gap-2 border-l-2 border-indigo-500/40 pl-2">
+              <div v-for="(s, i) in liveTrace" :key="i">
+                <div class="text-[10px] uppercase tracking-wide opacity-60">{{ s.type }}</div>
+                <div v-if="s.type === 'results'" class="flex flex-col gap-0.5">
+                  <a v-for="(l, j) in s.links" :key="j" :href="l.url" target="_blank" rel="noopener" class="truncate text-indigo-400 hover:underline">{{ l.title || l.url }}</a>
+                </div>
+                <div v-else class="whitespace-pre-wrap [overflow-wrap:anywhere]">{{ s.text }}</div>
+              </div>
+            </div>
+          </div>
+        <div v-memo="[m.content, m.role, m.pinned, editingId === m.id, copiedId === m.id, activeId === m.id, windowStartId === m.id]" class="group">
           <div v-if="windowStartId === m.id" class="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-wide text-indigo-400" title="Messages from here down are sent to the model">
             <div class="h-px flex-1 bg-indigo-500/40"></div>
             sent from here
@@ -315,6 +347,7 @@ async function regenTitle() {
             </div>
           </div>
         </div>
+        </template>
 
         <div class="flex justify-center">
           <button class="flex items-center gap-1 rounded px-3 py-1 text-xs text-muted hover:bg-surface2 hover:text-base" @click="addMessage">

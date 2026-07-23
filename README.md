@@ -114,6 +114,7 @@ Set these as environment variables when you start the container.
 | `DEFAULT_USE_MEMORY` | no | `false` | Whether old turns get compressed into memory. |
 | `DEFAULT_COMPRESSION_THRESHOLD` | no | `4000` | Characters of recent chat kept verbatim before older turns are summarized. |
 | `MODELS` | no | Sonnet/Opus/Haiku | Models you can pick from, as `id:Label,id:Label`. |
+| `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches on its own when a message needs it. Empty disables it. |
 
 Every default above is just a starting point — you can change any of them globally
 (in **Global settings**) or per conversation (in **Conversation settings**).
