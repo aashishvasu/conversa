@@ -322,7 +322,7 @@ async function regenTitle() {
           <!-- view mode -->
           <div v-else class="flex" :class="rowAlign(m.role)" @click="activeId = m.id">
             <div class="flex min-w-0 max-w-2xl flex-col" :class="colAlign(m.role)">
-              <div class="relative rounded-lg px-4 py-2" :class="bubbleClass(m.role)">
+              <div class="relative max-w-full rounded-lg px-4 py-2" :class="bubbleClass(m.role)">
                 <div class="mb-1 flex items-center gap-1 opacity-60">
                   <component :is="ROLE_ICON[m.role]" :size="13" />
                   <Pin v-if="m.pinned" :size="12" class="fill-current text-indigo-400" />
