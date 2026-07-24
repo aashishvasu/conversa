@@ -13,10 +13,20 @@ export const SETTING_KEYS = [
   'num_messages_to_send',
   'send_system_prompt',
   'max_tokens',
+  'thinking_budget',
   'utility_model',
   'use_memory',
   'compression_threshold',
   'use_recall',
+]
+
+// Effort lever → extended-thinking budget in tokens (0 = off). Kept here so both
+// settings panels share one list.
+export const THINKING_LEVELS = [
+  { label: 'Off', value: 0 },
+  { label: 'Low', value: 4000 },
+  { label: 'Medium', value: 10000 },
+  { label: 'High', value: 24000 },
 ]
 
 const state = reactive({ conversations: [] })

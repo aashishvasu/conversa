@@ -27,6 +27,8 @@ DEFAULT_TEMPERATURE = float(os.environ.get("DEFAULT_TEMPERATURE", "1.0"))
 DEFAULT_NUM_MESSAGES = int(os.environ.get("DEFAULT_NUM_MESSAGES", "20"))
 DEFAULT_SEND_SYSTEM = os.environ.get("DEFAULT_SEND_SYSTEM_PROMPT", "true").lower() == "true"
 DEFAULT_MAX_TOKENS = int(os.environ.get("DEFAULT_MAX_TOKENS", "4096"))
+# Extended-thinking budget in tokens; 0 = off. The UI "effort" lever maps to this.
+DEFAULT_THINKING_BUDGET = int(os.environ.get("DEFAULT_THINKING_BUDGET", "0"))
 # Cheap model for auxiliary tasks: title generation and history compression.
 DEFAULT_UTILITY_MODEL = os.environ.get("DEFAULT_UTILITY_MODEL", "claude-haiku-4-5")
 DEFAULT_USE_MEMORY = os.environ.get("DEFAULT_USE_MEMORY", "false").lower() == "true"
@@ -95,6 +97,7 @@ class ChatRequest(BaseModel):
     model: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
+    thinking_budget: int | None = None  # tokens; 0/None = extended thinking off
 
 
 @app.post("/api/login")
@@ -122,6 +125,7 @@ def settings(_=Depends(require_auth)):
         "num_messages_to_send": DEFAULT_NUM_MESSAGES,
         "send_system_prompt": DEFAULT_SEND_SYSTEM,
         "max_tokens": DEFAULT_MAX_TOKENS,
+        "thinking_budget": DEFAULT_THINKING_BUDGET,
         "utility_model": DEFAULT_UTILITY_MODEL,
         "use_memory": DEFAULT_USE_MEMORY,
         "compression_threshold": DEFAULT_COMPRESSION_THRESHOLD,
@@ -138,12 +142,19 @@ async def chat(req: ChatRequest, _=Depends(require_auth)):
     if client is None:
         raise HTTPException(503, "server API key not configured")
 
+    max_tokens = req.max_tokens or DEFAULT_MAX_TOKENS
+    budget = req.thinking_budget or 0
     kwargs = dict(
         model=req.model or DEFAULT_MODEL,
-        max_tokens=req.max_tokens or DEFAULT_MAX_TOKENS,
+        max_tokens=max_tokens,
         temperature=req.temperature if req.temperature is not None else DEFAULT_TEMPERATURE,
         messages=[m.model_dump() for m in req.messages],
     )
+    if budget > 0:
+        # Anthropic requires budget < max_tokens and temperature unset (defaults to 1).
+        kwargs["max_tokens"] = max(max_tokens, budget + DEFAULT_MAX_TOKENS)
+        kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        kwargs.pop("temperature", None)
     if req.system:
         kwargs["system"] = req.system
     if WEB_SEARCH_TOOL:

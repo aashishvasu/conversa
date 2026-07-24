@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { confirmDelete } from '../confirm.js'
-import { effectiveSettings, globalSettings, models, saveAsTemplate } from '../store.js'
+import { effectiveSettings, globalSettings, models, saveAsTemplate, THINKING_LEVELS } from '../store.js'
 
 const props = defineProps({ convo: Object })
 
@@ -66,6 +66,16 @@ async function clearMemory() {
         <button v-if="overridden('max_tokens')" class="ml-1 text-indigo-500" @click="reset('max_tokens')">↺</button>
       </label>
       <input type="number" min="1" :value="eff('max_tokens')" class="w-full rounded bg-surface2 px-2 py-1" @input="setOv('max_tokens', Number($event.target.value))" />
+    </div>
+
+    <div>
+      <label class="mb-1 block text-muted">
+        Thinking effort
+        <button v-if="overridden('thinking_budget')" class="ml-1 text-indigo-500" @click="reset('thinking_budget')">↺</button>
+      </label>
+      <select :value="eff('thinking_budget') || 0" class="w-full rounded bg-surface2 px-2 py-1" @change="setOv('thinking_budget', Number($event.target.value))">
+        <option v-for="l in THINKING_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
+      </select>
     </div>
 
     <label class="flex items-center gap-2">

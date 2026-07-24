@@ -165,5 +165,6 @@ export function buildPayload(convo, settings) {
     model: settings.model,
     temperature: settings.temperature,
     max_tokens: settings.max_tokens,
+    thinking_budget: settings.thinking_budget,
   }
 }
