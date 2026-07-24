@@ -210,6 +210,10 @@ async function send() {
   const c = convo.value
   c.messages.push({ id: crypto.randomUUID(), role: 'user', content: text, createdAt: Date.now() })
   input.value = ''
+  // Sending is an explicit jump to the present: follow the new turn even if the user
+  // had scrolled up, and re-arm the streaming autoscroll below.
+  atBottom.value = true
+  scrollDown()
   runCompletion(c)
 }
 
