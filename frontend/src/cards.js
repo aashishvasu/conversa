@@ -86,7 +86,7 @@ export function sendWindow(convo, settings) {
 // most relevant to the latest user message are resent verbatim via the system
 // prompt. Complements the lossy memory summary; nothing is ever destructively
 // folded, so edits/deletes can't desync it.
-// ponytail: bag-of-words overlap, ASCII-only tokens — BM25/embeddings if quality
+// Known ceiling: bag-of-words overlap, ASCII-only tokens — BM25/embeddings if quality
 // disappoints; no CJK (same limitation as card matching above).
 
 const RECALL_COUNT = 3
@@ -165,6 +165,6 @@ export function buildPayload(convo, settings) {
     model: settings.model,
     temperature: settings.temperature,
     max_tokens: settings.max_tokens,
-    thinking_budget: settings.thinking_budget,
+    effort: settings.effort,
   }
 }

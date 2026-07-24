@@ -110,11 +110,11 @@ Set these as environment variables when you start the container.
 | `DEFAULT_NUM_MESSAGES` | no | `20` | How many recent messages are sent each turn. |
 | `DEFAULT_SEND_SYSTEM_PROMPT` | no | `true` | Whether system messages are sent. |
 | `DEFAULT_MAX_TOKENS` | no | `4096` | Cap on reply length. |
-| `DEFAULT_THINKING_BUDGET` | no | `0` | Extended-thinking budget in tokens; `0` is off. The **Thinking effort** picker maps Low/Medium/High to 4000/10000/24000. |
+| `DEFAULT_EFFORT` | no | *(off)* | Thinking effort new conversations start with: empty, `low`, `medium`, or `high`. |
 | `DEFAULT_UTILITY_MODEL` | no | `claude-haiku-4-5` | Cheap model used for auto-titling and memory. |
 | `DEFAULT_USE_MEMORY` | no | `false` | Whether old turns get compressed into memory. |
 | `DEFAULT_COMPRESSION_THRESHOLD` | no | `4000` | Characters of recent chat kept verbatim before older turns are summarized. |
-| `MODELS` | no | Sonnet/Opus/Haiku | Models you can pick from, as `id:Label,id:Label`. |
+| `MODELS` | no | Sonnet/Opus/Haiku | Models you can pick from, as `id:Label,id:Label`. Models older than Claude 4.6 need their id added to `LEGACY_MODELS` in `backend/main.py` — they use an older thinking format. |
 | `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches on its own when a message needs it. Empty disables it. |
 
 Every default above is just a starting point — you can change any of them globally
@@ -181,7 +181,8 @@ it. The two work fine together.
 The brain picker in the composer toolbar (also in **Conversation settings** and
 **Global settings**) turns on extended thinking: **Off**, **Low**, **Medium**,
 **High**. More effort means the model reasons longer before answering, at the cost of
-tokens and latency.
+tokens and latency. Note that on Claude 4.6 and newer, turning thinking on means the
+model ignores the temperature setting — that's an API restriction, not a conversa one.
 
 The model's thinking — and any web searches it decides to run — stream above the reply
 as a live trace you can collapse. The trace is ephemeral: it isn't saved with the
