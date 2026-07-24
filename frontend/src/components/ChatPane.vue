@@ -8,7 +8,7 @@ import { formatTime } from '../format.js'
 import { CHECK_SVG, COPY_SVG, renderMarkdown } from '../md.js'
 import { compressIfNeeded } from '../memory.js'
 import { enterToSend, fontScale } from '../prefs.js'
-import { currentConversation, effectiveSettings, models, persistNow, sidebarOpen, THINKING_LEVELS } from '../store.js'
+import { currentConversation, effectiveSettings, EFFORT_LEVELS, models, persistNow, sidebarOpen } from '../store.js'
 import { generateTitle } from '../titles.js'
 import CardsPanel from './CardsPanel.vue'
 import DebugPanel from './DebugPanel.vue'
@@ -59,7 +59,7 @@ function setModel(id) {
   convo.value.settings.model = id
 }
 function setThinking(v) {
-  convo.value.settings.thinking_budget = Number(v)
+  convo.value.settings.effort = v
 }
 function bubbleClass(role) {
   if (role === 'user') return 'bg-indigo-600 text-white'
@@ -390,11 +390,11 @@ async function regenTitle() {
         <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" title="Thinking effort">
           <Brain :size="14" />
           <select
-            :value="effectiveSettings(convo).thinking_budget || 0"
+            :value="effectiveSettings(convo).effort || ''"
             class="bg-transparent py-1 pr-1 text-xs text-base outline-none"
             @change="setThinking($event.target.value)"
           >
-            <option v-for="l in THINKING_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
+            <option v-for="l in EFFORT_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
           </select>
         </div>
         <div class="ml-auto flex gap-1">

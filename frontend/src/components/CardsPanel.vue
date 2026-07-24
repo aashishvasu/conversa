@@ -42,7 +42,7 @@ const rows = computed(() => {
 // Folder-name autocomplete: reactivity is the cache.
 const paths = computed(() => [...new Set(props.convo.cards.map((c) => c.path).filter(Boolean))])
 
-// ponytail: collapsed folders are session-only; persist in prefs.js if it ever matters.
+// Collapsed folders are session-only; persist in prefs.js if it ever matters.
 const collapsed = ref(new Set())
 function toggleFolder(path) {
   const s = new Set(collapsed.value)

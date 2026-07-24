@@ -36,12 +36,29 @@ Browser (Vue SPA, IndexedDB)  ──HTTPS──>  FastAPI  ──>  Anthropic AP
 - `GET  /api/settings` — global setting defaults from env vars.
 - `GET  /api/models` — selectable models with labels.
 - `POST /api/chat` — streams a completion from Anthropic as SSE. The API key
-  never leaves the server. Two things are assembled server-side: a non-zero
-  `thinking_budget` becomes `thinking: {type: enabled}` (which forces `max_tokens`
-  up to `budget + DEFAULT_MAX_TOKENS` and drops `temperature`, both Anthropic
-  requirements), and `WEB_SEARCH_TOOL_VERSION` — if not empty — attaches the
-  server-side `web_search` tool (`max_uses: 5`). Text, thinking, and search events
-  are each JSON-encoded per SSE chunk so content can't break the framing.
+  never leaves the server. Two things are assembled server-side: `effort` becomes
+  thinking config via `apply_thinking()` (below), and `WEB_SEARCH_TOOL_VERSION` — if
+  not empty — attaches the server-side `web_search` tool (`max_uses: 5`). Text,
+  thinking, and search events are each JSON-encoded per SSE chunk so content can't
+  break the framing.
+
+### Thinking effort (`apply_thinking` in `backend/main.py`)
+
+The wire format for extended thinking split across model generations, so one branch
+translates the single `effort` lever (`""` / `low` / `medium` / `high`) per model:
+
+| | Claude 4.6+ | Pre-4.6 (`LEGACY_MODELS`) |
+|---|---|---|
+| Thinking | `{type: adaptive, display: summarized}` | `{type: enabled, budget_tokens: N}` |
+| Depth control | `output_config.effort` | `LEGACY_EFFORT_BUDGETS` (4000/10000/24000) |
+| `temperature` | **never sent** — Opus 4.7/4.8 reject it outright | sent, unless thinking is on |
+| `max_tokens` | floored at 32000 (thinking spends from it) | floored at `budget + DEFAULT_MAX_TOKENS` |
+
+`display: summarized` is deliberate: the API default is `omitted`, which streams
+empty thinking blocks and would blank ChatPane's live trace. Unknown model ids are
+treated as modern — `LEGACY_MODELS` is a hand-maintained set of older ids, so adding
+a pre-4.6 model to `MODELS` means adding its id there too. Covered by the self-check
+at the bottom of `main.py` (`python main.py`).
 
 All endpoints except `/api/login` require `Authorization: Bearer <token>`. A 401
 logs the client out automatically. In production the SPA is served from the same
@@ -65,8 +82,8 @@ request:
   *dropped* turns — not pinned, not in the window — scored by stopword-filtered
   token overlap with the latest user message, normalized by √length, returned
   chronologically. Non-destructive, so unlike memory it can't desync on edits.
-- **model / temperature / max_tokens / thinking_budget** are passed through from
-  the effective settings.
+- **model / temperature / max_tokens / effort** are passed through from the
+  effective settings.
 
 Pinned turns bypass the send-window limit; this does **not** enforce
 user/assistant alternation, so wildly mixed pins could be rejected by the API.
@@ -85,7 +102,7 @@ cached on the conversation and only re-runs when enough new old turns accumulate
 
 | File | Responsibility |
 |------|----------------|
-| `store.js` | Reactive conversation state + IndexedDB persistence (debounced, with `persistNow()`). Owns `SETTING_KEYS` (what a conversation may override) and `THINKING_LEVELS` (the effort → budget map both settings panels and the composer toolbar share). |
+| `store.js` | Reactive conversation state + IndexedDB persistence (debounced, with `persistNow()`). Owns `SETTING_KEYS` (what a conversation may override) and `EFFORT_LEVELS` — the single definition of the thinking-effort lever, rendered by both settings panels and the composer toolbar. |
 | `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `streamChat` SSE reader. |
 | `cards.js` | Pure card-matching, lexical recall, + `buildPayload`. No Vue — runnable in Node. |
 | `memory.js` | Rolling-summary compression. |

@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { confirmDelete } from '../confirm.js'
-import { effectiveSettings, globalSettings, models, saveAsTemplate, THINKING_LEVELS } from '../store.js'
+import { effectiveSettings, EFFORT_LEVELS, globalSettings, models, saveAsTemplate } from '../store.js'
 
 const props = defineProps({ convo: Object })
 
@@ -71,10 +71,10 @@ async function clearMemory() {
     <div>
       <label class="mb-1 block text-muted">
         Thinking effort
-        <button v-if="overridden('thinking_budget')" class="ml-1 text-indigo-500" @click="reset('thinking_budget')">↺</button>
+        <button v-if="overridden('effort')" class="ml-1 text-indigo-500" @click="reset('effort')">↺</button>
       </label>
-      <select :value="eff('thinking_budget') || 0" class="w-full rounded bg-surface2 px-2 py-1" @change="setOv('thinking_budget', Number($event.target.value))">
-        <option v-for="l in THINKING_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
+      <select :value="eff('effort') || ''" class="w-full rounded bg-surface2 px-2 py-1" @change="setOv('effort', $event.target.value)">
+        <option v-for="l in EFFORT_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
       </select>
     </div>
 

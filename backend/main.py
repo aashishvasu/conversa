@@ -27,14 +27,63 @@ DEFAULT_TEMPERATURE = float(os.environ.get("DEFAULT_TEMPERATURE", "1.0"))
 DEFAULT_NUM_MESSAGES = int(os.environ.get("DEFAULT_NUM_MESSAGES", "20"))
 DEFAULT_SEND_SYSTEM = os.environ.get("DEFAULT_SEND_SYSTEM_PROMPT", "true").lower() == "true"
 DEFAULT_MAX_TOKENS = int(os.environ.get("DEFAULT_MAX_TOKENS", "4096"))
-# Extended-thinking budget in tokens; 0 = off. The UI "effort" lever maps to this.
-DEFAULT_THINKING_BUDGET = int(os.environ.get("DEFAULT_THINKING_BUDGET", "0"))
+# Thinking effort: "" (off), "low", "medium", "high". See apply_thinking() for how it
+# reaches the API — the wire format differs between model generations.
+DEFAULT_EFFORT = os.environ.get("DEFAULT_EFFORT", "")
 # Cheap model for auxiliary tasks: title generation and history compression.
 DEFAULT_UTILITY_MODEL = os.environ.get("DEFAULT_UTILITY_MODEL", "claude-haiku-4-5")
 DEFAULT_USE_MEMORY = os.environ.get("DEFAULT_USE_MEMORY", "false").lower() == "true"
 DEFAULT_COMPRESSION_THRESHOLD = int(os.environ.get("DEFAULT_COMPRESSION_THRESHOLD", "4000"))
 # Anthropic's server-side web search tool. Model-invoked: it searches only when a message warrants it.
 WEB_SEARCH_TOOL = os.environ.get("WEB_SEARCH_TOOL_VERSION", "web_search_20250305")
+
+# Models predating adaptive thinking (pre-4.6). They take the old fixed-token-budget
+# form, reject output_config.effort, and accept temperature. Everything newer takes the
+# modern form. Unknown ids are assumed modern — that's the direction the API moved.
+# Hand-maintained: add an id here if you expose an older model via MODELS.
+LEGACY_MODELS = {
+    "claude-haiku-4-5",
+    "claude-sonnet-4-5",
+    "claude-opus-4-5",
+    "claude-opus-4-1",
+    "claude-sonnet-4-0",
+    "claude-opus-4-0",
+    "claude-3-haiku-20240307",
+}
+
+# Fixed budgets the effort levels map to on legacy models. Modern models get the
+# qualitative effort string instead and size their own thinking.
+LEGACY_EFFORT_BUDGETS = {"low": 4000, "medium": 10000, "high": 24000}
+
+
+def apply_thinking(kwargs, effort, max_tokens):
+    """Attach thinking config for `effort` ("", low, medium, high) to an API kwargs dict.
+
+    Modern models (4.6+): adaptive thinking + output_config.effort, and no sampling
+    params at all — Opus 4.7/4.8 reject `temperature` whether or not thinking is on.
+    Legacy models: the pre-4.6 fixed budget, which requires budget < max_tokens and
+    also drops temperature. Mutates and returns kwargs.
+    """
+    legacy = kwargs["model"] in LEGACY_MODELS
+    if not legacy:
+        # Rejected on Opus 4.7/4.8 even with thinking off, so this is unconditional.
+        kwargs.pop("temperature", None)
+    if not effort:
+        return kwargs
+    if legacy:
+        budget = LEGACY_EFFORT_BUDGETS[effort]
+        kwargs["max_tokens"] = max(max_tokens, budget + DEFAULT_MAX_TOKENS)
+        kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        kwargs.pop("temperature", None)
+    else:
+        # display=summarized: the default is "omitted", which streams empty thinking
+        # blocks and would blank the live trace in ChatPane.
+        kwargs["thinking"] = {"type": "adaptive", "display": "summarized"}
+        kwargs["output_config"] = {"effort": effort}
+        # Thinking spends from max_tokens, so a 4096 cap can be consumed entirely by it.
+        kwargs["max_tokens"] = max(max_tokens, 32000)
+    return kwargs
+
 
 # Selectable models, labelled. Format: "id:Label,id2:Label2" (label optional).
 MODELS_RAW = os.environ.get(
@@ -97,7 +146,7 @@ class ChatRequest(BaseModel):
     model: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
-    thinking_budget: int | None = None  # tokens; 0/None = extended thinking off
+    effort: str | None = None  # "" | low | medium | high; empty/None = thinking off
 
 
 @app.post("/api/login")
@@ -125,7 +174,7 @@ def settings(_=Depends(require_auth)):
         "num_messages_to_send": DEFAULT_NUM_MESSAGES,
         "send_system_prompt": DEFAULT_SEND_SYSTEM,
         "max_tokens": DEFAULT_MAX_TOKENS,
-        "thinking_budget": DEFAULT_THINKING_BUDGET,
+        "effort": DEFAULT_EFFORT,
         "utility_model": DEFAULT_UTILITY_MODEL,
         "use_memory": DEFAULT_USE_MEMORY,
         "compression_threshold": DEFAULT_COMPRESSION_THRESHOLD,
@@ -143,18 +192,16 @@ async def chat(req: ChatRequest, _=Depends(require_auth)):
         raise HTTPException(503, "server API key not configured")
 
     max_tokens = req.max_tokens or DEFAULT_MAX_TOKENS
-    budget = req.thinking_budget or 0
+    effort = req.effort if req.effort is not None else DEFAULT_EFFORT
+    if effort and effort not in LEGACY_EFFORT_BUDGETS:
+        raise HTTPException(400, f"unknown effort level: {effort}")
     kwargs = dict(
         model=req.model or DEFAULT_MODEL,
         max_tokens=max_tokens,
         temperature=req.temperature if req.temperature is not None else DEFAULT_TEMPERATURE,
         messages=[m.model_dump() for m in req.messages],
     )
-    if budget > 0:
-        # Anthropic requires budget < max_tokens and temperature unset (defaults to 1).
-        kwargs["max_tokens"] = max(max_tokens, budget + DEFAULT_MAX_TOKENS)
-        kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
-        kwargs.pop("temperature", None)
+    apply_thinking(kwargs, effort, max_tokens)
     if req.system:
         kwargs["system"] = req.system
     if WEB_SEARCH_TOOL:
@@ -191,3 +238,36 @@ async def chat(req: ChatRequest, _=Depends(require_auth)):
 # Serve the built SPA in production (same origin → no CORS needed). API lives under /api.
 if os.path.isdir("static"):
     app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
+
+if __name__ == "__main__":  # self-check: python main.py (uvicorn imports app, never runs this)
+    def _k(model, temperature=1.0):
+        return {"model": model, "max_tokens": 4096, "temperature": temperature}
+
+    # Modern model, thinking on: adaptive + effort, no temperature, roomier max_tokens.
+    m = apply_thinking(_k("claude-opus-4-8"), "high", 4096)
+    assert m["thinking"] == {"type": "adaptive", "display": "summarized"}, m
+    assert m["output_config"] == {"effort": "high"}, m
+    assert "temperature" not in m, m
+    assert m["max_tokens"] == 32000, m
+
+    # Modern model, thinking off: still no temperature (Opus 4.7/4.8 reject it outright).
+    m = apply_thinking(_k("claude-opus-4-8"), "", 4096)
+    assert "temperature" not in m and "thinking" not in m, m
+    assert m["max_tokens"] == 4096, m
+
+    # Legacy model: fixed budget, budget < max_tokens, temperature dropped only here.
+    m = apply_thinking(_k("claude-haiku-4-5"), "medium", 4096)
+    assert m["thinking"] == {"type": "enabled", "budget_tokens": 10000}, m
+    assert m["max_tokens"] > m["thinking"]["budget_tokens"], m
+    assert "output_config" not in m and "temperature" not in m, m
+
+    # Legacy model, thinking off: temperature survives — legacy models still accept it.
+    m = apply_thinking(_k("claude-haiku-4-5", temperature=0.3), "", 4096)
+    assert m["temperature"] == 0.3, m
+    assert "thinking" not in m, m
+
+    # Unknown ids are treated as modern, not legacy.
+    assert "output_config" in apply_thinking(_k("claude-future-9"), "low", 4096)
+
+    print("thinking selfcheck OK")

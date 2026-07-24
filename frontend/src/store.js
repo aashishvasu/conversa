@@ -13,20 +13,24 @@ export const SETTING_KEYS = [
   'num_messages_to_send',
   'send_system_prompt',
   'max_tokens',
-  'thinking_budget',
+  'effort',
   'utility_model',
   'use_memory',
   'compression_threshold',
   'use_recall',
 ]
 
-// Effort lever → extended-thinking budget in tokens (0 = off). Kept here so both
-// settings panels share one list.
-export const THINKING_LEVELS = [
-  { label: 'Off', value: 0 },
-  { label: 'Low', value: 4000 },
-  { label: 'Medium', value: 10000 },
-  { label: 'High', value: 24000 },
+// The one definition of the thinking-effort lever — the composer toolbar and both
+// settings panels render this list. Values go to the API as output_config.effort
+// (the backend maps them to token budgets for pre-4.6 models). Adding a level here
+// (Anthropic also has 'xhigh' and 'max') surfaces it in all three places.
+// Replaced the old numeric thinking_budget lever; stored values under the old key are
+// simply ignored, since SETTING_KEYS no longer lists it.
+export const EFFORT_LEVELS = [
+  { label: 'Off', value: '' },
+  { label: 'Low', value: 'low' },
+  { label: 'Medium', value: 'medium' },
+  { label: 'High', value: 'high' },
 ]
 
 const state = reactive({ conversations: [] })
@@ -195,7 +199,7 @@ export function downloadExport(id) {
 
 // Import: new ids come in as-is; a colliding id becomes a copy with fresh ids (same
 // clone path as template copies), so nothing local is ever overwritten. Returns count.
-// ponytail: re-importing the same file duplicates collided convos; diff-aware skip if it annoys.
+// Note: re-importing the same file duplicates collided convos; diff-aware skip if it annoys.
 export function importData(list) {
   if (!Array.isArray(list)) throw new Error('Not a conversa export')
   const have = new Set(state.conversations.map((c) => c.id))

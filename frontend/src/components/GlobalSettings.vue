@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { downloadExport, globalSettings, importData, models, persistGlobal, THINKING_LEVELS } from '../store.js'
+import { downloadExport, EFFORT_LEVELS, globalSettings, importData, models, persistGlobal } from '../store.js'
 import { enterToSend, fontScale } from '../prefs.js'
 
 // Edits the global defaults (absolute values, no inherit). New conversations copy these.
@@ -66,8 +66,8 @@ async function onImportFile(e) {
 
     <div>
       <label class="mb-1 block text-muted">Thinking effort</label>
-      <select v-model.number="g.thinking_budget" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal">
-        <option v-for="l in THINKING_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
+      <select v-model="g.effort" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal">
+        <option v-for="l in EFFORT_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
       </select>
     </div>
 
