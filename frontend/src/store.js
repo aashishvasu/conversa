@@ -56,9 +56,10 @@ let saveTimer
 function save() {
   if (!loaded) return
   clearTimeout(saveTimer)
-  // JSON round-trip strips the Vue reactive proxy so structured-clone can store it.
-  const snapshot = JSON.parse(JSON.stringify(state.conversations))
-  saveTimer = setTimeout(() => set(STORE_KEY, snapshot), 400)
+  // Snapshot inside the timer, not out here: save() runs on every mutation (i.e. every
+  // streamed token), and the JSON round-trip — which strips the Vue reactive proxy so
+  // structured-clone can store it — costs the whole archive each time it runs.
+  saveTimer = setTimeout(() => set(STORE_KEY, JSON.parse(JSON.stringify(state.conversations))), 400)
 }
 
 // Write immediately, bypassing the debounce — call when a stream finishes so a quick
