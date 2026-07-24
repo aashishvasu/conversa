@@ -110,6 +110,7 @@ Set these as environment variables when you start the container.
 | `DEFAULT_NUM_MESSAGES` | no | `20` | How many recent messages are sent each turn. |
 | `DEFAULT_SEND_SYSTEM_PROMPT` | no | `true` | Whether system messages are sent. |
 | `DEFAULT_MAX_TOKENS` | no | `4096` | Cap on reply length. |
+| `DEFAULT_THINKING_BUDGET` | no | `0` | Extended-thinking budget in tokens; `0` is off. The **Thinking effort** picker maps Low/Medium/High to 4000/10000/24000. |
 | `DEFAULT_UTILITY_MODEL` | no | `claude-haiku-4-5` | Cheap model used for auto-titling and memory. |
 | `DEFAULT_USE_MEMORY` | no | `false` | Whether old turns get compressed into memory. |
 | `DEFAULT_COMPRESSION_THRESHOLD` | no | `4000` | Characters of recent chat kept verbatim before older turns are summarized. |
@@ -121,7 +122,7 @@ Every default above is just a starting point — you can change any of them glob
 
 ## How it works
 
-Most of conversa is an ordinary chat window. Three features are worth knowing about.
+Most of conversa is an ordinary chat window. A few features are worth knowing about.
 
 ### Context — what the assistant always sees
 
@@ -164,6 +165,27 @@ conversation (written by the cheap utility model) instead of re-sending every
 message forever. Recent messages stay word-for-word; everything past the
 threshold gets folded into the summary. You can read, edit, or clear that summary
 in **Conversation settings**.
+
+### Recall — old messages that suddenly matter again
+
+Turn on **Recall relevant old messages** and, before each reply, conversa looks at the
+turns that fell outside the recent-messages limit and re-sends the few that overlap
+most with what you just asked — verbatim, as reference. Ask "what was the dragon
+called again?" 200 messages later and the turn that names it comes back.
+
+Unlike memory, recall rewrites nothing, so editing or deleting messages can't desync
+it. The two work fine together.
+
+### Thinking effort
+
+The brain picker in the composer toolbar (also in **Conversation settings** and
+**Global settings**) turns on extended thinking: **Off**, **Low**, **Medium**,
+**High**. More effort means the model reasons longer before answering, at the cost of
+tokens and latency.
+
+The model's thinking — and any web searches it decides to run — stream above the reply
+as a live trace you can collapse. The trace is ephemeral: it isn't saved with the
+conversation and a reload clears it.
 
 ### Templates
 

@@ -1,5 +1,5 @@
 <script setup>
-import { Bot, Bug, Check, ChevronDown, ChevronRight, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User, X } from 'lucide-vue-next'
+import { Bot, Brain, Bug, Check, ChevronDown, ChevronRight, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
 import { buildPayload, sendWindow } from '../cards.js'
@@ -8,7 +8,7 @@ import { formatTime } from '../format.js'
 import { CHECK_SVG, COPY_SVG, renderMarkdown } from '../md.js'
 import { compressIfNeeded } from '../memory.js'
 import { enterToSend, fontScale } from '../prefs.js'
-import { currentConversation, effectiveSettings, models, persistNow, sidebarOpen } from '../store.js'
+import { currentConversation, effectiveSettings, models, persistNow, sidebarOpen, THINKING_LEVELS } from '../store.js'
 import { generateTitle } from '../titles.js'
 import CardsPanel from './CardsPanel.vue'
 import DebugPanel from './DebugPanel.vue'
@@ -57,6 +57,9 @@ const windowStartId = computed(() =>
 
 function setModel(id) {
   convo.value.settings.model = id
+}
+function setThinking(v) {
+  convo.value.settings.thinking_budget = Number(v)
 }
 function bubbleClass(role) {
   if (role === 'user') return 'bg-indigo-600 text-white'
@@ -322,7 +325,8 @@ async function regenTitle() {
           <!-- view mode -->
           <div v-else class="flex" :class="rowAlign(m.role)" @click="activeId = m.id">
             <div class="flex min-w-0 max-w-2xl flex-col" :class="colAlign(m.role)">
-              <div class="relative rounded-lg px-4 py-2" :class="bubbleClass(m.role)">
+              <!-- min-w keeps a narrow bubble wider than the hover toolbar so the toolbar (anchored right-2) sits inset from both edges rather than overflowing left. -->
+              <div class="relative min-w-[11rem] max-w-full rounded-lg px-4 py-2" :class="bubbleClass(m.role)">
                 <div class="mb-1 flex items-center gap-1 opacity-60">
                   <component :is="ROLE_ICON[m.role]" :size="13" />
                   <Pin v-if="m.pinned" :size="12" class="fill-current text-indigo-400" />
@@ -369,13 +373,26 @@ async function regenTitle() {
     <!-- Toolbar + composer -->
     <div class="border-t border-edge">
       <div class="flex items-center gap-2 px-3 py-1.5">
-        <select
-          :value="effectiveSettings(convo).model"
-          class="max-w-[10rem] rounded bg-surface2 px-2 py-1 text-xs"
-          @change="setModel($event.target.value)"
-        >
-          <option v-for="m in models" :key="m.id" :value="m.id">{{ m.label }}</option>
-        </select>
+        <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" title="Model">
+          <Bot :size="14" />
+          <select
+            :value="effectiveSettings(convo).model"
+            class="max-w-[9rem] bg-transparent py-1 pr-1 text-xs text-base outline-none"
+            @change="setModel($event.target.value)"
+          >
+            <option v-for="m in models" :key="m.id" :value="m.id">{{ m.label }}</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" title="Thinking effort">
+          <Brain :size="14" />
+          <select
+            :value="effectiveSettings(convo).thinking_budget || 0"
+            class="bg-transparent py-1 pr-1 text-xs text-base outline-none"
+            @change="setThinking($event.target.value)"
+          >
+            <option v-for="l in THINKING_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
+          </select>
+        </div>
         <div class="ml-auto flex gap-1">
           <button class="rounded p-1.5 hover:bg-surface2" title="Context editor" @click="panel = 'context'"><NotebookText :size="16" /></button>
           <button class="rounded p-1.5 hover:bg-surface2" title="Cards" @click="panel = 'cards'"><Layers :size="16" /></button>

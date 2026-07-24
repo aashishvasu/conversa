@@ -36,7 +36,12 @@ Browser (Vue SPA, IndexedDB)  ──HTTPS──>  FastAPI  ──>  Anthropic AP
 - `GET  /api/settings` — global setting defaults from env vars.
 - `GET  /api/models` — selectable models with labels.
 - `POST /api/chat` — streams a completion from Anthropic as SSE. The API key
-  never leaves the server.
+  never leaves the server. Two things are assembled server-side: a non-zero
+  `thinking_budget` becomes `thinking: {type: enabled}` (which forces `max_tokens`
+  up to `budget + DEFAULT_MAX_TOKENS` and drops `temperature`, both Anthropic
+  requirements), and `WEB_SEARCH_TOOL_VERSION` — if not empty — attaches the
+  server-side `web_search` tool (`max_uses: 5`). Text, thinking, and search events
+  are each JSON-encoded per SSE chunk so content can't break the framing.
 
 All endpoints except `/api/login` require `Authorization: Bearer <token>`. A 401
 logs the client out automatically. In production the SPA is served from the same
@@ -56,6 +61,12 @@ request:
   (the last `num_messages_to_send` turns, or everything not yet folded into memory
   when memory is on). Only user/assistant turns go here — Anthropic keeps `system`
   separate.
+- **recall** (if `use_recall`) also rides in `system`: the top `RECALL_COUNT` (3)
+  *dropped* turns — not pinned, not in the window — scored by stopword-filtered
+  token overlap with the latest user message, normalized by √length, returned
+  chronologically. Non-destructive, so unlike memory it can't desync on edits.
+- **model / temperature / max_tokens / thinking_budget** are passed through from
+  the effective settings.
 
 Pinned turns bypass the send-window limit; this does **not** enforce
 user/assistant alternation, so wildly mixed pins could be rejected by the API.
@@ -74,9 +85,9 @@ cached on the conversation and only re-runs when enough new old turns accumulate
 
 | File | Responsibility |
 |------|----------------|
-| `store.js` | Reactive conversation state + IndexedDB persistence (debounced, with `persistNow()`). |
+| `store.js` | Reactive conversation state + IndexedDB persistence (debounced, with `persistNow()`). Owns `SETTING_KEYS` (what a conversation may override) and `THINKING_LEVELS` (the effort → budget map both settings panels and the composer toolbar share). |
 | `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `streamChat` SSE reader. |
-| `cards.js` | Pure card-matching + `buildPayload`. No Vue — runnable in Node. |
+| `cards.js` | Pure card-matching, lexical recall, + `buildPayload`. No Vue — runnable in Node. |
 | `memory.js` | Rolling-summary compression. |
 | `titles.js` | Auto-titling from recent turns via the utility model. |
 | `md.js` | Markdown → sanitized, highlighted HTML. |
@@ -84,7 +95,8 @@ cached on the conversation and only re-runs when enough new old turns accumulate
 | `theme.js` | Light/dark toggle. |
 | `prefs.js` | Frontend-only UI prefs (font scale, Enter-to-send), persisted to localStorage. |
 | `confirm.js` | Promise-based confirm: `await confirmDelete(msg)`, backed by one `ConfirmModal` at app root. |
-| `components/ChatPane.vue` | The chat window: messages, actions, composer, toolbar. |
+| `components/ChatPane.vue` | The chat window: messages, actions, composer, toolbar (model + thinking-effort pickers). Renders the last `PAGE_SIZE` (100) messages with "Load more" — display-only, unrelated to what's sent — marks the send-window start with a divider, and shows the live thinking/search trace (ephemeral, never persisted). |
+| `components/Login.vue` | Password prompt shown until a token exists. |
 | `components/ContextPanel.vue` | Edits system + pinned messages together. |
 | `components/CardsPanel.vue` | Card editor with live "active" indicators. |
 | `components/DebugPanel.vue` | Read-only live preview of the assembled `system` param (via `buildPayload`). |
