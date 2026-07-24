@@ -325,7 +325,8 @@ async function regenTitle() {
           <!-- view mode -->
           <div v-else class="flex" :class="rowAlign(m.role)" @click="activeId = m.id">
             <div class="flex min-w-0 max-w-2xl flex-col" :class="colAlign(m.role)">
-              <div class="relative max-w-full rounded-lg px-4 py-2" :class="bubbleClass(m.role)">
+              <!-- min-w keeps a narrow bubble wider than the hover toolbar so the toolbar (anchored right-2) sits inset from both edges rather than overflowing left. -->
+              <div class="relative min-w-[11rem] max-w-full rounded-lg px-4 py-2" :class="bubbleClass(m.role)">
                 <div class="mb-1 flex items-center gap-1 opacity-60">
                   <component :is="ROLE_ICON[m.role]" :size="13" />
                   <Pin v-if="m.pinned" :size="12" class="fill-current text-indigo-400" />
