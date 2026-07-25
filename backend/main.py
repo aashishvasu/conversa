@@ -22,7 +22,7 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD")
 JWT_SECRET = os.environ.get("JWT_SECRET") or secrets.token_urlsafe(32)
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL_SECONDS", str(7 * 24 * 3600)))
 
-DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "claude-sonnet-4-6")
+DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "claude-sonnet-5")
 DEFAULT_TEMPERATURE = float(os.environ.get("DEFAULT_TEMPERATURE", "1.0"))
 DEFAULT_NUM_MESSAGES = int(os.environ.get("DEFAULT_NUM_MESSAGES", "20"))
 DEFAULT_SEND_SYSTEM = os.environ.get("DEFAULT_SEND_SYSTEM_PROMPT", "true").lower() == "true"
