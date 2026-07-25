@@ -86,24 +86,30 @@ def apply_thinking(kwargs, effort, max_tokens):
 
 
 # Selectable models, labelled. Format: "id:Label,id2:Label2" (label optional).
-MODELS_RAW = os.environ.get(
-    "MODELS",
-    "claude-sonnet-4-6:Sonnet 4.6,claude-opus-4-8:Opus 4.8,claude-haiku-4-5:Haiku 4.5",
+# Built-ins are always offered; MODELS env appends extra ids (first-wins on dupes,
+# so env can add models but not trim/relabel the shipped ones).
+BUILTIN_MODELS = (
+    "claude-opus-5:Opus 5,claude-sonnet-5:Sonnet 5,claude-opus-4-8:Opus 4.8,"
+    "claude-sonnet-4-6:Sonnet 4.6,claude-haiku-4-5:Haiku 4.5"
 )
 
 
 def parse_models(raw):
-    out = []
+    out, seen = [], set()
     for entry in raw.split(","):
         entry = entry.strip()
         if not entry:
             continue
         mid, _, label = entry.partition(":")
-        out.append({"id": mid.strip(), "label": label.strip() or mid.strip()})
+        mid = mid.strip()
+        if not mid or mid in seen:
+            continue
+        seen.add(mid)
+        out.append({"id": mid, "label": label.strip() or mid})
     return out
 
 
-MODELS = parse_models(MODELS_RAW)
+MODELS = parse_models(BUILTIN_MODELS + "," + os.environ.get("MODELS", ""))
 
 client = AsyncAnthropic(api_key=API_KEY) if API_KEY else None
 
