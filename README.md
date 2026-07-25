@@ -105,7 +105,7 @@ Set these as environment variables when you start the container.
 | `APP_PASSWORD` | **yes** | — | The password used to log in. |
 | `JWT_SECRET` | no | random | Signs login tokens. Leave unset and every restart logs everyone out; set it to keep sessions alive across restarts. |
 | `TOKEN_TTL_SECONDS` | no | `604800` | How long a login lasts (default 7 days). |
-| `DEFAULT_MODEL` | no | `claude-sonnet-4-6` | Model new conversations start with. |
+| `DEFAULT_MODEL` | no | `claude-sonnet-5` | Model new conversations start with. |
 | `DEFAULT_TEMPERATURE` | no | `1.0` | Creativity, 0–1. |
 | `DEFAULT_NUM_MESSAGES` | no | `20` | How many recent messages are sent each turn. |
 | `DEFAULT_SEND_SYSTEM_PROMPT` | no | `true` | Whether system messages are sent. |
@@ -114,7 +114,7 @@ Set these as environment variables when you start the container.
 | `DEFAULT_UTILITY_MODEL` | no | `claude-haiku-4-5` | Cheap model used for auto-titling and memory. |
 | `DEFAULT_USE_MEMORY` | no | `false` | Whether old turns get compressed into memory. |
 | `DEFAULT_COMPRESSION_THRESHOLD` | no | `4000` | Characters of recent chat kept verbatim before older turns are summarized. |
-| `MODELS` | no | Sonnet/Opus/Haiku | Models you can pick from, as `id:Label,id:Label`. Models older than Claude 4.6 need their id added to `LEGACY_MODELS` in `backend/main.py` — they use an older thinking format. |
+| `MODELS` | no | _(none)_ | **Extra** models to offer, as `id:Label,id:Label` — appended to the built-in Sonnet/Opus/Haiku list, which is always available. Models older than Claude 4.6 need their id added to `LEGACY_MODELS` in `backend/main.py` — they use an older thinking format. |
 | `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches on its own when a message needs it. Empty disables it. |
 
 Every default above is just a starting point — you can change any of them globally

@@ -22,7 +22,7 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD")
 JWT_SECRET = os.environ.get("JWT_SECRET") or secrets.token_urlsafe(32)
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL_SECONDS", str(7 * 24 * 3600)))
 
-DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "claude-sonnet-4-6")
+DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "claude-sonnet-5")
 DEFAULT_TEMPERATURE = float(os.environ.get("DEFAULT_TEMPERATURE", "1.0"))
 DEFAULT_NUM_MESSAGES = int(os.environ.get("DEFAULT_NUM_MESSAGES", "20"))
 DEFAULT_SEND_SYSTEM = os.environ.get("DEFAULT_SEND_SYSTEM_PROMPT", "true").lower() == "true"
@@ -60,7 +60,7 @@ def apply_thinking(kwargs, effort, max_tokens):
     """Attach thinking config for `effort` ("", low, medium, high) to an API kwargs dict.
 
     Modern models (4.6+): adaptive thinking + output_config.effort, and no sampling
-    params at all — Opus 4.7/4.8 reject `temperature` whether or not thinking is on.
+    params at all — Opus 4.7+ reject `temperature` whether or not thinking is on.
     Legacy models: the pre-4.6 fixed budget, which requires budget < max_tokens and
     also drops temperature. Mutates and returns kwargs.
     """
@@ -86,24 +86,30 @@ def apply_thinking(kwargs, effort, max_tokens):
 
 
 # Selectable models, labelled. Format: "id:Label,id2:Label2" (label optional).
-MODELS_RAW = os.environ.get(
-    "MODELS",
-    "claude-sonnet-4-6:Sonnet 4.6,claude-opus-4-8:Opus 4.8,claude-haiku-4-5:Haiku 4.5",
+# Built-ins are always offered; MODELS env appends extra ids. First occurrence of
+# an id wins.
+BUILTIN_MODELS = (
+    "claude-opus-5:Opus 5,claude-sonnet-5:Sonnet 5,claude-opus-4-8:Opus 4.8,"
+    "claude-sonnet-4-6:Sonnet 4.6,claude-haiku-4-5:Haiku 4.5"
 )
 
 
 def parse_models(raw):
-    out = []
+    out, seen = [], set()
     for entry in raw.split(","):
         entry = entry.strip()
         if not entry:
             continue
         mid, _, label = entry.partition(":")
-        out.append({"id": mid.strip(), "label": label.strip() or mid.strip()})
+        mid = mid.strip()
+        if not mid or mid in seen:
+            continue
+        seen.add(mid)
+        out.append({"id": mid, "label": label.strip() or mid})
     return out
 
 
-MODELS = parse_models(MODELS_RAW)
+MODELS = parse_models(BUILTIN_MODELS + "," + os.environ.get("MODELS", ""))
 
 client = AsyncAnthropic(api_key=API_KEY) if API_KEY else None
 
@@ -151,8 +157,8 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/login")
 def login(body: LoginBody):
-    # Single shared secret. Add a per-IP attempt limiter here if brute force is a
-    # concern; behind HTTPS with a strong password it isn't, so it's omitted.
+    # Single shared secret, constant-time compare. Add a per-IP attempt limiter
+    # here if brute force becomes a concern.
     if not APP_PASSWORD:
         raise HTTPException(503, "server password not configured")
     if not hmac.compare_digest(body.password, APP_PASSWORD):  # constant-time
