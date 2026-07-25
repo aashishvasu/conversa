@@ -60,7 +60,7 @@ def apply_thinking(kwargs, effort, max_tokens):
     """Attach thinking config for `effort` ("", low, medium, high) to an API kwargs dict.
 
     Modern models (4.6+): adaptive thinking + output_config.effort, and no sampling
-    params at all — Opus 4.7/4.8 reject `temperature` whether or not thinking is on.
+    params at all — Opus 4.7+ reject `temperature` whether or not thinking is on.
     Legacy models: the pre-4.6 fixed budget, which requires budget < max_tokens and
     also drops temperature. Mutates and returns kwargs.
     """
@@ -86,8 +86,8 @@ def apply_thinking(kwargs, effort, max_tokens):
 
 
 # Selectable models, labelled. Format: "id:Label,id2:Label2" (label optional).
-# Built-ins are always offered; MODELS env appends extra ids (first-wins on dupes,
-# so env can add models but not trim/relabel the shipped ones).
+# Built-ins are always offered; MODELS env appends extra ids. First occurrence of
+# an id wins.
 BUILTIN_MODELS = (
     "claude-opus-5:Opus 5,claude-sonnet-5:Sonnet 5,claude-opus-4-8:Opus 4.8,"
     "claude-sonnet-4-6:Sonnet 4.6,claude-haiku-4-5:Haiku 4.5"
@@ -157,8 +157,8 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/login")
 def login(body: LoginBody):
-    # Single shared secret. Add a per-IP attempt limiter here if brute force is a
-    # concern; behind HTTPS with a strong password it isn't, so it's omitted.
+    # Single shared secret, constant-time compare. Add a per-IP attempt limiter
+    # here if brute force becomes a concern.
     if not APP_PASSWORD:
         raise HTTPException(503, "server password not configured")
     if not hmac.compare_digest(body.password, APP_PASSWORD):  # constant-time

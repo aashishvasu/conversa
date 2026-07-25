@@ -51,7 +51,7 @@ translates the single `effort` lever (`""` / `low` / `medium` / `high`) per mode
 |---|---|---|
 | Thinking | `{type: adaptive, display: summarized}` | `{type: enabled, budget_tokens: N}` |
 | Depth control | `output_config.effort` | `LEGACY_EFFORT_BUDGETS` (4000/10000/24000) |
-| `temperature` | **never sent** — Opus 4.7/4.8 reject it outright | sent, unless thinking is on |
+| `temperature` | **never sent** — Opus 4.7+ reject it outright | sent, unless thinking is on |
 | `max_tokens` | floored at 32000 (thinking spends from it) | floored at `budget + DEFAULT_MAX_TOKENS` |
 
 `display: summarized` is deliberate: the API default is `omitted`, which streams
