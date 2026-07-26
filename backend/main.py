@@ -36,6 +36,9 @@ DEFAULT_USE_MEMORY = os.environ.get("DEFAULT_USE_MEMORY", "false").lower() == "t
 DEFAULT_COMPRESSION_THRESHOLD = int(os.environ.get("DEFAULT_COMPRESSION_THRESHOLD", "4000"))
 # Anthropic's server-side web search tool. Model-invoked: it searches only when a message warrants it.
 WEB_SEARCH_TOOL = os.environ.get("WEB_SEARCH_TOOL_VERSION", "web_search_20250305")
+# Server-side web fetch tool (lets the model open a URL the user pastes). Beta-gated.
+WEB_FETCH_TOOL = os.environ.get("WEB_FETCH_TOOL_VERSION", "web_fetch_20250910")
+WEB_FETCH_BETA = os.environ.get("WEB_FETCH_BETA", "web-fetch-2025-09-10")
 
 # Models predating adaptive thinking (pre-4.6). They take the old fixed-token-budget
 # form, reject output_config.effort, and accept temperature. Everything newer takes the
@@ -210,8 +213,14 @@ async def chat(req: ChatRequest, _=Depends(require_auth)):
     apply_thinking(kwargs, effort, max_tokens)
     if req.system:
         kwargs["system"] = req.system
+    tools = []
     if WEB_SEARCH_TOOL:
-        kwargs["tools"] = [{"type": WEB_SEARCH_TOOL, "name": "web_search", "max_uses": 5}]
+        tools.append({"type": WEB_SEARCH_TOOL, "name": "web_search", "max_uses": 5})
+    if WEB_FETCH_TOOL:
+        tools.append({"type": WEB_FETCH_TOOL, "name": "web_fetch", "max_uses": 5})
+        kwargs["extra_headers"] = {"anthropic-beta": WEB_FETCH_BETA}
+    if tools:
+        kwargs["tools"] = tools
 
     async def gen():
         # json-encode each chunk so newlines/special chars can't break SSE framing.
@@ -228,7 +237,10 @@ async def chat(req: ChatRequest, _=Depends(require_auth)):
                     elif event.type == "content_block_stop":
                         block = event.content_block
                         if getattr(block, "type", "") == "server_tool_use":
-                            yield f"data: {json.dumps({'search': block.input.get('query')})}\n\n"
+                            if getattr(block, "name", "") == "web_fetch":
+                                yield f"data: {json.dumps({'fetch': block.input.get('url')})}\n\n"
+                            else:
+                                yield f"data: {json.dumps({'search': block.input.get('query')})}\n\n"
                         elif getattr(block, "type", "") == "web_search_tool_result" and isinstance(block.content, list):
                             links = [{"title": getattr(r, "title", None), "url": getattr(r, "url", None)}
                                      for r in block.content if getattr(r, "type", "") == "web_search_result"]

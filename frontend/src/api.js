@@ -106,6 +106,7 @@ export async function streamChat(payload, onText, signal, onTrace) {
       if (data.text) onText(data.text)
       else if (data.think && onTrace) onTrace('thinking', data.think)
       else if (data.search && onTrace) onTrace('search', data.search)
+      else if (data.fetch && onTrace) onTrace('fetch', data.fetch)
       else if (data.results && onTrace) onTrace('results', data.results)
     }
   }
