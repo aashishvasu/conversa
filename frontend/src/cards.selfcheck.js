@@ -90,12 +90,21 @@ const memConvo = {
     { role: 'user', content: 'recent' },
   ],
 }
-const mp = buildPayload(memConvo, {
+const mSettings = {
   model: 'm', temperature: 1, max_tokens: 10, send_system_prompt: true, use_memory: true,
-})
-assert.equal(mp.messages.length, 2, 'memory window should drop the folded turn')
+  num_messages_to_send: 2,
+}
+const mp = buildPayload(memConvo, mSettings)
+assert.equal(mp.messages.length, 2, 'memory window should drop the summarized turn')
 assert.equal(mp.messages[0].content, 'reply')
 assert.ok(mp.system.includes('EARLIER_SUMMARY') && mp.system.includes('sys'))
+
+// summary behind (memoryCount low): verbatim window widens, nothing falls in a gap
+const behind = buildPayload({ ...memConvo, memoryCount: 0 }, mSettings)
+assert.equal(behind.messages.length, 3, 'lagging summary must widen the verbatim window')
+// memoryCount overshooting (e.g. after deletes): clamped so at least n turns still go verbatim
+const overshoot = buildPayload({ ...memConvo, memoryCount: 5 }, mSettings)
+assert.equal(overshoot.messages.length, 2, 'overshooting memoryCount must not empty the window')
 
 // recall: dropped turns relevant to the latest user message are resent via system
 const recallConvo = {

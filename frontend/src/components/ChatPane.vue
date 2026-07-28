@@ -6,7 +6,7 @@ import { buildPayload, sendWindow } from '../cards.js'
 import { confirmDelete } from '../confirm.js'
 import { formatTime } from '../format.js'
 import { CHECK_SVG, COPY_SVG, renderMarkdown } from '../md.js'
-import { compressIfNeeded } from '../memory.js'
+import { refreshMemory } from '../memory.js'
 import { enterToSend, fontScale } from '../prefs.js'
 import { currentConversation, effectiveSettings, EFFORT_LEVELS, models, persistNow, sidebarOpen } from '../store.js'
 import { generateTitle } from '../titles.js'
@@ -147,12 +147,6 @@ async function runCompletion(c) {
   controller = new AbortController()
   let assistant = null
   try {
-    // Fold old turns into memory first (when enabled) so the payload reflects it.
-    if (settings.use_memory) {
-      try {
-        await compressIfNeeded(c, settings)
-      } catch { /* on failure, just send uncompressed */ }
-    }
     const payload = buildPayload(c, settings) // built BEFORE the empty assistant placeholder
     c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() })
     assistant = c.messages.at(-1) // reactive proxy, not the raw object — so streamed tokens render live
@@ -175,6 +169,8 @@ async function runCompletion(c) {
       assistant.content += `${assistant.content ? '\n\n' : ''}> ⚠️ **Error:** ${e.message}`
   } finally {
     streaming.value = false
+    // Refresh the memory summary in the background — never blocks the send path.
+    refreshMemory(c, settings).catch(() => {})
     persistNow() // don't let a quick reload lose the completed message
   }
 }

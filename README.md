@@ -112,8 +112,9 @@ Set these as environment variables when you start the container.
 | `DEFAULT_MAX_TOKENS` | no | `4096` | Cap on reply length. |
 | `DEFAULT_EFFORT` | no | *(off)* | Thinking effort new conversations start with: empty, `low`, `medium`, or `high`. |
 | `DEFAULT_UTILITY_MODEL` | no | `claude-haiku-4-5` | Cheap model used for auto-titling and memory. |
-| `DEFAULT_USE_MEMORY` | no | `false` | Whether old turns get compressed into memory. |
-| `DEFAULT_COMPRESSION_THRESHOLD` | no | `4000` | Characters of recent chat kept verbatim before older turns are summarized. |
+| `DEFAULT_USE_MEMORY` | no | `false` | Whether older turns get summarized into memory. |
+| `DEFAULT_SUMMARIZE_N` | no | `20` | How many turns just above the send window get summarized into memory. |
+| `DEFAULT_USE_RECALL` | no | `false` | Whether relevant dropped turns get resent verbatim. |
 | `MODELS` | no | _(none)_ | **Extra** models to offer, as `id:Label,id:Label` — appended to the built-in Sonnet/Opus/Haiku list, which is always available. Models older than Claude 4.6 need their id added to `LEGACY_MODELS` in `backend/main.py` — they use an older thinking format. |
 | `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches on its own when a message needs it. Empty disables it. |
 
@@ -160,11 +161,13 @@ it'll group under that heading — purely visual, it has no effect on triggering
 
 ### Memory — so long chats don't get forgotten or expensive
 
-Turn on **Compress history into memory** and conversa keeps a running summary of the older parts of a
-conversation (written by the cheap utility model) instead of re-sending every
-message forever. Recent messages stay word-for-word; everything past the
-threshold gets folded into the summary. You can read, edit, or clear that summary
-in **Conversation settings**.
+Turn on **Compress history into memory** and conversa keeps a summary of the
+messages just above the recent-messages window (written by the cheap utility
+model) instead of re-sending them verbatim. The summary refreshes in the
+background after each reply, so sending never waits on it. Recent messages stay
+word-for-word; anything older than both windows drops out (recall below brings
+it back when relevant). You can read, edit, or clear the summary in
+**Conversation settings**.
 
 ### Recall — old messages that suddenly matter again
 
@@ -173,8 +176,7 @@ turns that fell outside the recent-messages limit and re-sends the few that over
 most with what you just asked — verbatim, as reference. Ask "what was the dragon
 called again?" 200 messages later and the turn that names it comes back.
 
-Unlike memory, recall rewrites nothing, so editing or deleting messages can't desync
-it. The two work fine together.
+Recall rewrites nothing — the turns come back verbatim. The two work fine together.
 
 ### Thinking effort
 

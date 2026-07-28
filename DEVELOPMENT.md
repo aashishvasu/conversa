@@ -75,9 +75,9 @@ request:
   prefixed with the clause that triggered it (`phrase: content`); force-include
   cards with no matching clause send bare content.
 - **`messages` array** ← pinned turns first (deduped), then the *send window*
-  (the last `num_messages_to_send` turns, or everything not yet folded into memory
-  when memory is on). Only user/assistant turns go here — Anthropic keeps `system`
-  separate.
+  (the last `num_messages_to_send` turns; with memory on, everything past the
+  summary's coverage — never fewer than `num_messages_to_send`). Only
+  user/assistant turns go here — Anthropic keeps `system` separate.
 - **recall** (if `use_recall`) also rides in `system`: the top `RECALL_COUNT` (3)
   *dropped* turns — not pinned, not in the window — scored by stopword-filtered
   token overlap with the latest user message, normalized by √length, returned
@@ -90,13 +90,18 @@ user/assistant alternation, so wildly mixed pins could be rejected by the API.
 
 ### Memory / compression (`frontend/src/memory.js`)
 
-When `use_memory` is on, `compressIfNeeded` folds the oldest unsummarized turns
-into a rolling `memory` string (via the utility model) until the verbatim tail is
-under `compression_threshold` chars, advancing `memoryCount`. The summary is
-cached on the conversation and only re-runs when enough new old turns accumulate.
+When `use_memory` is on, `refreshMemory` runs in the background after each
+assistant reply (fire-and-forget — the send path never waits on it). It
+summarizes the `summarize_n` turns just above the send window into
+`convo.memory` via the utility model, and records where coverage ends in
+`memoryCount`. `buildPayload` sends everything after `memoryCount` verbatim, so
+an in-flight, failed, or lagging refresh only widens the verbatim window —
+nothing falls in a gap. The summary is stateless (the window is re-read in full
+each refresh), so message edits/deletes can't desync it; a per-convo sequence
+counter makes the last-started refresh win if two overlap.
 
-> Known limitation: editing or deleting an already-summarized message desyncs the
-> memory. **Clear** in Conversation settings rebuilds it.
+Turns older than `summarize_n` + the send window drop out of context entirely;
+recall (above) retrieves them on demand.
 
 ### Frontend module map (`frontend/src/`)
 
@@ -105,7 +110,7 @@ cached on the conversation and only re-runs when enough new old turns accumulate
 | `store.js` | Reactive conversation state + IndexedDB persistence (debounced, with `persistNow()`). Owns `SETTING_KEYS` (what a conversation may override) and `EFFORT_LEVELS` — the single definition of the thinking-effort lever, rendered by both settings panels and the composer toolbar. |
 | `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `streamChat` SSE reader. |
 | `cards.js` | Pure card-matching, lexical recall, + `buildPayload`. No Vue — runnable in Node. |
-| `memory.js` | Rolling-summary compression. |
+| `memory.js` | Background sliding-window summarization. |
 | `titles.js` | Auto-titling from recent turns via the utility model. |
 | `md.js` | Markdown → sanitized, highlighted HTML. |
 | `format.js` | Timestamp formatting (native `Intl`). |

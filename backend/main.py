@@ -33,7 +33,8 @@ DEFAULT_EFFORT = os.environ.get("DEFAULT_EFFORT", "")
 # Cheap model for auxiliary tasks: title generation and history compression.
 DEFAULT_UTILITY_MODEL = os.environ.get("DEFAULT_UTILITY_MODEL", "claude-haiku-4-5")
 DEFAULT_USE_MEMORY = os.environ.get("DEFAULT_USE_MEMORY", "false").lower() == "true"
-DEFAULT_COMPRESSION_THRESHOLD = int(os.environ.get("DEFAULT_COMPRESSION_THRESHOLD", "4000"))
+DEFAULT_SUMMARIZE_N = int(os.environ.get("DEFAULT_SUMMARIZE_N", "20"))
+DEFAULT_USE_RECALL = os.environ.get("DEFAULT_USE_RECALL", "false").lower() == "true"
 # Anthropic's server-side web search tool. Model-invoked: it searches only when a message warrants it.
 WEB_SEARCH_TOOL = os.environ.get("WEB_SEARCH_TOOL_VERSION", "web_search_20250305")
 # Server-side web fetch tool (lets the model open a URL the user pastes). Beta-gated.
@@ -186,7 +187,8 @@ def settings(_=Depends(require_auth)):
         "effort": DEFAULT_EFFORT,
         "utility_model": DEFAULT_UTILITY_MODEL,
         "use_memory": DEFAULT_USE_MEMORY,
-        "compression_threshold": DEFAULT_COMPRESSION_THRESHOLD,
+        "summarize_n": DEFAULT_SUMMARIZE_N,
+        "use_recall": DEFAULT_USE_RECALL,
     }
 
 
