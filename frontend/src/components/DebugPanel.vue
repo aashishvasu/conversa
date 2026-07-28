@@ -6,8 +6,8 @@ import { effectiveSettings } from '../store.js'
 const props = defineProps({ convo: Object })
 
 // Live: recomputes as messages, cards, settings, or memory change. This is exactly
-// what the next send builds — except memory compression, which runs just before
-// sending and may fold more turns into the summary first.
+// what the next send builds — the memory summary refreshes in the background after
+// each reply, so this preview always shows its current state.
 const payload = computed(() => buildPayload(props.convo, effectiveSettings(props.convo)))
 </script>
 

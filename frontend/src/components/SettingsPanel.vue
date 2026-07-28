@@ -94,10 +94,10 @@ async function clearMemory() {
 
     <div>
       <label class="mb-1 block text-muted">
-        Compression threshold (chars): {{ eff('compression_threshold') }}
-        <button v-if="overridden('compression_threshold')" class="ml-1 text-indigo-500" @click="reset('compression_threshold')">↺</button>
+        Messages to summarize (above send window): {{ eff('summarize_n') }}
+        <button v-if="overridden('summarize_n')" class="ml-1 text-indigo-500" @click="reset('summarize_n')">↺</button>
       </label>
-      <input type="number" min="500" step="500" :value="eff('compression_threshold')" class="w-full rounded bg-surface2 px-2 py-1" @input="setOv('compression_threshold', Number($event.target.value))" />
+      <input type="number" min="1" step="1" :value="eff('summarize_n')" class="w-full rounded bg-surface2 px-2 py-1" @input="setOv('summarize_n', Number($event.target.value))" />
     </div>
 
     <label class="flex items-center gap-2">
@@ -108,7 +108,7 @@ async function clearMemory() {
 
     <div v-if="eff('use_memory')">
       <label class="mb-1 flex items-center justify-between text-muted">
-        <span>Memory ({{ convo.memoryCount || 0 }} msgs folded)</span>
+        <span>Memory (auto-refreshes after each reply)</span>
         <button class="text-indigo-500" @click="clearMemory">Clear</button>
       </label>
       <textarea v-model="convo.memory" rows="4" placeholder="(empty — builds automatically as the conversation grows)" class="w-full rounded bg-surface2 px-2 py-1 text-xs"></textarea>

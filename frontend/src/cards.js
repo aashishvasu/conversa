@@ -71,14 +71,16 @@ export function matchedCardIds(cards, messages, scanAssistant) {
   return new Set((cards || []).filter((c) => cardActive(c, text)).map((c) => c.id))
 }
 
-// The turns sent verbatim this round. With memory on, everything not yet folded
-// into memory; with memory off, the last num_messages_to_send turns. Exported so
-// the UI can mark where the window starts.
+// The turns sent verbatim this round. With memory on, everything past the
+// summary's coverage (memoryCount) but never fewer than num_messages_to_send —
+// so a summary that hasn't caught up yet, or deletes that shrank the list, only
+// widen the window. With memory off, the last num_messages_to_send turns.
+// Exported so the UI can mark where the window starts.
 export function sendWindow(convo, settings) {
   const turns = convo.messages.filter((m) => m.role !== 'system')
-  return settings.use_memory
-    ? turns.slice(convo.memoryCount || 0)
-    : turns.slice(-settings.num_messages_to_send)
+  if (!settings.use_memory) return turns.slice(-settings.num_messages_to_send)
+  const cut = Math.min(convo.memoryCount || 0, Math.max(0, turns.length - settings.num_messages_to_send))
+  return turns.slice(cut)
 }
 
 // --- Lexical recall -----------------------------------------------------------
@@ -130,8 +132,8 @@ export function recallMessages(convo, outgoing) {
 // System-role messages, memory, and activated cards all feed the top-level `system`
 // param; only user/assistant turns go in `messages` (Anthropic requirement).
 //
-// With memory on, compression (see memory.js) must run first so memoryCount/memory
-// are current.
+// With memory on, the summary (see memory.js) refreshes in the background after
+// each reply; this just reads whatever memory/memoryCount currently hold.
 export function buildPayload(convo, settings) {
   const turns = convo.messages.filter((m) => m.role !== 'system')
   const window = sendWindow(convo, settings)

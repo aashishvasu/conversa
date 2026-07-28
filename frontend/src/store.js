@@ -16,7 +16,7 @@ export const SETTING_KEYS = [
   'effort',
   'utility_model',
   'use_memory',
-  'compression_threshold',
+  'summarize_n',
   'use_recall',
 ]
 

@@ -82,8 +82,8 @@ async function onImportFile(e) {
     </label>
 
     <div>
-      <label class="mb-1 block text-muted">Compression threshold (chars)</label>
-      <input v-model.number="g.compression_threshold" type="number" min="500" step="500" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal" />
+      <label class="mb-1 block text-muted">Messages to summarize (above send window)</label>
+      <input v-model.number="g.summarize_n" type="number" min="1" step="1" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal" />
     </div>
 
     <label class="flex items-center gap-2">

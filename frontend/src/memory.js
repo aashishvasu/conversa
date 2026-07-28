@@ -1,50 +1,45 @@
 import { streamChat } from './api.js'
 
-// Fold a batch of old messages into the running summary using the utility model.
-async function summarize(existingMemory, foldMessages, model) {
-  const transcript = foldMessages.map((m) => `${m.role}: ${m.content}`).join('\n\n')
+// Summarize a window of turns via the utility model. Stateless: the window is
+// re-read in full on every refresh, so message edits/deletes can never desync it.
+async function summarize(msgs, model) {
+  const transcript = msgs.map((m) => `${m.role}: ${m.content}`).join('\n\n')
   const system =
-    'You maintain a concise running summary of a conversation. Preserve key facts, ' +
-    'decisions, names, and anything needed to continue coherently. Output only the ' +
-    'updated summary — no preamble, no commentary.'
-  const user = existingMemory
-    ? `Current summary:\n${existingMemory}\n\nNew messages to fold in:\n${transcript}\n\nReturn the updated summary.`
-    : `Summarize this conversation so far:\n${transcript}`
-
+    'You summarize part of a conversation. Preserve key facts, decisions, names, ' +
+    'and anything needed to continue coherently. Output only the summary — no ' +
+    'preamble, no commentary.'
   let out = ''
   await streamChat(
-    { model, max_tokens: 1024, temperature: 0.3, system, messages: [{ role: 'user', content: user }] },
+    {
+      model,
+      max_tokens: 1024,
+      temperature: 0.3,
+      system,
+      messages: [{ role: 'user', content: `Summarize this conversation excerpt:\n${transcript}` }],
+    },
     (t) => (out += t),
   )
   return out.trim()
 }
 
-const charsFrom = (turns, start) =>
-  turns.slice(start).reduce((n, m) => n + m.content.length, 0)
-
-// If the unsummarized tail exceeds the threshold, fold its oldest messages into
-// memory until the tail fits (always leaving at least one verbatim message).
-// Mutates convo.memory / convo.memoryCount. No-op when memory is off or not needed.
-export async function compressIfNeeded(convo, settings) {
+// Refresh convo.memory in the background — fired after each assistant reply,
+// never awaited in the send path. Summarizes the summarize_n turns just above
+// the send window. memoryCount records where coverage ends; buildPayload sends
+// everything after it verbatim, so an in-flight or stale summary only widens
+// the verbatim window — nothing ever falls in a gap.
+// ponytail: turns older than summarize_n + send window drop out of context
+// entirely (use_recall retrieves them on demand); rolling accumulation later if missed.
+const inflight = new Map() // convo.id -> seq; the last-started refresh wins
+export async function refreshMemory(convo, settings) {
   if (!settings.use_memory) return
+  const seq = (inflight.get(convo.id) || 0) + 1
+  inflight.set(convo.id, seq)
   const turns = convo.messages.filter((m) => m.role !== 'system')
-
-  // If history was truncated into the summarized region, the summary is stale — rebuild.
-  if ((convo.memoryCount || 0) > turns.length) {
-    convo.memory = ''
-    convo.memoryCount = 0
-  }
-
-  let start = convo.memoryCount || 0
-  let remaining = charsFrom(turns, start)
-  const toFold = []
-  while (remaining > settings.compression_threshold && turns.length - start > 1) {
-    toFold.push(turns[start])
-    remaining -= turns[start].content.length
-    start++
-  }
-  if (!toFold.length) return
-
-  convo.memory = await summarize(convo.memory || '', toFold, settings.utility_model)
-  convo.memoryCount = start
+  const end = Math.max(0, turns.length - settings.num_messages_to_send)
+  const start = Math.max(0, end - settings.summarize_n)
+  const window = turns.slice(start, end)
+  const summary = window.length ? await summarize(window, settings.utility_model) : ''
+  if (inflight.get(convo.id) !== seq) return // superseded by a newer refresh
+  convo.memory = summary
+  convo.memoryCount = end
 }
