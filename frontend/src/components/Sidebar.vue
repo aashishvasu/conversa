@@ -1,6 +1,6 @@
 <script setup>
-import { CopyPlus, Download, LogOut, Moon, Plus, SlidersHorizontal, Sun, X } from 'lucide-vue-next'
-import { ref } from 'vue'
+import { Boxes, CopyPlus, Download, LogOut, Moon, Plus, SlidersHorizontal, Sun, X } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
 import { logout } from '../api.js'
 import { confirmDelete } from '../confirm.js'
 import { formatShort } from '../format.js'
@@ -8,18 +8,53 @@ import {
   conversations,
   createConversation,
   createFromTemplate,
+  createWorkspace,
   currentId,
   deleteConversation,
+  deleteWorkspace,
   downloadExport,
+  persistNow,
   selectConversation,
   sidebarOpen,
   templates,
+  workspaceOf,
+  workspaces,
 } from '../store.js'
 import { isDark, toggleTheme } from '../theme.js'
 import GlobalSettings from './GlobalSettings.vue'
 import Modal from './Modal.vue'
+import WorkspacePanel from './WorkspacePanel.vue'
 
 const showGlobal = ref(false)
+const editingWs = ref(null) // workspace being edited in the modal, or null
+
+function addWorkspace() {
+  editingWs.value = createWorkspace()
+}
+async function removeWorkspace(w) {
+  if (await confirmDelete(`Delete workspace "${w.name}"? Its conversations are kept and just leave the workspace.`)) {
+    deleteWorkspace(w.id)
+  }
+}
+
+// Conversation list, flattened to workspace rows + convo rows. The workspace row is
+// the single place its name appears: it heads the group, opens the editor on click,
+// and carries the delete button. Every workspace shows, member convos or none. A
+// workspaceId pointing at a deleted or unimported workspace lands under
+// "Conversations" (workspaceOf resolves it to null).
+const rows = computed(() => {
+  const out = []
+  for (const w of workspaces.value) {
+    out.push({ key: `h:${w.id}`, ws: w })
+    for (const c of conversations.value.filter((c) => c.workspaceId === w.id)) {
+      out.push({ key: c.id, convo: c, grouped: true })
+    }
+  }
+  const rest = conversations.value.filter((c) => !workspaceOf(c))
+  if (rest.length) out.push({ key: 'h:rest', label: 'Conversations' })
+  for (const c of rest) out.push({ key: c.id, convo: c })
+  return out
+})
 const version = __APP_VERSION__ // injected by Vite at build time (package.json version)
 
 function pick(id) {
@@ -63,25 +98,42 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
       </div>
     </div>
 
+    <!-- Workspace rows head their convo groups and are the management surface:
+         click to edit (name, shared prompt, docs, cards), X to delete (clears
+         membership only). Convos join a workspace via their settings panel. -->
     <div class="flex-1 overflow-y-auto p-2">
-      <div
-        v-for="c in conversations"
-        :key="c.id"
-        class="group relative rounded hover:bg-surface2"
-        :class="c.id === currentId && 'bg-surface2'"
-      >
-        <button class="w-full px-2 py-2 text-left" @click="pick(c.id)">
-          <div class="truncate pr-12 text-sm">{{ c.title }}</div>
-          <div class="mt-0.5 flex justify-between text-[10px] text-muted">
-            <span>{{ c.messages.length }} msgs</span>
-            <span>{{ formatShort(lastTs(c)) }}</span>
+      <p class="flex items-center justify-between px-1 pb-1 text-xs uppercase text-muted">
+        Workspaces
+        <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" title="New workspace" @click="addWorkspace"><Plus :size="14" /></button>
+      </p>
+      <template v-for="row in rows" :key="row.key">
+        <div v-if="row.ws" class="group relative rounded hover:bg-surface2">
+          <button class="flex w-full items-center gap-1.5 truncate px-2 py-1.5 pr-8 text-left text-sm font-medium" title="Edit workspace" @click="editingWs = row.ws">
+            <Boxes :size="14" class="shrink-0 text-muted" />{{ row.ws.name }}
+          </button>
+          <div class="absolute right-1 top-1.5 hidden opacity-40 pointer-coarse:flex group-hover:flex">
+            <button class="rounded p-1 text-muted hover:text-red-500" title="Delete workspace" @click="removeWorkspace(row.ws)"><X :size="14" /></button>
           </div>
-        </button>
-        <div class="absolute right-1 top-1.5 hidden gap-0.5 opacity-40 pointer-coarse:flex group-hover:flex">
-          <button class="rounded p-1 text-muted hover:text-base" title="Export conversation" @click="downloadExport(c.id)"><Download :size="14" /></button>
-          <button class="rounded p-1 text-muted hover:text-red-500" title="Delete" @click="remove(c.id, 'Delete this conversation? This cannot be undone.')"><X :size="14" /></button>
         </div>
-      </div>
+        <p v-else-if="row.label" class="flex items-center px-1 pb-1 pt-2 text-xs uppercase text-muted">{{ row.label }}</p>
+        <div
+          v-else
+          class="group relative rounded hover:bg-surface2"
+          :class="[row.convo.id === currentId && 'bg-surface2', row.grouped && 'ml-2']"
+        >
+          <button class="w-full px-2 py-2 text-left" @click="pick(row.convo.id)">
+            <div class="truncate pr-12 text-sm">{{ row.convo.title }}</div>
+            <div class="mt-0.5 flex justify-between text-[10px] text-muted">
+              <span>{{ row.convo.messages.length }} msgs</span>
+              <span>{{ formatShort(lastTs(row.convo)) }}</span>
+            </div>
+          </button>
+          <div class="absolute right-1 top-1.5 hidden gap-0.5 opacity-40 pointer-coarse:flex group-hover:flex">
+            <button class="rounded p-1 text-muted hover:text-base" title="Export conversation" @click="downloadExport(row.convo.id)"><Download :size="14" /></button>
+            <button class="rounded p-1 text-muted hover:text-red-500" title="Delete" @click="remove(row.convo.id, 'Delete this conversation? This cannot be undone.')"><X :size="14" /></button>
+          </div>
+        </div>
+      </template>
     </div>
 
     <div class="flex items-center gap-1 border-t border-edge p-2">
@@ -106,6 +158,10 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
 
     <Modal v-if="showGlobal" title="Global settings" @close="showGlobal = false">
       <GlobalSettings />
+    </Modal>
+    <!-- Flush on close so quitting right after an edit can't outrun the debounce. -->
+    <Modal v-if="editingWs" title="Workspace" @close="editingWs = null; persistNow()">
+      <WorkspacePanel :workspace="editingWs" />
     </Modal>
   </aside>
 </template>

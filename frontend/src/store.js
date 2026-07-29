@@ -4,6 +4,7 @@ import { computed, reactive, ref, watch } from 'vue'
 // All conversation state lives client-side in IndexedDB (via idb-keyval).
 
 const STORE_KEY = 'conversa_conversations'
+const WORKSPACES_KEY = 'conversa_workspaces'
 const MODELS_KEY = 'conversa_models'
 const GLOBAL_KEY = 'conversa_global' // user edits to the global defaults, persisted client-side
 
@@ -33,7 +34,7 @@ export const EFFORT_LEVELS = [
   { label: 'High', value: 'high' },
 ]
 
-const state = reactive({ conversations: [] })
+const state = reactive({ conversations: [], workspaces: [] })
 export const currentId = ref(null)
 export const globalSettings = ref(null)
 export const models = ref([]) // [{id, label}], cached from backend
@@ -45,6 +46,7 @@ let savedGlobal = null // user's edited global defaults, loaded from IDB
 // Loads persisted state. Call once before showing the UI.
 export async function initStore() {
   state.conversations = (await get(STORE_KEY)) || []
+  state.workspaces = (await get(WORKSPACES_KEY)) || []
   models.value = (await get(MODELS_KEY)) || []
   savedGlobal = (await get(GLOBAL_KEY)) || null
   // Backfill stable message ids for conversations saved before ids existed.
@@ -54,6 +56,7 @@ export async function initStore() {
   loaded = true
   // Persist on any change, debounced so token-by-token streaming doesn't thrash IDB.
   watch(() => state.conversations, save, { deep: true })
+  watch(() => state.workspaces, save, { deep: true })
 }
 
 let saveTimer
@@ -63,7 +66,10 @@ function save() {
   // Snapshot inside the timer, not out here: save() runs on every mutation (i.e. every
   // streamed token), and the JSON round-trip — which strips the Vue reactive proxy so
   // structured-clone can store it — costs the whole archive each time it runs.
-  saveTimer = setTimeout(() => set(STORE_KEY, JSON.parse(JSON.stringify(state.conversations))), 400)
+  saveTimer = setTimeout(() => {
+    set(STORE_KEY, JSON.parse(JSON.stringify(state.conversations)))
+    set(WORKSPACES_KEY, JSON.parse(JSON.stringify(state.workspaces)))
+  }, 400)
 }
 
 // Write immediately, bypassing the debounce — call when a stream finishes so a quick
@@ -71,6 +77,7 @@ function save() {
 export function persistNow() {
   if (!loaded) return
   clearTimeout(saveTimer)
+  set(WORKSPACES_KEY, JSON.parse(JSON.stringify(state.workspaces)))
   return set(STORE_KEY, JSON.parse(JSON.stringify(state.conversations)))
 }
 
@@ -95,6 +102,7 @@ function blank(overrides = {}) {
     title: 'New conversation',
     isTemplate: false,
     scanAssistant: false,
+    workspaceId: null, // workspace membership is only this pointer
     settings: {}, // empty = inherit every key from globalSettings
     cards: [],
     memory: '', // rolling summary of compressed-away history
@@ -149,6 +157,30 @@ export function selectConversation(id) {
   currentId.value = id
 }
 
+// --- Workspaces ---------------------------------------------------------------
+// A workspace = { id, name, systemPrompt, cards, docs } shared by its conversations
+// (convo.workspaceId points here). buildPayload merges it at read time; joining,
+// leaving, and deleting touch only that pointer on the conversation.
+
+export const workspaces = computed(() => state.workspaces)
+
+export function createWorkspace(name = 'New workspace') {
+  const w = { id: crypto.randomUUID(), name, systemPrompt: '', cards: [], docs: [] }
+  state.workspaces.push(w)
+  return w
+}
+
+export function deleteWorkspace(id) {
+  state.workspaces = state.workspaces.filter((w) => w.id !== id)
+  for (const c of state.conversations) if (c.workspaceId === id) c.workspaceId = null
+}
+
+// null when the convo has no workspace, or its workspace was deleted or not
+// imported; callers degrade to plain-convo behavior.
+export function workspaceOf(convo) {
+  return state.workspaces.find((w) => w.id === convo?.workspaceId) || null
+}
+
 // Per-conversation override falls back to the global default per key.
 // `??` so an explicit false/0 override is respected; only null/undefined inherits.
 export function effectiveSettings(convo) {
@@ -179,29 +211,42 @@ export async function clearAll() {
   await del(STORE_KEY)
 }
 
-// Backup: conversations + templates (global settings are trivial to redo).
-// Always an array — a single-conversation export round-trips through the same import.
+// Backup. Full export = { conversations, workspaces }; single-conversation export
+// stays a bare array (a workspaceId the importing browser can't resolve degrades
+// to a plain convo).
 export function exportData(id) {
-  const list = id ? state.conversations.filter((c) => c.id === id) : state.conversations
-  return JSON.parse(JSON.stringify(list))
+  if (id) return JSON.parse(JSON.stringify(state.conversations.filter((c) => c.id === id)))
+  return JSON.parse(JSON.stringify({ conversations: state.conversations, workspaces: state.workspaces }))
 }
 
 // Download an export file: everything, or one conversation when id is given.
 export function downloadExport(id) {
-  const list = exportData(id)
-  const name = (id ? list[0]?.title || 'conversation' : 'export').replace(/[^\w-]+/g, '_').slice(0, 40)
+  const data = exportData(id)
+  const name = (id ? data[0]?.title || 'conversation' : 'export').replace(/[^\w-]+/g, '_').slice(0, 40)
   const a = document.createElement('a')
-  a.href = URL.createObjectURL(new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' }))
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
   a.download = `conversa-${name}-${new Date().toISOString().slice(0, 10)}.json`
   a.click()
   URL.revokeObjectURL(a.href)
 }
 
-// Import: new ids come in as-is; a colliding id becomes a copy with fresh ids (same
-// clone path as template copies), so nothing local is ever overwritten. Returns count.
+// Import: accepts the object shape or a legacy/single-convo array. Convos: new ids
+// come in as-is; a colliding id becomes a copy with fresh ids (same clone path as
+// template copies), so nothing local is ever overwritten. Workspaces: colliding ids
+// are skipped instead, keeping the local one so convo-to-workspace links stay
+// resolvable (a clone would get a fresh id the convos don't point at). Returns the
+// convo count.
 // Note: re-importing the same file duplicates collided convos; diff-aware skip if it annoys.
-export function importData(list) {
+export function importData(data) {
+  const list = Array.isArray(data) ? data : data?.conversations
   if (!Array.isArray(list)) throw new Error('Not a conversa export')
+  const haveWs = new Set(state.workspaces.map((w) => w.id))
+  for (const w of (Array.isArray(data) ? [] : data.workspaces) || []) {
+    if (w?.id && !haveWs.has(w.id)) {
+      state.workspaces.push(w)
+      haveWs.add(w.id)
+    }
+  }
   const have = new Set(state.conversations.map((c) => c.id))
   let added = 0
   for (const c of list) {

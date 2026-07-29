@@ -1,14 +1,14 @@
 <script setup>
 import { computed } from 'vue'
 import { buildPayload } from '../cards.js'
-import { effectiveSettings } from '../store.js'
+import { effectiveSettings, workspaceOf } from '../store.js'
 
 const props = defineProps({ convo: Object })
 
 // Live: recomputes as messages, cards, settings, or memory change. This is exactly
 // what the next send builds — the memory summary refreshes in the background after
 // each reply, so this preview always shows its current state.
-const payload = computed(() => buildPayload(props.convo, effectiveSettings(props.convo)))
+const payload = computed(() => buildPayload(props.convo, effectiveSettings(props.convo), workspaceOf(props.convo)))
 </script>
 
 <template>

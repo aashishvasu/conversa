@@ -144,4 +144,22 @@ const manyConvo = {
 }
 assert.equal(recallMessages(manyConvo, [manyConvo.messages.at(-1)]).length, 3)
 
+// workspace: prompt leads system, docs sent whole, workspace cards precede convo cards
+const ws = {
+  id: 'w', name: 'W', systemPrompt: 'WS_PROMPT',
+  cards: [{ id: 'wc', triggers: 'dragon', content: 'WS_CARD' }],
+  docs: [{ id: 'd', name: 'lore.md', text: 'DOC_TEXT' }],
+}
+const wSettings = { model: 'm', max_tokens: 10, num_messages_to_send: 5, send_system_prompt: true }
+const wp = buildPayload(convo, wSettings, ws)
+assert.ok(wp.system.includes('WS_PROMPT') && wp.system.includes('You are a bard.'))
+assert.ok(wp.system.indexOf('WS_PROMPT') < wp.system.indexOf('You are a bard.'), 'workspace prompt leads')
+assert.ok(wp.system.includes('DOC_TEXT'), 'workspace docs are injected')
+assert.ok(wp.system.indexOf('WS_CARD') < wp.system.indexOf('DRAGON_LORE'), 'workspace cards precede convo cards')
+// send_system_prompt=false drops the workspace prompt but keeps docs and cards (intentional context)
+const wp2 = buildPayload(convo, { ...wSettings, send_system_prompt: false }, ws)
+assert.ok(!wp2.system.includes('WS_PROMPT') && wp2.system.includes('DOC_TEXT') && wp2.system.includes('WS_CARD'))
+// no workspace arg: payload identical to before the feature
+assert.equal(buildPayload(convo, wSettings).system, buildPayload(convo, wSettings, null).system)
+
 console.log('cards selfcheck OK')
