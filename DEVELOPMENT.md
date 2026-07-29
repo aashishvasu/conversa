@@ -36,11 +36,13 @@ Browser (Vue SPA, IndexedDB)  ──HTTPS──>  FastAPI  ──>  Anthropic AP
 - `GET  /api/settings` — global setting defaults from env vars.
 - `GET  /api/models` — selectable models with labels.
 - `POST /api/chat` — streams a completion from Anthropic as SSE. The API key
-  never leaves the server. Two things are assembled server-side: `effort` becomes
-  thinking config via `apply_thinking()` (below), and `WEB_SEARCH_TOOL_VERSION` — if
-  not empty — attaches the server-side `web_search` tool (`max_uses: 5`). Text,
-  thinking, and search events are each JSON-encoded per SSE chunk so content can't
-  break the framing.
+  never leaves the server. Assembled server-side: `effort` becomes thinking config
+  via `apply_thinking()` (below); `WEB_SEARCH_TOOL_VERSION` and
+  `WEB_FETCH_TOOL_VERSION`, when non-empty, attach the server-side `web_search`
+  and `web_fetch` tools (`max_uses: 5` each; web fetch also sends the
+  `WEB_FETCH_BETA` beta header). Text, thinking, and tool-trace events (`search`,
+  `fetch`, `results`) are each JSON-encoded per SSE chunk so content can't break
+  the framing.
 
 ### Thinking effort (`apply_thinking` in `backend/main.py`)
 
@@ -66,14 +68,17 @@ origin (`StaticFiles` mount), so CORS is irrelevant; `CORS_ORIGINS` is dev-only.
 
 ### How a request is assembled (`frontend/src/cards.js`)
 
-`buildPayload(convo, settings)` turns a conversation into the Anthropic
+`buildPayload(convo, settings, workspace)` turns a conversation into the Anthropic
 request:
 
-- **`system` param** ← all system messages (if `send_system_prompt`), the memory
-  summary (if `use_memory`), and the content of any triggered cards. Card triggers
-  are comma-separated clauses (comma = OR, `&` inside a clause = AND). Each card is
-  prefixed with the clause that triggered it (`phrase: content`); force-include
-  cards with no matching clause send bare content.
+- **`system` param** ← the workspace's shared prompt (if `send_system_prompt`),
+  then all system messages (same gate), the workspace's plain-text docs in full,
+  the memory summary (if `use_memory`), and the content of any triggered cards.
+  The card scan runs over workspace cards and convo cards together, workspace
+  first. Card triggers are comma-separated clauses (comma = OR, `&` inside a
+  clause = AND). Each card is prefixed with the clause that triggered it
+  (`phrase: content`); force-include cards with no matching clause send bare
+  content.
 - **`messages` array** ← pinned turns first (deduped), then the *send window*
   (the last `num_messages_to_send` turns; with memory on, everything past the
   summary's coverage — never fewer than `num_messages_to_send`). Only
@@ -87,6 +92,20 @@ request:
 
 Pinned turns bypass the send-window limit; this does **not** enforce
 user/assistant alternation, so wildly mixed pins could be rejected by the API.
+
+### Workspaces (`frontend/src/store.js`)
+
+A workspace is `{ id, name, systemPrompt, cards, docs }` in its own IndexedDB key,
+persisted through the same debounced save as conversations. A conversation joins by
+setting `convo.workspaceId`; `workspaceOf(convo)` resolves it (null for a missing
+or deleted workspace, which degrades to plain-convo behavior everywhere). The merge
+into the request happens at read time in `buildPayload`, so joining, leaving, and
+deleting a workspace touch only that pointer. Docs are plain text, stored inline
+and sent whole per request; chunked retrieval (the recall scorer fits) is the
+upgrade path if docs outgrow the context window. Full export carries workspaces
+(`{ conversations, workspaces }`); import also accepts the older bare-array format,
+and on a workspace id collision keeps the local copy so existing links stay
+resolvable.
 
 ### Memory / compression (`frontend/src/memory.js`)
 
@@ -107,7 +126,7 @@ recall (above) retrieves them on demand.
 
 | File | Responsibility |
 |------|----------------|
-| `store.js` | Reactive conversation state + IndexedDB persistence (debounced, with `persistNow()`). Owns `SETTING_KEYS` (what a conversation may override) and `EFFORT_LEVELS` — the single definition of the thinking-effort lever, rendered by both settings panels and the composer toolbar. |
+| `store.js` | Reactive conversation + workspace state, IndexedDB persistence (debounced, with `persistNow()`). Owns `SETTING_KEYS` (what a conversation may override) and `EFFORT_LEVELS` — the single definition of the thinking-effort lever, rendered by both settings panels and the composer toolbar. |
 | `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `streamChat` SSE reader. |
 | `cards.js` | Pure card-matching, lexical recall, + `buildPayload`. No Vue — runnable in Node. |
 | `memory.js` | Background sliding-window summarization. |
@@ -120,10 +139,11 @@ recall (above) retrieves them on demand.
 | `components/ChatPane.vue` | The chat window: messages, actions, composer, toolbar (model + thinking-effort pickers). Renders the last `PAGE_SIZE` (100) messages with "Load more" — display-only, unrelated to what's sent — marks the send-window start with a divider, and shows the live thinking/search trace (ephemeral, never persisted). |
 | `components/Login.vue` | Password prompt shown until a token exists. |
 | `components/ContextPanel.vue` | Edits system + pinned messages together. |
-| `components/CardsPanel.vue` | Card editor with live "active" indicators. |
+| `components/CardsPanel.vue` | Card editor with live "active" indicators. For a convo in a workspace, lists the workspace's cards read-only above the convo's own. Also reused by WorkspacePanel as the shared-card editor (a workspace passes as `convo`; its missing messages/settings are guarded). |
+| `components/WorkspacePanel.vue` | Workspace editor: name, shared prompt, plain-text doc upload, shared cards (via CardsPanel). |
 | `components/DebugPanel.vue` | Read-only live preview of the assembled `system` param (via `buildPayload`). |
 | `components/SettingsPanel.vue` / `GlobalSettings.vue` | Per-conversation overrides / global defaults. |
-| `components/Sidebar.vue` | Conversation + template list. |
+| `components/Sidebar.vue` | Template + conversation lists. Workspace rows head their member conversations (click to edit, X to delete) and double as the management surface; unassigned conversations sit under a "Conversations" label. |
 | `components/Modal.vue` / `ConfirmModal.vue` | Generic modal shell / shared delete-confirmation dialog. |
 
 ## Local development

@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { confirmDelete } from '../confirm.js'
-import { effectiveSettings, EFFORT_LEVELS, globalSettings, models, saveAsTemplate } from '../store.js'
+import { effectiveSettings, EFFORT_LEVELS, globalSettings, models, saveAsTemplate, workspaces } from '../store.js'
 
 const props = defineProps({ convo: Object })
 
@@ -30,6 +30,16 @@ async function clearMemory() {
 
 <template>
   <div class="space-y-4 text-sm">
+    <!-- Joining or leaving sets only this pointer; the conversation's own cards,
+         messages, and settings stay as they are. -->
+    <div v-if="workspaces.length">
+      <label class="mb-1 block text-muted">Workspace (shared prompt, cards &amp; docs)</label>
+      <select :value="convo.workspaceId || ''" class="w-full rounded bg-surface2 px-2 py-1" @change="convo.workspaceId = $event.target.value || null">
+        <option value="">None</option>
+        <option v-for="w in workspaces" :key="w.id" :value="w.id">{{ w.name }}</option>
+      </select>
+    </div>
+
     <div>
       <label class="mb-1 block text-muted">Model</label>
       <select :value="eff('model')" class="w-full rounded bg-surface2 px-2 py-1" @change="setOv('model', $event.target.value)">

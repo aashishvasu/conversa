@@ -8,7 +8,7 @@ import { formatTime } from '../format.js'
 import { CHECK_SVG, COPY_SVG, renderMarkdown } from '../md.js'
 import { refreshMemory } from '../memory.js'
 import { enterToSend, fontScale } from '../prefs.js'
-import { currentConversation, effectiveSettings, EFFORT_LEVELS, models, persistNow, sidebarOpen } from '../store.js'
+import { currentConversation, effectiveSettings, EFFORT_LEVELS, models, persistNow, sidebarOpen, workspaceOf } from '../store.js'
 import { generateTitle } from '../titles.js'
 import CardsPanel from './CardsPanel.vue'
 import DebugPanel from './DebugPanel.vue'
@@ -147,7 +147,7 @@ async function runCompletion(c) {
   controller = new AbortController()
   let assistant = null
   try {
-    const payload = buildPayload(c, settings) // built BEFORE the empty assistant placeholder
+    const payload = buildPayload(c, settings, workspaceOf(c)) // built BEFORE the empty assistant placeholder
     c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() })
     assistant = c.messages.at(-1) // reactive proxy, not the raw object — so streamed tokens render live
     liveTrace.value = []

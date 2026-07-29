@@ -3,15 +3,20 @@ import { Ban, ChevronDown, CircleCheck, GripVertical, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { matchedCardIds } from '../cards.js'
 import { confirmDelete } from '../confirm.js'
-import { effectiveSettings } from '../store.js'
+import { effectiveSettings, workspaceOf } from '../store.js'
 
+// Also reused by WorkspacePanel with a workspace as `convo`; workspaces have cards
+// but no messages, settings, or workspaceId, so those reads are guarded below.
 const props = defineProps({ convo: Object })
 
-// Live preview: which cards would fire against the current send window.
+const ws = computed(() => workspaceOf(props.convo))
+
+// Live preview: which cards would fire against the current send window. Includes
+// workspace cards so the read-only section below gets active dots too.
 const active = computed(() => {
   const n = effectiveSettings(props.convo).num_messages_to_send
-  const turns = props.convo.messages.filter((m) => m.role !== 'system').slice(-n)
-  return matchedCardIds(props.convo.cards, turns, props.convo.scanAssistant)
+  const turns = (props.convo.messages || []).filter((m) => m.role !== 'system').slice(-n)
+  return matchedCardIds([...(ws.value?.cards || []), ...props.convo.cards], turns, props.convo.scanAssistant)
 })
 
 // Cards grouped by their (display-only) folder path. Named folders first in
@@ -100,6 +105,21 @@ async function removeCard(id) {
       dragon and red together). When a clause matches the last messages sent, the card's
       text is added to the system prompt. Click a card to expand.
     </p>
+
+    <!-- Shared cards, read-only here: editing one affects every conversation in the
+         workspace, so edits go through the workspace editor in the sidebar. -->
+    <template v-if="ws">
+      <p class="px-1 text-xs uppercase text-muted">Workspace cards · {{ ws.name }} (edit in workspace)</p>
+      <p v-if="!ws.cards.length" class="px-1 text-xs italic text-muted">No workspace cards.</p>
+      <details v-for="c in ws.cards" :key="c.id" class="rounded border" :class="active.has(c.id) ? 'border-green-500' : 'border-edge'">
+        <summary class="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 [&::-webkit-details-marker]:hidden">
+          <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(c.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(c.id) ? 'Active for next send' : 'Inactive'"></span>
+          <span class="flex-1 truncate text-muted">{{ c.triggers || 'No triggers' }}</span>
+        </summary>
+        <div class="whitespace-pre-wrap border-t border-edge p-2 text-muted">{{ c.content }}</div>
+      </details>
+      <hr class="border-edge" />
+    </template>
 
     <template v-for="row in rows" :key="row.key">
       <p v-if="row.header" class="flex cursor-pointer select-none items-center gap-1 px-1 pt-1 text-xs text-muted" @click="toggleFolder(row.header)">

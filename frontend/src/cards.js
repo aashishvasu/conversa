@@ -134,7 +134,13 @@ export function recallMessages(convo, outgoing) {
 //
 // With memory on, the summary (see memory.js) refreshes in the background after
 // each reply; this just reads whatever memory/memoryCount currently hold.
-export function buildPayload(convo, settings) {
+//
+// `workspace` (optional) = { systemPrompt, cards, docs } shared across its convos.
+// Its prompt leads the system param, its docs are sent whole, and its cards merge
+// ahead of the convo's own, so a convo card can refine a workspace card. Docs are
+// plain text with no chunking or retrieval; score chunks with the recall tokenizer
+// above if workspace docs ever outgrow the context window.
+export function buildPayload(convo, settings, workspace = null) {
   const turns = convo.messages.filter((m) => m.role !== 'system')
   const window = sendWindow(convo, settings)
 
@@ -147,9 +153,14 @@ export function buildPayload(convo, settings) {
 
   const parts = []
   if (settings.send_system_prompt) {
+    if (workspace?.systemPrompt?.trim()) parts.push(workspace.systemPrompt)
     for (const m of convo.messages) {
       if (m.role === 'system' && m.content.trim()) parts.push(m.content)
     }
+  }
+  // Docs are intentional shared context, like cards: sent even with base system off.
+  for (const d of workspace?.docs || []) {
+    if (d.text) parts.push(`Reference document "${d.name}":\n${d.text}`)
   }
   if (settings.use_memory && convo.memory) {
     parts.push(`Summary of earlier conversation:\n${convo.memory}`)
@@ -159,7 +170,7 @@ export function buildPayload(convo, settings) {
     if (recalled.length) parts.push(`Relevant earlier messages (verbatim, for reference):\n\n${recalled.join('\n\n')}`)
   }
   // Cards are intentional, trigger-gated context — injected even if base system is off.
-  parts.push(...matchCards(convo.cards, window, convo.scanAssistant))
+  parts.push(...matchCards([...(workspace?.cards || []), ...(convo.cards || [])], window, convo.scanAssistant))
 
   return {
     system: parts.join('\n\n') || undefined,

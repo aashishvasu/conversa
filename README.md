@@ -5,9 +5,9 @@
 # conversa
 
 A Claude chatbot where **everything except the API call lives in your browser**.
-Your conversations, settings, cards, and templates never leave your machine —
-they're stored in your browser. A small server holds the Anthropic API key and
-relays messages, locked behind a password you set.
+Your conversations, settings, cards, workspaces, and templates never leave your
+machine — they're stored in your browser. A small server holds the Anthropic API
+key and relays messages, locked behind a password you set.
 
 ## Run it
 
@@ -92,8 +92,8 @@ podman run -p 8000:8000 \
   conversa
 ```
 
-Your conversations, settings, cards, and templates live in the browser, so an
-update never touches them.
+Your conversations, settings, cards, workspaces, and templates live in the
+browser, so an update never touches them.
 
 ## Configuration
 
@@ -117,6 +117,8 @@ Set these as environment variables when you start the container.
 | `DEFAULT_USE_RECALL` | no | `false` | Whether relevant dropped turns get resent verbatim. |
 | `MODELS` | no | _(none)_ | **Extra** models to offer, as `id:Label,id:Label` — appended to the built-in Sonnet/Opus/Haiku list, which is always available. Models older than Claude 4.6 need their id added to `LEGACY_MODELS` in `backend/main.py` — they use an older thinking format. |
 | `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches on its own when a message needs it. Empty disables it. |
+| `WEB_FETCH_TOOL_VERSION` | no | `web_fetch_20250910` | Anthropic web-fetch tool version; lets the model open a URL you paste in chat. Empty disables it. |
+| `WEB_FETCH_BETA` | no | `web-fetch-2025-09-10` | Beta header the web-fetch tool requires. |
 
 Every default above is just a starting point — you can change any of them globally
 (in **Global settings**) or per conversation (in **Conversation settings**).
@@ -125,7 +127,7 @@ Every default above is just a starting point — you can change any of them glob
 
 Most of conversa is an ordinary chat window. A few features are worth knowing about.
 
-### Context — what the assistant always sees
+### Context: what the assistant always sees
 
 Think of the **context editor** as a corkboard the assistant glances at on every
 reply. Two kinds of note live there:
@@ -136,7 +138,7 @@ reply. Two kinds of note live there:
   messages ago won't get forgotten. Pin a message with the 📌 button, or manage
   everything together in the context editor.
 
-### Cards — notes that appear only when relevant
+### Cards: notes that appear only when relevant
 
 A **card** is like an index card in a box. Each card has some **trigger phrases** and
 a **note**. Before every reply, conversa scans your recent messages; if a card's
@@ -159,7 +161,7 @@ to normal trigger matching. Forced-include and triggered cards show green;
 force-skip shows yellow. To keep cards tidy, give a card a **folder** name and
 it'll group under that heading — purely visual, it has no effect on triggering.
 
-### Memory — so long chats don't get forgotten or expensive
+### Memory: so long chats don't get forgotten or expensive
 
 Turn on **Compress history into memory** and conversa keeps a summary of the
 messages just above the recent-messages window (written by the cheap utility
@@ -169,7 +171,7 @@ word-for-word; anything older than both windows drops out (recall below brings
 it back when relevant). You can read, edit, or clear the summary in
 **Conversation settings**.
 
-### Recall — old messages that suddenly matter again
+### Recall: old messages that suddenly matter again
 
 Turn on **Recall relevant old messages** and, before each reply, conversa looks at the
 turns that fell outside the recent-messages limit and re-sends the few that overlap
@@ -190,11 +192,38 @@ The model's thinking — and any web searches it decides to run — stream above
 as a live trace you can collapse. The trace is ephemeral: it isn't saved with the
 conversation and a reload clears it.
 
+### Workspaces: shared context for a group of conversations
+
+A **workspace** bundles a shared system prompt, shared cards, and plain-text
+documents (`.txt`/`.md`), and any number of conversations can point at it. Every
+reply in a member conversation carries the workspace's prompt, its documents in
+full, and whichever of its cards trigger, on top of the conversation's own system
+messages and cards. Where the same topic has a card in both, the workspace card is
+sent first and the conversation card after it, so a conversation can refine the
+shared note.
+
+Workspaces live at the top of the sidebar's conversation list: each workspace row
+heads its member conversations, the + next to the **Workspaces** label creates
+one, clicking a row opens its editor (name, prompt, documents, cards), and
+everything unassigned sits below under **Conversations**. A conversation joins or
+leaves through **Conversation settings**; membership is a single link, so joining,
+leaving, or deleting the workspace leaves the conversation's own cards and
+messages exactly as they were. In a member conversation the card panel lists the
+workspace's cards read-only, with the same live "active" dots as its own; editing
+them happens in the workspace so a change to shared context is always a deliberate
+act.
+
+Documents are sent whole with every request and count as input tokens, so keep
+them to what the conversations actually need.
+
 ### Templates
 
 Set up a conversation the way you like — system messages, cards, settings, a few
 seed messages — and save it as a **template**. Starting from a template clones all
 of that into a fresh conversation. Templates live in the sidebar.
+
+Templates keep their workspace link: save a workspace conversation as a template
+and every conversation started from it joins that workspace automatically.
 
 ---
 
