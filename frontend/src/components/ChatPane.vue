@@ -8,10 +8,11 @@ import { formatTime } from '../format.js'
 import { CHECK_SVG, COPY_SVG, renderMarkdown } from '../md.js'
 import { refreshMemory } from '../memory.js'
 import { enterToSend, fontScale } from '../prefs.js'
-import { currentConversation, effectiveSettings, EFFORT_LEVELS, models, persistNow, sidebarOpen, workspaceOf } from '../store.js'
+import { currentConversation, effectiveSettings, EFFORT_LEVELS, persistNow, sidebarOpen, workspaceOf } from '../store.js'
 import { generateTitle } from '../titles.js'
 import CardsPanel from './CardsPanel.vue'
 import DebugPanel from './DebugPanel.vue'
+import ModelSelect from './ModelSelect.vue'
 import Modal from './Modal.vue'
 import ContextPanel from './ContextPanel.vue'
 import SettingsPanel from './SettingsPanel.vue'
@@ -375,13 +376,11 @@ async function regenTitle() {
       <div class="flex items-center gap-2 px-3 py-1.5">
         <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" title="Model">
           <Bot :size="14" />
-          <select
-            :value="effectiveSettings(convo).model"
+          <ModelSelect
+            :model-value="effectiveSettings(convo).model"
             class="max-w-[9rem] bg-transparent py-1 pr-1 text-xs text-base outline-none"
-            @change="setModel($event.target.value)"
-          >
-            <option v-for="m in models" :key="m.id" :value="m.id">{{ m.label }}</option>
-          </select>
+            @update:model-value="setModel"
+          />
         </div>
         <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" title="Thinking effort">
           <Brain :size="14" />
