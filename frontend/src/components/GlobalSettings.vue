@@ -1,10 +1,18 @@
 <script setup>
 import { ref } from 'vue'
-import { downloadExport, EFFORT_LEVELS, globalSettings, importData, models, persistGlobal } from '../store.js'
+import { downloadExport, EFFORT_LEVELS, globalSettings, importData, persistGlobal } from '../store.js'
 import { enterToSend, fontScale } from '../prefs.js'
+import ModelSelect from './ModelSelect.vue'
 
 // Edits the global defaults (absolute values, no inherit). New conversations copy these.
 const g = globalSettings // ref auto-unwraps in template
+
+// The model selects emit a value instead of firing a native change event, so assign
+// and persist in one step rather than pairing v-model with a separate @change.
+const setGlobal = (k, v) => {
+  g.value[k] = v
+  persistGlobal()
+}
 // fontScale / enterToSend are frontend-only prefs; their own watchers persist on change.
 
 const importMsg = ref('')
@@ -28,16 +36,12 @@ async function onImportFile(e) {
 
     <div>
       <label class="mb-1 block text-muted">Model</label>
-      <select v-model="g.model" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal">
-        <option v-for="m in models" :key="m.id" :value="m.id">{{ m.label }}</option>
-      </select>
+      <ModelSelect :model-value="g.model" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setGlobal('model', $event)" />
     </div>
 
     <div>
       <label class="mb-1 block text-muted">Utility model (titles &amp; compression)</label>
-      <select v-model="g.utility_model" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal">
-        <option v-for="m in models" :key="m.id" :value="m.id">{{ m.label }}</option>
-      </select>
+      <ModelSelect :model-value="g.utility_model" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setGlobal('utility_model', $event)" />
     </div>
 
     <div>

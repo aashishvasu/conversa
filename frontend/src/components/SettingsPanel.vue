@@ -1,7 +1,8 @@
 <script setup>
 import { ref } from 'vue'
 import { confirmDelete } from '../confirm.js'
-import { effectiveSettings, EFFORT_LEVELS, globalSettings, models, saveAsTemplate, workspaces } from '../store.js'
+import { effectiveSettings, EFFORT_LEVELS, globalSettings, saveAsTemplate, workspaces } from '../store.js'
+import ModelSelect from './ModelSelect.vue'
 
 const props = defineProps({ convo: Object })
 
@@ -42,16 +43,12 @@ async function clearMemory() {
 
     <div>
       <label class="mb-1 block text-muted">Model</label>
-      <select :value="eff('model')" class="w-full rounded bg-surface2 px-2 py-1" @change="setOv('model', $event.target.value)">
-        <option v-for="m in models" :key="m.id" :value="m.id">{{ m.label }}</option>
-      </select>
+      <ModelSelect :model-value="eff('model')" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setOv('model', $event)" />
     </div>
 
     <div>
       <label class="mb-1 block text-muted">Utility model (titles &amp; compression)</label>
-      <select :value="eff('utility_model')" class="w-full rounded bg-surface2 px-2 py-1" @change="setOv('utility_model', $event.target.value)">
-        <option v-for="m in models" :key="m.id" :value="m.id">{{ m.label }}</option>
-      </select>
+      <ModelSelect :model-value="eff('utility_model')" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setOv('utility_model', $event)" />
     </div>
 
     <div>
@@ -121,7 +118,7 @@ async function clearMemory() {
         <span>Memory (auto-refreshes after each reply)</span>
         <button class="text-indigo-500" @click="clearMemory">Clear</button>
       </label>
-      <textarea v-model="convo.memory" rows="4" placeholder="(empty — builds automatically as the conversation grows)" class="w-full rounded bg-surface2 px-2 py-1 text-xs"></textarea>
+      <textarea v-model="convo.memory" rows="4" placeholder="(empty; builds automatically as the conversation grows)" class="w-full rounded bg-surface2 px-2 py-1 text-xs"></textarea>
     </div>
 
     <hr class="border-edge" />

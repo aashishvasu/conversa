@@ -1,6 +1,6 @@
 <script setup>
 import { Bot, Brain, Bug, Check, ChevronDown, ChevronRight, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User, X } from 'lucide-vue-next'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
 import { buildPayload, sendWindow } from '../cards.js'
 import { confirmDelete } from '../confirm.js'
@@ -8,10 +8,11 @@ import { formatTime } from '../format.js'
 import { CHECK_SVG, COPY_SVG, renderMarkdown } from '../md.js'
 import { refreshMemory } from '../memory.js'
 import { enterToSend, fontScale } from '../prefs.js'
-import { currentConversation, effectiveSettings, EFFORT_LEVELS, models, persistNow, sidebarOpen, workspaceOf } from '../store.js'
+import { currentConversation, effectiveSettings, EFFORT_LEVELS, persistNow, sidebarOpen, workspaceOf } from '../store.js'
 import { generateTitle } from '../titles.js'
 import CardsPanel from './CardsPanel.vue'
 import DebugPanel from './DebugPanel.vue'
+import ModelSelect from './ModelSelect.vue'
 import Modal from './Modal.vue'
 import ContextPanel from './ContextPanel.vue'
 import SettingsPanel from './SettingsPanel.vue'
@@ -27,7 +28,7 @@ let editBackup = null // original {content, role} so Cancel can revert; null = n
 const copiedId = ref(null)
 const activeId = ref(null) // tapped bubble: shows its action toolbar (mobile has no hover)
 // Live thinking/search trace for the latest turn. Deliberately ephemeral: not on the
-// message, not persisted — a reload wipes it. It stays visible after the turn completes
+// message, not persisted, so a reload wipes it. It stays visible after the turn completes
 // (until the next send resets it), and can be collapsed via liveOpen.
 const streamId = ref(null)
 const liveTrace = ref([])
@@ -37,7 +38,7 @@ const scroller = ref(null)
 let controller = null
 
 // Render only the last N messages for speed; "Load more" reveals older ones in
-// PAGE_SIZE batches. Tune PAGE_SIZE here. Display-only — all messages stay in memory
+// PAGE_SIZE batches. Tune PAGE_SIZE here. Display-only: all messages stay in memory,
 // and what's sent to the API is governed separately by num_messages_to_send.
 const PAGE_SIZE = 100
 const visibleCount = ref(PAGE_SIZE)
@@ -48,9 +49,9 @@ const visibleMessages = computed(() => {
 
 const ROLE_ICON = { user: User, assistant: Bot, system: Cog }
 
-// First message of the send window — a divider renders above it so the user can
-// see how much of the conversation goes to the model. Pins/system are always sent
-// regardless and aren't marked.
+// First message of the send window. A divider renders above it so the user can see
+// how much of the conversation goes to the model. Pins and system messages go every
+// turn regardless, so they carry no marker.
 const windowStartId = computed(() =>
   convo.value ? sendWindow(convo.value, effectiveSettings(convo.value))[0]?.id : null,
 )
@@ -94,8 +95,8 @@ function removeMessage(id) {
   convo.value.messages = convo.value.messages.filter((m) => m.id !== id)
   if (editingId.value === id) editingId.value = null
 }
-// Trash button: confirm first. (cancelEdit calls removeMessage directly — discarding
-// a blank new message needs no confirmation.)
+// Trash button: confirm first. (cancelEdit calls removeMessage directly, since
+// discarding a blank new message needs no confirmation.)
 async function confirmRemoveMessage(id) {
   if (await confirmDelete('Delete this message?')) removeMessage(id)
 }
@@ -138,21 +139,65 @@ watch(convo, () => {
   scrollDown()
 })
 // On reload, convo already has its value when this mounts, so the watcher above
-// won't fire — scroll to the bottom once for the initial conversation.
+// won't fire. Scroll to the bottom once for the initial conversation.
 onMounted(scrollDown)
+
+// --- Backgrounded-tab streams ---------------------------------------------------
+// Mobile browsers freeze a backgrounded tab and the read hangs: no chunks, no error,
+// so `finally` never runs and the composer stays locked behind a spinner. Two
+// defences. A screen wake lock held while streaming prevents the freeze when the
+// cause is the screen locking. And on returning to a visible tab, a stream that went
+// silent is aborted through the existing stop() path, keeping the partial reply and
+// unlocking the composer.
+// Neither provider can restart a dropped stream, so a clean stop is the best outcome
+// available. Typing "continue" picks up from the partial assistant turn, which the
+// next request already sends as history.
+// The knob: 60s of silence, no server keepalive. If a long search or thinking gap
+// trips it, emit a periodic `: ping` from /api/chat and key the watchdog off that.
+const STALL_MS = 60_000
+let lastChunkAt = 0
+let wakeLock = null
+
+async function acquireWakeLock() {
+  // The lock is dropped automatically whenever the page hides, so this re-runs on
+  // every return to visible. Unsupported, insecure-context, and denied all land in
+  // catch, and the watchdog below still covers those cases.
+  try {
+    wakeLock = (await navigator.wakeLock?.request('screen')) || null
+  } catch { /* best-effort */ }
+}
+function releaseWakeLock() {
+  wakeLock?.release().catch(() => {})
+  wakeLock = null
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState !== 'visible' || !streaming.value) return
+  acquireWakeLock()
+  if (Date.now() - lastChunkAt > STALL_MS) controller?.abort()
+}
+onMounted(() => document.addEventListener('visibilitychange', onVisibilityChange))
+onUnmounted(() => document.removeEventListener('visibilitychange', onVisibilityChange))
 
 async function runCompletion(c) {
   const settings = effectiveSettings(c)
   streaming.value = true
   controller = new AbortController()
+  lastChunkAt = Date.now() // watchdog baseline: nothing has arrived yet
+  acquireWakeLock()
   let assistant = null
   try {
     const payload = buildPayload(c, settings, workspaceOf(c)) // built BEFORE the empty assistant placeholder
     c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() })
-    assistant = c.messages.at(-1) // reactive proxy, not the raw object — so streamed tokens render live
+    assistant = c.messages.at(-1) // the reactive proxy, so streamed tokens render live
     liveTrace.value = []
     streamId.value = assistant.id
-    await streamChat(payload, (t) => (assistant.content += t), controller.signal, (type, value) => {
+    // Every frame, text or trace, counts as liveness for the stall watchdog.
+    await streamChat(payload, (t) => {
+      lastChunkAt = Date.now()
+      assistant.content += t
+    }, controller.signal, (type, value) => {
+      lastChunkAt = Date.now()
       const last = liveTrace.value.at(-1) // coalesce a run of thinking deltas into one entry
       if (type === 'thinking' && last?.type === 'thinking') last.text += value
       else if (type === 'results') liveTrace.value.push({ type, links: value })
@@ -169,7 +214,8 @@ async function runCompletion(c) {
       assistant.content += `${assistant.content ? '\n\n' : ''}> ⚠️ **Error:** ${e.message}`
   } finally {
     streaming.value = false
-    // Refresh the memory summary in the background — never blocks the send path.
+    releaseWakeLock()
+    // Refresh the memory summary in the background, off the send path.
     refreshMemory(c, settings).catch(() => {})
     persistNow() // don't let a quick reload lose the completed message
   }
@@ -214,7 +260,7 @@ async function send() {
 }
 
 // Regenerate: re-stream from a message, discarding everything after it. From an
-// assistant turn, the turn itself is discarded too — back to the last user turn,
+// assistant turn, the turn itself is discarded too, back to the last user turn,
 // which is kept. System messages are never discarded (they're standing instructions).
 function regenerate(m) {
   if (streaming.value || !convo.value) return
@@ -224,7 +270,7 @@ function regenerate(m) {
   let cut = idx
   if (m.role === 'assistant') {
     while (cut >= 0 && c.messages[cut].role !== 'user') cut--
-    if (cut < 0) return // no user turn before it — nothing to regenerate from
+    if (cut < 0) return // no user turn before it, so nothing to regenerate from
   }
   c.messages = c.messages.filter((x, i) => i <= cut || x.role === 'system')
   runCompletion(c)
@@ -375,13 +421,11 @@ async function regenTitle() {
       <div class="flex items-center gap-2 px-3 py-1.5">
         <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" title="Model">
           <Bot :size="14" />
-          <select
-            :value="effectiveSettings(convo).model"
+          <ModelSelect
+            :model-value="effectiveSettings(convo).model"
             class="max-w-[9rem] bg-transparent py-1 pr-1 text-xs text-base outline-none"
-            @change="setModel($event.target.value)"
-          >
-            <option v-for="m in models" :key="m.id" :value="m.id">{{ m.label }}</option>
-          </select>
+            @update:model-value="setModel"
+          />
         </div>
         <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" title="Thinking effort">
           <Brain :size="14" />
