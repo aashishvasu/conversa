@@ -28,7 +28,7 @@ let editBackup = null // original {content, role} so Cancel can revert; null = n
 const copiedId = ref(null)
 const activeId = ref(null) // tapped bubble: shows its action toolbar (mobile has no hover)
 // Live thinking/search trace for the latest turn. Deliberately ephemeral: not on the
-// message, not persisted — a reload wipes it. It stays visible after the turn completes
+// message, not persisted, so a reload wipes it. It stays visible after the turn completes
 // (until the next send resets it), and can be collapsed via liveOpen.
 const streamId = ref(null)
 const liveTrace = ref([])
@@ -38,7 +38,7 @@ const scroller = ref(null)
 let controller = null
 
 // Render only the last N messages for speed; "Load more" reveals older ones in
-// PAGE_SIZE batches. Tune PAGE_SIZE here. Display-only — all messages stay in memory
+// PAGE_SIZE batches. Tune PAGE_SIZE here. Display-only: all messages stay in memory,
 // and what's sent to the API is governed separately by num_messages_to_send.
 const PAGE_SIZE = 100
 const visibleCount = ref(PAGE_SIZE)
@@ -49,9 +49,9 @@ const visibleMessages = computed(() => {
 
 const ROLE_ICON = { user: User, assistant: Bot, system: Cog }
 
-// First message of the send window — a divider renders above it so the user can
-// see how much of the conversation goes to the model. Pins/system are always sent
-// regardless and aren't marked.
+// First message of the send window. A divider renders above it so the user can see
+// how much of the conversation goes to the model. Pins and system messages go every
+// turn regardless, so they carry no marker.
 const windowStartId = computed(() =>
   convo.value ? sendWindow(convo.value, effectiveSettings(convo.value))[0]?.id : null,
 )
@@ -95,8 +95,8 @@ function removeMessage(id) {
   convo.value.messages = convo.value.messages.filter((m) => m.id !== id)
   if (editingId.value === id) editingId.value = null
 }
-// Trash button: confirm first. (cancelEdit calls removeMessage directly — discarding
-// a blank new message needs no confirmation.)
+// Trash button: confirm first. (cancelEdit calls removeMessage directly, since
+// discarding a blank new message needs no confirmation.)
 async function confirmRemoveMessage(id) {
   if (await confirmDelete('Delete this message?')) removeMessage(id)
 }
@@ -139,22 +139,21 @@ watch(convo, () => {
   scrollDown()
 })
 // On reload, convo already has its value when this mounts, so the watcher above
-// won't fire — scroll to the bottom once for the initial conversation.
+// won't fire. Scroll to the bottom once for the initial conversation.
 onMounted(scrollDown)
 
 // --- Backgrounded-tab streams ---------------------------------------------------
-// Mobile browsers freeze a backgrounded tab: reader.read() stops settling, so the
-// stream neither delivers nor throws, `finally` never runs, and the composer stays
-// locked behind a spinner forever. Two defences. A screen wake lock while streaming
-// stops the freeze happening at all when the cause is the screen locking; and on
-// returning to a visible tab we abort a stream that went silent while we were away,
-// which routes it through the existing stop() path — partial reply kept and persisted,
-// composer unlocked. There's nothing to resume: neither provider can restart a dropped
-// stream, so the goal is a clean stop, not recovery. Type "continue" to carry on — the
-// partial assistant turn is already in the history the next request sends.
-// ponytail: 60s of silence, no server keepalive. A long search or thinking gap could
-// in principle trip it; if that shows up, emit a periodic `: ping` comment from
-// /api/chat and key the watchdog off that instead of off content frames.
+// Mobile browsers freeze a backgrounded tab and the read hangs: no chunks, no error,
+// so `finally` never runs and the composer stays locked behind a spinner. Two
+// defences. A screen wake lock held while streaming prevents the freeze when the
+// cause is the screen locking. And on returning to a visible tab, a stream that went
+// silent is aborted through the existing stop() path, keeping the partial reply and
+// unlocking the composer.
+// Neither provider can restart a dropped stream, so a clean stop is the best outcome
+// available. Typing "continue" picks up from the partial assistant turn, which the
+// next request already sends as history.
+// The knob: 60s of silence, no server keepalive. If a long search or thinking gap
+// trips it, emit a periodic `: ping` from /api/chat and key the watchdog off that.
 const STALL_MS = 60_000
 let lastChunkAt = 0
 let wakeLock = null
@@ -162,7 +161,7 @@ let wakeLock = null
 async function acquireWakeLock() {
   // The lock is dropped automatically whenever the page hides, so this re-runs on
   // every return to visible. Unsupported, insecure-context, and denied all land in
-  // catch — the watchdog below still covers those cases.
+  // catch, and the watchdog below still covers those cases.
   try {
     wakeLock = (await navigator.wakeLock?.request('screen')) || null
   } catch { /* best-effort */ }
@@ -190,10 +189,10 @@ async function runCompletion(c) {
   try {
     const payload = buildPayload(c, settings, workspaceOf(c)) // built BEFORE the empty assistant placeholder
     c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() })
-    assistant = c.messages.at(-1) // reactive proxy, not the raw object — so streamed tokens render live
+    assistant = c.messages.at(-1) // the reactive proxy, so streamed tokens render live
     liveTrace.value = []
     streamId.value = assistant.id
-    // Every frame — text or trace — counts as liveness for the stall watchdog.
+    // Every frame, text or trace, counts as liveness for the stall watchdog.
     await streamChat(payload, (t) => {
       lastChunkAt = Date.now()
       assistant.content += t
@@ -216,7 +215,7 @@ async function runCompletion(c) {
   } finally {
     streaming.value = false
     releaseWakeLock()
-    // Refresh the memory summary in the background — never blocks the send path.
+    // Refresh the memory summary in the background, off the send path.
     refreshMemory(c, settings).catch(() => {})
     persistNow() // don't let a quick reload lose the completed message
   }
@@ -261,7 +260,7 @@ async function send() {
 }
 
 // Regenerate: re-stream from a message, discarding everything after it. From an
-// assistant turn, the turn itself is discarded too — back to the last user turn,
+// assistant turn, the turn itself is discarded too, back to the last user turn,
 // which is kept. System messages are never discarded (they're standing instructions).
 function regenerate(m) {
   if (streaming.value || !convo.value) return
@@ -271,7 +270,7 @@ function regenerate(m) {
   let cut = idx
   if (m.role === 'assistant') {
     while (cut >= 0 && c.messages[cut].role !== 'user') cut--
-    if (cut < 0) return // no user turn before it — nothing to regenerate from
+    if (cut < 0) return // no user turn before it, so nothing to regenerate from
   }
   c.messages = c.messages.filter((x, i) => i <= cut || x.role === 'system')
   runCompletion(c)

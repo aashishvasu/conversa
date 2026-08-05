@@ -20,8 +20,8 @@ load_dotenv()
 API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 APP_PASSWORD = os.environ.get("APP_PASSWORD")
-# Signing key for session tokens. If unset, generate a random one per process —
-# secure by default, but restarting logs everyone out. Set it to persist sessions.
+# Signing key for session tokens. If unset, generate a random one per process: secure
+# by default, though restarting logs everyone out. Set it to persist sessions.
 JWT_SECRET = os.environ.get("JWT_SECRET") or secrets.token_urlsafe(32)
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL_SECONDS", str(7 * 24 * 3600)))
 
@@ -31,7 +31,7 @@ DEFAULT_NUM_MESSAGES = int(os.environ.get("DEFAULT_NUM_MESSAGES", "20"))
 DEFAULT_SEND_SYSTEM = os.environ.get("DEFAULT_SEND_SYSTEM_PROMPT", "true").lower() == "true"
 DEFAULT_MAX_TOKENS = int(os.environ.get("DEFAULT_MAX_TOKENS", "4096"))
 # Thinking effort: "" (off), "low", "medium", "high". See apply_thinking() for how it
-# reaches the API — the wire format differs between model generations.
+# reaches the API. The wire format differs between model generations.
 DEFAULT_EFFORT = os.environ.get("DEFAULT_EFFORT", "")
 # Cheap model for auxiliary tasks: title generation and history compression.
 DEFAULT_UTILITY_MODEL = os.environ.get("DEFAULT_UTILITY_MODEL", "claude-haiku-4-5")
@@ -43,13 +43,13 @@ WEB_SEARCH_TOOL = os.environ.get("WEB_SEARCH_TOOL_VERSION", "web_search_20250305
 # Server-side web fetch tool (lets the model open a URL the user pastes). Beta-gated.
 WEB_FETCH_TOOL = os.environ.get("WEB_FETCH_TOOL_VERSION", "web_fetch_20250910")
 WEB_FETCH_BETA = os.environ.get("WEB_FETCH_BETA", "web-fetch-2025-09-10")
-# OpenAI's hosted search tool — same idea, one tool covering both search and page opens.
-# Empty disables it.
+# OpenAI's hosted search tool. One tool covers both searching and opening pages, so it
+# stands in for WEB_SEARCH_TOOL and WEB_FETCH_TOOL together. Empty disables it.
 OPENAI_WEB_SEARCH = os.environ.get("OPENAI_WEB_SEARCH_TOOL", "web_search")
 
 # Models predating adaptive thinking (pre-4.6). They take the old fixed-token-budget
 # form, reject output_config.effort, and accept temperature. Everything newer takes the
-# modern form. Unknown ids are assumed modern — that's the direction the API moved.
+# modern form. Unknown ids are assumed modern, the direction the API moved.
 # Hand-maintained: add an id here if you expose an older model via MODELS.
 LEGACY_MODELS = {
     "claude-haiku-4-5",
@@ -66,12 +66,12 @@ LEGACY_MODELS = {
 LEGACY_EFFORT_BUDGETS = {"low": 4000, "medium": 10000, "high": 24000}
 
 # The effort vocabulary the frontend offers (store.js EFFORT_LEVELS). Anthropic takes it
-# as output_config.effort, OpenAI as reasoning.effort — the same three words either way,
-# which is why the lever needs no per-provider translation.
+# as output_config.effort, OpenAI as reasoning.effort. Both use these three words, so the
+# lever needs no per-provider translation.
 EFFORT_VALUES = ("low", "medium", "high")
 
 # OpenAI reasoning models take reasoning.effort and reject temperature; older chat models
-# are the inverse. Prefix match, hand-maintained — same deal as LEGACY_MODELS above.
+# are the inverse. Prefix match, hand-maintained like LEGACY_MODELS above.
 OPENAI_REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 
 
@@ -79,7 +79,7 @@ def apply_thinking(kwargs, effort, max_tokens):
     """Attach thinking config for `effort` ("", low, medium, high) to an API kwargs dict.
 
     Modern models (4.6+): adaptive thinking + output_config.effort, and no sampling
-    params at all — Opus 4.7+ reject `temperature` whether or not thinking is on.
+    params at all, since Opus 4.7+ reject `temperature` whether or not thinking is on.
     Legacy models: the pre-4.6 fixed budget, which requires budget < max_tokens and
     also drops temperature. Mutates and returns kwargs.
     """
@@ -120,9 +120,10 @@ BUILTIN_MODELS = (
 def split_model(mid):
     """"openai/gpt-5.6" -> ("openai", "gpt-5.6"); a bare id -> ("anthropic", id).
 
-    Unprefixed means Anthropic permanently — not a migration step. Conversations saved
-    before OpenAI support store bare ids in IndexedDB, and .env files still use them.
-    rpartition (not split) so a model id containing a slash keeps working.
+    Unprefixed means Anthropic permanently, the way a bare Docker image name means
+    docker.io. Conversations saved before OpenAI support hold bare ids in IndexedDB and
+    .env files still use them, so this stays true rather than becoming a migration step.
+    rpartition, so a model id that itself contains a slash splits at the last one.
     """
     provider, _, name = mid.rpartition("/")
     return (provider or "anthropic"), name
@@ -150,9 +151,9 @@ ALL_MODELS = parse_models(BUILTIN_MODELS + "," + os.environ.get("MODELS", ""))
 # 503 on send, and silently (swallowed) when it's the utility model.
 MODELS = [m for m in ALL_MODELS if m["provider"] in CONFIGURED]
 
-# Misconfiguration is reported, never fatal — one missing key shouldn't stop the other
-# provider from working. These ride along on /api/settings so the UI can say why a model
-# is missing instead of leaving the user with an empty dropdown and no explanation.
+# Config problems downgrade the app and let it start: with one key missing the other
+# provider still works. These ride along on /api/settings so the UI can name the cause of
+# a missing model, which a startup crash or a bare 503 on send both fail to do.
 CONFIG_ERRORS = []
 
 
@@ -165,7 +166,7 @@ _dropped = [m["id"] for m in ALL_MODELS if m["provider"] not in CONFIGURED]
 if _dropped:
     _missing = sorted({split_model(i)[0] for i in _dropped})
     _config_error(
-        f"No API key for {', '.join(_missing)} — hidden from the model list: {', '.join(_dropped)}"
+        f"No API key for {', '.join(_missing)}. Hidden from the model list: {', '.join(_dropped)}"
     )
 for _name, _mid in (("DEFAULT_MODEL", DEFAULT_MODEL), ("DEFAULT_UTILITY_MODEL", DEFAULT_UTILITY_MODEL)):
     if not any(m["id"] == _mid for m in MODELS):
@@ -246,7 +247,7 @@ def settings(_=Depends(require_auth)):
         "use_memory": DEFAULT_USE_MEMORY,
         "summarize_n": DEFAULT_SUMMARIZE_N,
         "use_recall": DEFAULT_USE_RECALL,
-        # Not a setting — server-side config problems for the UI to surface. App.vue
+        # Not a setting: server-side config problems for the UI to surface. App.vue
         # strips this before the rest is merged into globalSettings.
         "config_errors": CONFIG_ERRORS,
     }
@@ -263,9 +264,12 @@ def sse(**payload):
 
 
 def field(obj, name):
-    """Read a field off an SDK model or a plain dict — OpenAI annotation and action
-    shapes vary between SDK versions, and a mismatch should mean 'no trace event',
-    not a dead stream."""
+    """Read a field off an SDK model or a plain dict.
+
+    OpenAI annotation and action shapes vary between SDK versions. On a shape this
+    doesn't recognise it returns None, which costs one trace event and leaves the
+    stream running.
+    """
     return obj.get(name) if isinstance(obj, dict) else getattr(obj, name, None)
 
 
@@ -310,17 +314,17 @@ async def anthropic_stream(model, messages, system, max_tokens, effort, temperat
 
 
 async def openai_stream(model, messages, system, max_tokens, effort, temperature):
-    """Emits the same SSE frames as anthropic_stream — api.js can't tell them apart."""
+    """Emits the same SSE frames as anthropic_stream, so api.js handles both alike."""
     kwargs = dict(model=model, input=messages, max_output_tokens=max_tokens, stream=True)
     if system:
         kwargs["instructions"] = system  # the Responses API's system-prompt slot
     if model.startswith(OPENAI_REASONING_PREFIXES):
         if effort:
-            # summary="auto" mirrors Anthropic's display="summarized" — without it no
-            # reasoning text streams at all. It doesn't guarantee a trace though: effort
-            # is a hint, and at "low" with a short system prompt the model often skips
-            # reasoning entirely (verified — no reasoning item in the response at all).
-            # An empty thinking trace on an easy turn is the model's call, not a bug.
+            # summary="auto" mirrors Anthropic's display="summarized": it is what makes
+            # reasoning text stream at all. The trace can still come out empty, because
+            # effort is a hint. Verified against the API: at "low" with a short system
+            # prompt, gpt-5.6 often returns no reasoning item, while "high" reasons
+            # reliably. An empty trace on an easy turn is the model's call.
             kwargs["reasoning"] = {"effort": effort, "summary": "auto"}
     else:
         kwargs["temperature"] = temperature  # reasoning models reject it
@@ -344,8 +348,8 @@ async def openai_stream(model, messages, system, max_tokens, effort, temperature
             elif etype == "response.output_text.annotation.added":
                 a = field(event, "annotation")
                 if field(a, "type") == "url_citation":
-                    # ponytail: one citation per frame, where Anthropic batches them —
-                    # the trace shows more, smaller groups. Buffer if that reads noisy.
+                    # One citation per frame, where Anthropic batches them, so the trace
+                    # shows more and smaller groups. Buffer here if that reads noisy.
                     yield sse(results=[{"title": field(a, "title"), "url": field(a, "url")}])
             elif etype == "error":
                 yield sse(error=str(field(event, "message") or event))
@@ -382,7 +386,7 @@ async def chat(req: ChatRequest, _=Depends(require_auth)):
     return StreamingResponse(gen, media_type="text/event-stream")
 
 
-# Serve the built SPA in production (same origin → no CORS needed). API lives under /api.
+# Serve the built SPA in production (same origin, so no CORS needed). API lives under /api.
 if os.path.isdir("static"):
     app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
@@ -409,7 +413,7 @@ if __name__ == "__main__":  # self-check: python main.py (uvicorn imports app, n
     assert m["max_tokens"] > m["thinking"]["budget_tokens"], m
     assert "output_config" not in m and "temperature" not in m, m
 
-    # Legacy model, thinking off: temperature survives — legacy models still accept it.
+    # Legacy model, thinking off: temperature survives, since legacy models accept it.
     m = apply_thinking(_k("claude-haiku-4-5", temperature=0.3), "", 4096)
     assert m["temperature"] == 0.3, m
     assert "thinking" not in m, m
@@ -417,8 +421,8 @@ if __name__ == "__main__":  # self-check: python main.py (uvicorn imports app, n
     # Unknown ids are treated as modern, not legacy.
     assert "output_config" in apply_thinking(_k("claude-future-9"), "low", 4096)
 
-    # A bare id means Anthropic — permanently, not as a migration step. Conversations
-    # saved before OpenAI support store bare ids, so this must never change.
+    # A bare id means Anthropic, permanently. Conversations saved before OpenAI support
+    # hold bare ids, so this behaviour stays true for good.
     assert split_model("claude-opus-5") == ("anthropic", "claude-opus-5")
     assert split_model("openai/gpt-5.6") == ("openai", "gpt-5.6")
     # rpartition, so a provider id that itself contains a slash still splits at the last one.

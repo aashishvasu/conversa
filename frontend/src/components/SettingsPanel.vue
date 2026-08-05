@@ -118,7 +118,7 @@ async function clearMemory() {
         <span>Memory (auto-refreshes after each reply)</span>
         <button class="text-indigo-500" @click="clearMemory">Clear</button>
       </label>
-      <textarea v-model="convo.memory" rows="4" placeholder="(empty — builds automatically as the conversation grows)" class="w-full rounded bg-surface2 px-2 py-1 text-xs"></textarea>
+      <textarea v-model="convo.memory" rows="4" placeholder="(empty; builds automatically as the conversation grows)" class="w-full rounded bg-surface2 px-2 py-1 text-xs"></textarea>
     </div>
 
     <hr class="border-edge" />

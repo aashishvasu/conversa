@@ -2,11 +2,11 @@
 import { computed } from 'vue'
 import { models } from '../store.js'
 
-// The one model dropdown — composer toolbar, per-conversation settings, and global
+// The one model dropdown. The composer toolbar, per-conversation settings, and global
 // settings all render this (twice each in the settings panels: model + utility model).
 // Native <optgroup> gives real section headers on iOS and Android with no JS.
-// The provider is grouping only: which provider a model belongs to isn't a choice the
-// user makes, so there's no provider control anywhere.
+// The provider is grouping only. Picking a model is the user's choice; picking a
+// provider is a consequence of it, so no provider control exists anywhere.
 
 const PROVIDER_LABELS = { anthropic: 'Anthropic', openai: 'OpenAI' }
 

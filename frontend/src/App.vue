@@ -9,15 +9,15 @@ import Sidebar from './components/Sidebar.vue'
 
 const ready = ref(false)
 // Server-side config problems (missing provider key, unusable DEFAULT_MODEL). Shown
-// once, dismissible — without this a keyless provider just means models quietly absent
-// from the dropdown, or a utility model that fails silently.
+// once, dismissible. It is the only place the user learns why a model vanished from the
+// dropdown, or why a utility model stopped producing titles and memory.
 const configErrors = ref([])
 
 onMounted(async () => {
   await initStore()
   if (getToken()) {
     try {
-      await onAuthed(await fetchSettings()) // saved token still valid → skip login
+      await onAuthed(await fetchSettings()) // saved token still valid, so skip login
     } catch {
       logout()
     }

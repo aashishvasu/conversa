@@ -22,13 +22,13 @@ async function summarize(msgs, model) {
   return out.trim()
 }
 
-// Refresh convo.memory in the background — fired after each assistant reply,
-// never awaited in the send path. Summarizes the summarize_n turns just above
-// the send window. memoryCount records where coverage ends; buildPayload sends
-// everything after it verbatim, so an in-flight or stale summary only widens
-// the verbatim window — nothing ever falls in a gap.
-// ponytail: turns older than summarize_n + send window drop out of context
-// entirely (use_recall retrieves them on demand); rolling accumulation later if missed.
+// Refresh convo.memory in the background, fired after each assistant reply and left
+// off the send path. Summarizes the summarize_n turns just above the send window.
+// memoryCount records where coverage ends; buildPayload sends everything after it
+// verbatim, so an in-flight or stale summary only widens the verbatim window and
+// every turn stays covered by one or the other.
+// Turns older than summarize_n + the send window drop out of context entirely, and
+// use_recall retrieves them on demand. Rolling accumulation is the upgrade path.
 const inflight = new Map() // convo.id -> seq; the last-started refresh wins
 export async function refreshMemory(convo, settings) {
   if (!settings.use_memory) return
