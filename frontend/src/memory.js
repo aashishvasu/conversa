@@ -6,8 +6,8 @@ async function summarize(msgs, model) {
   const transcript = msgs.map((m) => `${m.role}: ${m.content}`).join('\n\n')
   const system =
     'You summarize part of a conversation. Preserve key facts, decisions, names, ' +
-    'and anything needed to continue coherently. Output only the summary — no ' +
-    'preamble, no commentary.'
+    'and anything needed to continue coherently. Output only the summary, with no ' +
+    'preamble and no commentary.'
   let out = ''
   await streamChat(
     {
