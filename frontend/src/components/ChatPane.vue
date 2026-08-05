@@ -1,6 +1,6 @@
 <script setup>
 import { Bot, Brain, Bug, Check, ChevronDown, ChevronRight, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User, X } from 'lucide-vue-next'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
 import { buildPayload, sendWindow } from '../cards.js'
 import { confirmDelete } from '../confirm.js'
@@ -142,10 +142,50 @@ watch(convo, () => {
 // won't fire — scroll to the bottom once for the initial conversation.
 onMounted(scrollDown)
 
+// --- Backgrounded-tab streams ---------------------------------------------------
+// Mobile browsers freeze a backgrounded tab: reader.read() stops settling, so the
+// stream neither delivers nor throws, `finally` never runs, and the composer stays
+// locked behind a spinner forever. Two defences. A screen wake lock while streaming
+// stops the freeze happening at all when the cause is the screen locking; and on
+// returning to a visible tab we abort a stream that went silent while we were away,
+// which routes it through the existing stop() path — partial reply kept and persisted,
+// composer unlocked. There's nothing to resume: neither provider can restart a dropped
+// stream, so the goal is a clean stop, not recovery. Type "continue" to carry on — the
+// partial assistant turn is already in the history the next request sends.
+// ponytail: 60s of silence, no server keepalive. A long search or thinking gap could
+// in principle trip it; if that shows up, emit a periodic `: ping` comment from
+// /api/chat and key the watchdog off that instead of off content frames.
+const STALL_MS = 60_000
+let lastChunkAt = 0
+let wakeLock = null
+
+async function acquireWakeLock() {
+  // The lock is dropped automatically whenever the page hides, so this re-runs on
+  // every return to visible. Unsupported, insecure-context, and denied all land in
+  // catch — the watchdog below still covers those cases.
+  try {
+    wakeLock = (await navigator.wakeLock?.request('screen')) || null
+  } catch { /* best-effort */ }
+}
+function releaseWakeLock() {
+  wakeLock?.release().catch(() => {})
+  wakeLock = null
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState !== 'visible' || !streaming.value) return
+  acquireWakeLock()
+  if (Date.now() - lastChunkAt > STALL_MS) controller?.abort()
+}
+onMounted(() => document.addEventListener('visibilitychange', onVisibilityChange))
+onUnmounted(() => document.removeEventListener('visibilitychange', onVisibilityChange))
+
 async function runCompletion(c) {
   const settings = effectiveSettings(c)
   streaming.value = true
   controller = new AbortController()
+  lastChunkAt = Date.now() // watchdog baseline: nothing has arrived yet
+  acquireWakeLock()
   let assistant = null
   try {
     const payload = buildPayload(c, settings, workspaceOf(c)) // built BEFORE the empty assistant placeholder
@@ -153,7 +193,12 @@ async function runCompletion(c) {
     assistant = c.messages.at(-1) // reactive proxy, not the raw object — so streamed tokens render live
     liveTrace.value = []
     streamId.value = assistant.id
-    await streamChat(payload, (t) => (assistant.content += t), controller.signal, (type, value) => {
+    // Every frame — text or trace — counts as liveness for the stall watchdog.
+    await streamChat(payload, (t) => {
+      lastChunkAt = Date.now()
+      assistant.content += t
+    }, controller.signal, (type, value) => {
+      lastChunkAt = Date.now()
       const last = liveTrace.value.at(-1) // coalesce a run of thinking deltas into one entry
       if (type === 'thinking' && last?.type === 'thinking') last.text += value
       else if (type === 'results') liveTrace.value.push({ type, links: value })
@@ -170,6 +215,7 @@ async function runCompletion(c) {
       assistant.content += `${assistant.content ? '\n\n' : ''}> ⚠️ **Error:** ${e.message}`
   } finally {
     streaming.value = false
+    releaseWakeLock()
     // Refresh the memory summary in the background — never blocks the send path.
     refreshMemory(c, settings).catch(() => {})
     persistNow() // don't let a quick reload lose the completed message
