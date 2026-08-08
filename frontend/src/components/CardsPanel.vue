@@ -1,5 +1,5 @@
 <script setup>
-import { Ban, ChevronDown, CircleCheck, GripVertical, X } from 'lucide-vue-next'
+import { Ban, ChevronDown, CircleCheck, GripVertical, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { effectiveCards, matchedCardIds } from '../cards.js'
 import { confirmDelete } from '../confirm.js'

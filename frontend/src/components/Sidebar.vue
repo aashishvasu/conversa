@@ -1,5 +1,5 @@
 <script setup>
-import { Boxes, CopyPlus, Download, LogOut, Moon, Plus, SlidersHorizontal, Sun, X } from 'lucide-vue-next'
+import { Boxes, CopyPlus, Download, LogOut, Moon, Plus, SlidersHorizontal, Sun, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { logout } from '../api.js'
 import { confirmDelete } from '../confirm.js'

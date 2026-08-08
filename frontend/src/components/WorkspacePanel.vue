@@ -1,5 +1,5 @@
 <script setup>
-import { X } from 'lucide-vue-next'
+import { X } from '@lucide/vue'
 import { confirmDelete } from '../confirm.js'
 import CardsPanel from './CardsPanel.vue'
 

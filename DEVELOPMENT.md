@@ -9,7 +9,7 @@ the released container, see the [README](README.md).
 |-------|--------|-----|
 | Frontend | **Vue 3 + Vite** | Small, reactive, no build ceremony. |
 | Styling | **Tailwind CSS v4** | Semantic CSS-variable tokens that flip on `.dark`. |
-| Icons | **lucide-vue-next** | Consistent outline set. |
+| Icons | **@lucide/vue** | Consistent outline set. |
 | Markdown | **marked** + **DOMPurify** + **highlight.js** | Render, sanitize, highlight. Sanitizing is the security boundary. |
 | Client storage | **IndexedDB** (via `idb-keyval`) | All conversation state; survives reloads, with no size cliff like localStorage. |
 | Backend | **FastAPI** + **uvicorn** | Thin async proxy to the model providers. |
