@@ -105,6 +105,7 @@ function blank(overrides = {}) {
     workspaceId: null, // workspace membership is only this pointer
     settings: {}, // empty = inherit every key from globalSettings
     cards: [],
+    cardOverrides: {}, // workspace card id -> 'include' | 'skip', this convo only
     memory: '', // rolling summary of compressed-away history
     memoryCount: 0, // how many leading non-system messages are folded into memory
     messages: [{ id: crypto.randomUUID(), role: 'system', content: '', createdAt: Date.now() }],

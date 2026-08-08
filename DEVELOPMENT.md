@@ -120,8 +120,9 @@ request:
   then all system messages (same gate), the workspace's plain-text docs in full,
   the memory summary (if `use_memory`), and the content of any triggered cards.
   The card scan runs over workspace cards and convo cards together, workspace
-  first. Card triggers are comma-separated clauses (comma = OR, `&` inside a
-  clause = AND). Each card is prefixed with the clause that triggered it
+  first (`effectiveCards`). `convo.cardOverrides[cardId]` = `'include'` / `'skip'`
+  replaces a workspace card's force for that one conversation. Card triggers are
+  comma-separated clauses (comma = OR, `&` inside a clause = AND). Each card is prefixed with the clause that triggered it
   (`phrase: content`); force-include cards with no matching clause send bare
   content.
 - **`messages` array** gets pinned turns first (deduped), then the *send window*
