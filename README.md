@@ -235,7 +235,9 @@ leaving, or deleting the workspace leaves the conversation's own cards and
 messages exactly as they were. In a member conversation the card panel lists the
 workspace's cards read-only, with the same live "active" dots as its own; editing
 them happens in the workspace so a change to shared context is always a deliberate
-act.
+act. The include and exclude buttons on a workspace card are the exception: they
+are stored on the conversation, so one conversation can force a shared card to
+send every turn, or silence it, while the rest of the workspace keeps it as is.
 
 Documents are sent whole with every request and count as input tokens, so keep
 them to what the conversations actually need.

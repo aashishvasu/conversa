@@ -71,6 +71,18 @@ export function matchedCardIds(cards, messages, scanAssistant) {
   return new Set((cards || []).filter((c) => cardActive(c, text)).map((c) => c.id))
 }
 
+// Workspace cards merged ahead of the convo's own, so a convo card can refine a
+// workspace one. convo.cardOverrides[cardId] = 'include' | 'skip' replaces that
+// card's force for this convo; an absent key keeps the shared card's own force and
+// triggers. The copy is per-call, so the override stays on the convo that set it.
+export function effectiveCards(convo, workspace) {
+  const overrides = convo?.cardOverrides || {}
+  return [
+    ...(workspace?.cards || []).map((c) => (overrides[c.id] ? { ...c, force: overrides[c.id] } : c)),
+    ...(convo?.cards || []),
+  ]
+}
+
 // The turns sent verbatim this round. With memory on, everything past the
 // summary's coverage (memoryCount) but never fewer than num_messages_to_send —
 // so a summary that hasn't caught up yet, or deletes that shrank the list, only
@@ -170,7 +182,7 @@ export function buildPayload(convo, settings, workspace = null) {
     if (recalled.length) parts.push(`Relevant earlier messages (verbatim, for reference):\n\n${recalled.join('\n\n')}`)
   }
   // Cards are intentional, trigger-gated context — injected even if base system is off.
-  parts.push(...matchCards([...(workspace?.cards || []), ...(convo.cards || [])], window, convo.scanAssistant))
+  parts.push(...matchCards(effectiveCards(convo, workspace), window, convo.scanAssistant))
 
   return {
     system: parts.join('\n\n') || undefined,

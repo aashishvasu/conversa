@@ -1,7 +1,7 @@
 <script setup>
 import { Ban, ChevronDown, CircleCheck, GripVertical, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
-import { matchedCardIds } from '../cards.js'
+import { effectiveCards, matchedCardIds } from '../cards.js'
 import { confirmDelete } from '../confirm.js'
 import { effectiveSettings, workspaceOf } from '../store.js'
 
@@ -16,8 +16,19 @@ const ws = computed(() => workspaceOf(props.convo))
 const active = computed(() => {
   const n = effectiveSettings(props.convo).num_messages_to_send
   const turns = (props.convo.messages || []).filter((m) => m.role !== 'system').slice(-n)
-  return matchedCardIds([...(ws.value?.cards || []), ...props.convo.cards], turns, props.convo.scanAssistant)
+  return matchedCardIds(effectiveCards(props.convo, ws.value), turns, props.convo.scanAssistant)
 })
+
+// Per-convo override of a shared workspace card: same tri-state as force, stored on
+// the convo (cardOverrides), so it applies to this conversation alone.
+function overrideOf(id) {
+  return props.convo.cardOverrides?.[id] || null
+}
+function toggleOverride(e, id, mode) {
+  const ov = (props.convo.cardOverrides ||= {})
+  ov[id] === mode ? delete ov[id] : (ov[id] = mode)
+  e.currentTarget.blur()
+}
 
 // Cards grouped by their (display-only) folder path. Named folders first in
 // first-appearance order, ungrouped cards last. Matching ignores path entirely.
@@ -109,12 +120,14 @@ async function removeCard(id) {
     <!-- Shared cards, read-only here: editing one affects every conversation in the
          workspace, so edits go through the workspace editor in the sidebar. -->
     <template v-if="ws">
-      <p class="px-1 text-xs uppercase text-muted">Workspace cards · {{ ws.name }} (edit in workspace)</p>
+      <p class="px-1 text-xs uppercase text-muted">Workspace cards · {{ ws.name }} (edit in workspace; include/exclude is per-conversation)</p>
       <p v-if="!ws.cards.length" class="px-1 text-xs italic text-muted">No workspace cards.</p>
-      <details v-for="c in ws.cards" :key="c.id" class="rounded border" :class="active.has(c.id) ? 'border-green-500' : 'border-edge'">
+      <details v-for="c in ws.cards" :key="c.id" class="rounded border" :class="overrideOf(c.id) === 'skip' ? 'border-yellow-500' : active.has(c.id) ? 'border-green-500' : 'border-edge'">
         <summary class="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 [&::-webkit-details-marker]:hidden">
           <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(c.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(c.id) ? 'Active for next send' : 'Inactive'"></span>
           <span class="flex-1 truncate text-muted">{{ c.triggers || 'No triggers' }}</span>
+          <button class="shrink-0" :class="overrideOf(c.id) === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" title="Include in this conversation — always send" @click.stop.prevent="toggleOverride($event, c.id, 'include')"><CircleCheck :size="14" /></button>
+          <button class="shrink-0" :class="overrideOf(c.id) === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" title="Exclude from this conversation — never send" @click.stop.prevent="toggleOverride($event, c.id, 'skip')"><Ban :size="14" /></button>
         </summary>
         <div class="whitespace-pre-wrap border-t border-edge p-2 text-muted">{{ c.content }}</div>
       </details>

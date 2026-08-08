@@ -162,4 +162,15 @@ assert.ok(!wp2.system.includes('WS_PROMPT') && wp2.system.includes('DOC_TEXT') &
 // no workspace arg: payload identical to before the feature
 assert.equal(buildPayload(convo, wSettings).system, buildPayload(convo, wSettings, null).system)
 
+// per-convo overrides of workspace cards: 'skip' mutes a triggered card, 'include'
+// sends an untriggered one, and the shared card keeps its own force for other convos
+const wsMulti = { ...ws, cards: [...ws.cards, { id: 'wq', triggers: 'kraken', content: 'WS_QUIET' }] }
+const skipped = buildPayload({ ...convo, cardOverrides: { wc: 'skip' } }, wSettings, wsMulti)
+assert.ok(!skipped.system.includes('WS_CARD'), 'convo override skips a workspace card')
+assert.ok(skipped.system.includes('DRAGON_LORE'), 'convo cards unaffected by the override')
+const forcedWs = buildPayload({ ...convo, cardOverrides: { wq: 'include' } }, wSettings, wsMulti)
+assert.ok(forcedWs.system.includes('WS_QUIET'), 'convo override force-includes an untriggered workspace card')
+assert.equal(wsMulti.cards[0].force, undefined, 'override never mutates the shared card')
+assert.ok(buildPayload(convo, wSettings, wsMulti).system.includes('WS_CARD'), 'other convos keep the card')
+
 console.log('cards selfcheck OK')
