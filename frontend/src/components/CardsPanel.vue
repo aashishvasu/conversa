@@ -1,26 +1,24 @@
 <script setup>
-import { Ban, ChevronDown, CircleCheck, GripVertical, X } from 'lucide-vue-next'
+import { Ban, ChevronDown, CircleCheck, GripVertical, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { effectiveCards, matchedCardIds } from '../cards.js'
 import { confirmDelete } from '../confirm.js'
 import { effectiveSettings, workspaceOf } from '../store.js'
 
-// Also reused by WorkspacePanel with a workspace as `convo`; workspaces have cards
-// but no messages, settings, or workspaceId, so those reads are guarded below.
+// Also reused by WorkspacePanel with a workspace as `convo`; workspaces have cards but no messages, settings, or workspaceId, so those reads are guarded below.
 const props = defineProps({ convo: Object })
 
 const ws = computed(() => workspaceOf(props.convo))
 
-// Live preview: which cards would fire against the current send window. Includes
-// workspace cards so the read-only section below gets active dots too.
+// Live preview: which cards would fire against the current send window.
+// Includes workspace cards so the read-only section below gets active dots too.
 const active = computed(() => {
   const n = effectiveSettings(props.convo).num_messages_to_send
   const turns = (props.convo.messages || []).filter((m) => m.role !== 'system').slice(-n)
   return matchedCardIds(effectiveCards(props.convo, ws.value), turns, props.convo.scanAssistant)
 })
 
-// Per-convo override of a shared workspace card: same tri-state as force, stored on
-// the convo (cardOverrides), so it applies to this conversation alone.
+// Per-convo override of a shared workspace card: same tri-state as force, stored on the convo (cardOverrides), so it applies to this conversation alone.
 function overrideOf(id) {
   return props.convo.cardOverrides?.[id] || null
 }
@@ -30,8 +28,9 @@ function toggleOverride(e, id, mode) {
   e.currentTarget.blur()
 }
 
-// Cards grouped by their (display-only) folder path. Named folders first in
-// first-appearance order, ungrouped cards last. Matching ignores path entirely.
+// Cards grouped by their (display-only) folder path.
+// Named folders first in first-appearance order, ungrouped cards last.
+// Matching ignores path entirely.
 const groups = computed(() => {
   const byPath = new Map()
   for (const card of props.convo.cards) {
@@ -43,9 +42,8 @@ const groups = computed(() => {
   return [...entries.filter(([k]) => k), ...entries.filter(([k]) => !k)]
 })
 
-// Flattened to header + card rows so every <details> shares one parent. Editing a
-// card's folder then moves its node instead of recreating it — keeping it open and
-// focused mid-edit.
+// Flattened to header + card rows so every <details> shares one parent.
+// Editing a card's folder then moves its node instead of recreating it, which keeps it open and focused mid-edit.
 const rows = computed(() => {
   const out = []
   for (const [path, cards] of groups.value) {
@@ -66,10 +64,9 @@ function toggleFolder(path) {
   collapsed.value = s
 }
 
-// Drag-to-reorder. Dropping onto a card moves the dragged card next to it and
-// adopts its folder — so one gesture reorders and re-files across groups.
-// Pointer events (not native HTML5 DnD, which never fires on touch): pointer
-// capture routes move/up to the grip; elementFromPoint finds the card under the finger.
+// Drag-to-reorder.
+// Dropping onto a card moves the dragged card next to it and adopts its folder, so one gesture both reorders and re-files across groups.
+// Pointer events (not native HTML5 DnD, which never fires on touch): pointer capture routes move/up to the grip; elementFromPoint finds the card under the finger.
 const dragId = ref(null)
 const overId = ref(null)
 function onPointerDown(e, id) {
@@ -126,8 +123,8 @@ async function removeCard(id) {
         <summary class="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 [&::-webkit-details-marker]:hidden">
           <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(c.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(c.id) ? 'Active for next send' : 'Inactive'"></span>
           <span class="flex-1 truncate text-muted">{{ c.triggers || 'No triggers' }}</span>
-          <button class="shrink-0" :class="overrideOf(c.id) === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" title="Include in this conversation — always send" @click.stop.prevent="toggleOverride($event, c.id, 'include')"><CircleCheck :size="14" /></button>
-          <button class="shrink-0" :class="overrideOf(c.id) === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" title="Exclude from this conversation — never send" @click.stop.prevent="toggleOverride($event, c.id, 'skip')"><Ban :size="14" /></button>
+          <button class="shrink-0" :class="overrideOf(c.id) === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" title="Include in this conversation: always send" @click.stop.prevent="toggleOverride($event, c.id, 'include')"><CircleCheck :size="14" /></button>
+          <button class="shrink-0" :class="overrideOf(c.id) === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" title="Exclude from this conversation: never send" @click.stop.prevent="toggleOverride($event, c.id, 'skip')"><Ban :size="14" /></button>
         </summary>
         <div class="whitespace-pre-wrap border-t border-edge p-2 text-muted">{{ c.content }}</div>
       </details>
@@ -148,8 +145,8 @@ async function removeCard(id) {
           <span class="shrink-0 cursor-grab touch-none text-muted active:cursor-grabbing" title="Drag to reorder or move folder" @click.stop.prevent @pointerdown="onPointerDown($event, row.card.id)" @pointermove="onPointerMove" @pointerup="onPointerUp"><GripVertical :size="14" /></span>
           <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(row.card.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(row.card.id) ? 'Active for next send' : 'Inactive'"></span>
           <span class="flex-1 truncate text-muted">{{ row.card.triggers || 'No triggers' }}</span>
-          <button class="shrink-0" :class="row.card.force === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" title="Force include — always send this card" @click.stop.prevent="toggleForce($event, row.card, 'include')"><CircleCheck :size="14" /></button>
-          <button class="shrink-0" :class="row.card.force === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" title="Force skip — never send this card" @click.stop.prevent="toggleForce($event, row.card, 'skip')"><Ban :size="14" /></button>
+          <button class="shrink-0" :class="row.card.force === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" title="Force include: always send this card" @click.stop.prevent="toggleForce($event, row.card, 'include')"><CircleCheck :size="14" /></button>
+          <button class="shrink-0" :class="row.card.force === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" title="Force skip: never send this card" @click.stop.prevent="toggleForce($event, row.card, 'skip')"><Ban :size="14" /></button>
           <button class="shrink-0 border-l border-edge pl-2 text-muted hover:text-red-500" title="Delete card" @click.stop.prevent="removeCard(row.card.id)"><X :size="14" /></button>
         </summary>
         <div class="space-y-2 border-t border-edge p-2">

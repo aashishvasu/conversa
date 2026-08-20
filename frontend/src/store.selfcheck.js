@@ -1,4 +1,5 @@
-// Run: node src/store.selfcheck.js — fails loudly if export/import merge breaks.
+// Run: node src/store.selfcheck.js.
+// Fails loudly if export/import merge breaks.
 import assert from 'node:assert'
 import { createFromTemplate, createWorkspace, deleteWorkspace, exportData, importData, saveAsTemplate, workspaceOf } from './store.js'
 
@@ -18,8 +19,7 @@ assert.throws(() => importData({ not: 'a list' }), /Not a conversa export/, 'rej
 assert.deepEqual(exportData('a').map((c) => c.id), ['a'])
 assert.equal(exportData().conversations.length, 2, 'no-arg export returns everything')
 
-// workspaces: exported with the full backup; import keeps local on id collision
-// (convo-to-workspace links stay resolvable) and adds unknown ids
+// workspaces: exported with the full backup; import keeps local on id collision (convo-to-workspace links stay resolvable) and adds unknown ids
 const w = createWorkspace('W1')
 assert.equal(exportData().workspaces.length, 1, 'workspace included in full export')
 importData({ conversations: [], workspaces: [{ id: w.id, name: 'clobber?' }, { id: 'w2', name: 'W2' }] })

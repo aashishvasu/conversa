@@ -1,5 +1,5 @@
 <script setup>
-import { Bot, Brain, Bug, Check, ChevronDown, ChevronRight, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User, X } from 'lucide-vue-next'
+import { Bot, Brain, Bug, Check, ChevronDown, ChevronRight, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User, X } from '@lucide/vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
 import { buildPayload, sendWindow } from '../cards.js'

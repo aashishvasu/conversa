@@ -4,3 +4,6 @@ anthropic
 openai
 python-dotenv
 pyjwt
+httpx
+trafilatura
+pypdf

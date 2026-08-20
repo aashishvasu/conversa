@@ -6,6 +6,7 @@ import { computed, reactive, ref, watch } from 'vue'
 const STORE_KEY = 'conversa_conversations'
 const WORKSPACES_KEY = 'conversa_workspaces'
 const MODELS_KEY = 'conversa_models'
+const RUNS_KEY = 'conversa_runs'
 const GLOBAL_KEY = 'conversa_global' // user edits to the global defaults, persisted client-side
 
 export const SETTING_KEYS = [
@@ -19,14 +20,23 @@ export const SETTING_KEYS = [
   'use_memory',
   'summarize_n',
   'use_recall',
+  'use_cache',
 ]
 
-// The one definition of the thinking-effort lever — the composer toolbar and both
-// settings panels render this list. Values go to the API as output_config.effort
-// (the backend maps them to token budgets for pre-4.6 models). Adding a level here
-// (Anthropic also has 'xhigh' and 'max') surfaces it in all three places.
-// Replaced the old numeric thinking_budget lever; stored values under the old key are
-// simply ignored, since SETTING_KEYS no longer lists it.
+// Research settings belong to a run, not to a conversation, so they get their own list.
+// Both lists resolve the same way: a per-owner override, falling back to the global default.
+// Three model tiers, because the stages have different quality bars: extraction reads one page at a time, orchestration makes short judgement calls, and the report is the only long-form writing.
+export const RESEARCH_KEYS = [
+  'research_search_model',
+  'research_note_model',
+  'research_report_model',
+  'research_depth',
+]
+
+// The one definition of the thinking-effort lever, rendered by the composer toolbar and both settings panels.
+// Values go to the API as output_config.effort, and the backend maps them to token budgets for pre-4.6 models.
+// Adding a level here (Anthropic also has 'xhigh' and 'max') surfaces it in all three places.
+// This replaced the numeric thinking_budget lever, and values stored under that key are ignored.
 export const EFFORT_LEVELS = [
   { label: 'Off', value: '' },
   { label: 'Low', value: 'low' },
@@ -34,8 +44,10 @@ export const EFFORT_LEVELS = [
   { label: 'High', value: 'high' },
 ]
 
-const state = reactive({ conversations: [], workspaces: [] })
+const state = reactive({ conversations: [], workspaces: [], runs: [] })
 export const currentId = ref(null)
+// A run is selected instead of a conversation, so this being set is what puts the research pane on screen.
+export const currentRunId = ref(null)
 export const globalSettings = ref(null)
 export const models = ref([]) // [{id, label}], cached from backend
 export const sidebarOpen = ref(false) // mobile drawer toggle; desktop ignores it
@@ -43,10 +55,12 @@ export const sidebarOpen = ref(false) // mobile drawer toggle; desktop ignores i
 let loaded = false
 let savedGlobal = null // user's edited global defaults, loaded from IDB
 
-// Loads persisted state. Call once before showing the UI.
+// Loads persisted state.
+// Call once before showing the UI.
 export async function initStore() {
   state.conversations = (await get(STORE_KEY)) || []
   state.workspaces = (await get(WORKSPACES_KEY)) || []
+  state.runs = (await get(RUNS_KEY)) || []
   models.value = (await get(MODELS_KEY)) || []
   savedGlobal = (await get(GLOBAL_KEY)) || null
   // Backfill stable message ids for conversations saved before ids existed.
@@ -57,27 +71,29 @@ export async function initStore() {
   // Persist on any change, debounced so token-by-token streaming doesn't thrash IDB.
   watch(() => state.conversations, save, { deep: true })
   watch(() => state.workspaces, save, { deep: true })
+  watch(() => state.runs, save, { deep: true })
 }
 
 let saveTimer
 function save() {
   if (!loaded) return
   clearTimeout(saveTimer)
-  // Snapshot inside the timer, not out here: save() runs on every mutation (i.e. every
-  // streamed token), and the JSON round-trip — which strips the Vue reactive proxy so
-  // structured-clone can store it — costs the whole archive each time it runs.
+  // Snapshot inside the timer, not out here, because save() runs on every mutation, meaning every streamed token.
+  // The JSON round-trip strips the Vue reactive proxy so structured-clone can store it, and it costs the whole archive each time.
   saveTimer = setTimeout(() => {
     set(STORE_KEY, JSON.parse(JSON.stringify(state.conversations)))
     set(WORKSPACES_KEY, JSON.parse(JSON.stringify(state.workspaces)))
+    set(RUNS_KEY, JSON.parse(JSON.stringify(state.runs)))
   }, 400)
 }
 
-// Write immediately, bypassing the debounce — call when a stream finishes so a quick
-// page reload can't lose the final assistant message.
+// Write immediately, bypassing the debounce.
+// Call it when a stream finishes, so a quick page reload still finds the final assistant message.
 export function persistNow() {
   if (!loaded) return
   clearTimeout(saveTimer)
   set(WORKSPACES_KEY, JSON.parse(JSON.stringify(state.workspaces)))
+  set(RUNS_KEY, JSON.parse(JSON.stringify(state.runs)))
   return set(STORE_KEY, JSON.parse(JSON.stringify(state.conversations)))
 }
 
@@ -156,11 +172,51 @@ export function deleteConversation(id) {
 
 export function selectConversation(id) {
   currentId.value = id
+  currentRunId.value = null
+}
+
+// --- Runs ---------------------------------------------------------------------
+// A research run is a sibling of a conversation, not a property of one.
+// It owns its brief, its clarifying exchange, its settings overrides and its result.
+// It reaches conversations only through the workspace its payload lands in.
+
+export const runs = computed(() => state.runs)
+export const currentRun = computed(() => state.runs.find((r) => r.id === currentRunId.value) || null)
+
+export function createRun() {
+  const r = {
+    id: crypto.randomUUID(),
+    title: 'New research',
+    brief: '',
+    questions: [],
+    answers: '',
+    settings: {},
+    serverId: null,
+    status: 'draft',
+    phase: '',
+    events: [],
+    spend: null,
+    payload: null,
+    workspaceId: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }
+  state.runs.unshift(r)
+  selectRun(r.id)
+  return r
+}
+
+export function deleteRun(id) {
+  state.runs = state.runs.filter((r) => r.id !== id)
+  if (currentRunId.value === id) currentRunId.value = state.runs[0]?.id || null
+}
+
+export function selectRun(id) {
+  currentRunId.value = id
 }
 
 // --- Workspaces ---------------------------------------------------------------
-// A workspace = { id, name, systemPrompt, cards, docs } shared by its conversations
-// (convo.workspaceId points here). buildPayload merges it at read time; joining,
+// A workspace = { id, name, systemPrompt, cards, docs } shared by its conversations, which point at it via convo.workspaceId. buildPayload merges it at read time; joining,
 // leaving, and deleting touch only that pointer on the conversation.
 
 export const workspaces = computed(() => state.workspaces)
@@ -171,23 +227,41 @@ export function createWorkspace(name = 'New workspace') {
   return w
 }
 
+// Land a finished research run in a workspace: the report as a doc, the per-subquestion notes as qN cards.
+// Passing an existing workspace appends, so repeated runs on one topic accumulate in the same place.
+// Known ceiling: appended runs share the qN trigger namespace, so q1 pulls q1 from every run in the workspace.
+// On one topic that reads as more context, not wrong context.
+// If it gets noisy, number a run's subquestions from the workspace's existing count so report and cards agree.
+export function applyResearch(payload, workspace = null) {
+  const w = workspace || createWorkspace(payload.name || 'Research')
+  if (!workspace) w.systemPrompt = payload.systemPrompt || ''
+  const stamp = new Date().toISOString().slice(0, 10)
+  for (const d of payload.docs || []) {
+    w.docs.push({ id: crypto.randomUUID(), name: `${stamp} ${d.name}`, text: d.text })
+  }
+  for (const c of payload.cards || []) {
+    w.cards.push({ id: crypto.randomUUID(), triggers: c.triggers, path: c.path, content: c.content })
+  }
+  return w
+}
+
 export function deleteWorkspace(id) {
   state.workspaces = state.workspaces.filter((w) => w.id !== id)
   for (const c of state.conversations) if (c.workspaceId === id) c.workspaceId = null
 }
 
-// null when the convo has no workspace, or its workspace was deleted or not
-// imported; callers degrade to plain-convo behavior.
+// null when the convo has no workspace, or its workspace was deleted or not imported; callers degrade to plain-convo behavior.
 export function workspaceOf(convo) {
   return state.workspaces.find((w) => w.id === convo?.workspaceId) || null
 }
 
-// Per-conversation override falls back to the global default per key.
+// A per-owner override falls back to the global default per key.
 // `??` so an explicit false/0 override is respected; only null/undefined inherits.
-export function effectiveSettings(convo) {
+// `owner` is a conversation with SETTING_KEYS, or a run with RESEARCH_KEYS.
+export function effectiveSettings(owner, keys = SETTING_KEYS) {
   const g = globalSettings.value || {}
   const out = {}
-  for (const k of SETTING_KEYS) out[k] = convo.settings?.[k] ?? g[k]
+  for (const k of keys) out[k] = owner?.settings?.[k] ?? g[k]
   return out
 }
 
@@ -212,31 +286,35 @@ export async function clearAll() {
   await del(STORE_KEY)
 }
 
-// Backup. Full export = { conversations, workspaces }; single-conversation export
-// stays a bare array (a workspaceId the importing browser can't resolve degrades
-// to a plain convo).
+// Backup.
+// Full export = { conversations, workspaces }; single-conversation export stays a bare array (a workspaceId the importing browser can't resolve degrades to a plain convo).
 export function exportData(id) {
   if (id) return JSON.parse(JSON.stringify(state.conversations.filter((c) => c.id === id)))
   return JSON.parse(JSON.stringify({ conversations: state.conversations, workspaces: state.workspaces }))
 }
 
 // Download an export file: everything, or one conversation when id is given.
-export function downloadExport(id) {
-  const data = exportData(id)
-  const name = (id ? data[0]?.title || 'conversation' : 'export').replace(/[^\w-]+/g, '_').slice(0, 40)
+// Save text to a file the browser downloads.
+// A workspace doc is the only copy of a research report, so it needs a way out of IndexedDB.
+export function downloadText(name, text, type = 'text/markdown') {
   const a = document.createElement('a')
-  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
-  a.download = `conversa-${name}-${new Date().toISOString().slice(0, 10)}.json`
+  a.href = URL.createObjectURL(new Blob([text], { type }))
+  a.download = name
   a.click()
   URL.revokeObjectURL(a.href)
 }
 
-// Import: accepts the object shape or a legacy/single-convo array. Convos: new ids
-// come in as-is; a colliding id becomes a copy with fresh ids (same clone path as
-// template copies), so nothing local is ever overwritten. Workspaces: colliding ids
-// are skipped instead, keeping the local one so convo-to-workspace links stay
-// resolvable (a clone would get a fresh id the convos don't point at). Returns the
-// convo count.
+export function downloadExport(id) {
+  const data = exportData(id)
+  const name = (id ? data[0]?.title || 'conversation' : 'export').replace(/[^\w-]+/g, '_').slice(0, 40)
+  const stamp = new Date().toISOString().slice(0, 10)
+  downloadText(`conversa-${name}-${stamp}.json`, JSON.stringify(data, null, 2), 'application/json')
+}
+
+// Import: accepts the object shape or a legacy/single-convo array.
+// Convos: new ids come in as-is; a colliding id becomes a copy with fresh ids (same clone path as template copies), so nothing local is ever overwritten.
+// Workspaces: colliding ids are skipped instead, keeping the local one so convo-to-workspace links stay resolvable (a clone would get a fresh id the convos don't point at).
+// Returns the convo count.
 // Note: re-importing the same file duplicates collided convos; diff-aware skip if it annoys.
 export function importData(data) {
   const list = Array.isArray(data) ? data : data?.conversations

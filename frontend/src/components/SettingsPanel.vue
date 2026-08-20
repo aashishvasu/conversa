@@ -113,6 +113,16 @@ async function clearMemory() {
       <button v-if="overridden('use_recall')" class="text-indigo-500" @click="reset('use_recall')">↺</button>
     </label>
 
+    <label class="flex items-center gap-2">
+      <input type="checkbox" :checked="eff('use_cache')" @change="setOv('use_cache', $event.target.checked)" />
+      Cache the workspace prompt &amp; docs
+      <button v-if="overridden('use_cache')" class="text-indigo-500" @click="reset('use_cache')">↺</button>
+    </label>
+    <p class="-mt-2 text-xs text-muted">
+      Pays off in a long conversation with big shared context. A short one pays the 25%
+      write premium for nothing.
+    </p>
+
     <div v-if="eff('use_memory')">
       <label class="mb-1 flex items-center justify-between text-muted">
         <span>Memory (auto-refreshes after each reply)</span>

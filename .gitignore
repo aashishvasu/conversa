@@ -11,3 +11,10 @@ backend/static/
 
 # Editor
 .DS_Store
+
+# Agentic harness and its tooling.
+# These configure the assistants used to work on conversa, so they are not part of conversa.
+.claude/
+.pi/
+CLAUDE.md
+tools/
