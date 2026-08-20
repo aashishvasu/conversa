@@ -4,9 +4,20 @@
 
 # conversa
 
-A chat client for Claude and GPT where **everything except the API call lives in your browser**.
-Your conversations, settings, cards, workspaces, and templates are stored in your browser and stay there.
-A small server holds the provider API keys and relays messages, locked behind a password you set.
+A chat client for Claude and GPT where **your data lives in your browser**, not on someone's server.
+
+Conversations, settings, cards, workspaces, templates and research runs are all stored locally and stay there. A small server holds the provider API keys behind a password you set, relays chat, and does the two things a browser cannot: fetch pages that CORS puts out of reach, and run research jobs that keep going after you close the tab.
+
+Who ends up holding what:
+
+| What | In your browser | On the server |
+|------|-----------------|---------------|
+| Every chat transcript | ✔️ | ❌ |
+| Cards, workspaces, templates | ✔️ | ❌ |
+| A finished research report | ✔️ | 🟡 (Until you keep it. Then deleted) |
+| Your provider API key | ❌ | ✔️ (This is the whole reason it exists) |
+| The pages a research run reads | ❌ | 🟡 (A minute or two, then forgotten) |
+| Your password | ❌ | ✔️ (As the env var you set it to) |
 
 ## Run it
 
@@ -119,6 +130,7 @@ Set these as environment variables when you start the container.
 | `DEFAULT_USE_MEMORY` | no | `false` | Whether older turns get summarized into memory. |
 | `DEFAULT_SUMMARIZE_N` | no | `20` | How many turns just above the send window get summarized into memory. |
 | `DEFAULT_USE_RECALL` | no | `false` | Whether relevant dropped turns get resent verbatim. |
+| `DEFAULT_USE_CACHE` | no | `false` | Whether the stable part of the prompt is cached by the provider. Off by default because it only pays back in long conversations with a large shared context. |
 | `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; OpenAI ids need the `openai/` prefix. Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/llm.py`. |
 | `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches on its own when a message needs it. Empty disables it. |
 | `WEB_FETCH_TOOL_VERSION` | no | `web_fetch_20250910` | Anthropic web-fetch tool version; lets the model open a URL you paste in chat. Empty disables it. |
@@ -165,6 +177,7 @@ It keeps going if you close the tab, and reopening picks the stream back up wher
 A counter shows tokens and estimated cost as it goes, and stop ends it immediately.
 
 The result lands in a workspace: the report as a reference document, and each subquestion's underlying notes as a card you pull in by typing `q1`, `q2` and so on.
+Open the workspace to read the report, or download it as a markdown file.
 That way the report is always in context and the raw notes are one keystroke away without costing anything on the turns you do not ask for them.
 
 Three models are set separately, because the stages differ: one searches, one reads pages and takes notes (this is most of the spend, so a cheap model belongs here), and one plans and writes the report.
@@ -204,7 +217,7 @@ The two work well together.
 ### Models
 
 The model picker in the composer toolbar (also in **Conversation settings** and **Global settings**) groups models under their provider.
-Every feature works the same on either: cards, memory, recall, workspaces, templates, thinking effort, web search, and the utility model that writes titles and memory summaries.
+Every feature works the same on either: cards, memory, recall, workspaces, templates, thinking effort, web search, research runs, and the utility model that writes titles and memory summaries.
 You can point the utility model at one provider while chatting with the other.
 
 ### Thinking effort
@@ -223,20 +236,40 @@ The trace is ephemeral: it lives in memory for the current turn, and a reload cl
 ### Workspaces: shared context for a group of conversations
 
 A **workspace** bundles a shared system prompt, shared cards, and plain-text documents (`.txt`/`.md`), and any number of conversations can point at it.
+Documents can be uploaded, and research runs write their reports here too.
 Every reply in a member conversation carries the workspace's prompt, its documents in full, and whichever of its cards trigger, on top of the conversation's own system messages and cards.
 Where the same topic has a card in both, the workspace card is sent first and the conversation card after it, so a conversation can refine the shared note.
 
-Workspaces live at the top of the sidebar's conversation list: each workspace row heads its member conversations, the + next to the **Workspaces** label creates one, clicking a row opens its editor (name, prompt, documents, cards), and everything unassigned sits below under **Conversations**.
+Workspaces head the sidebar's conversation list, below the new-chat and research buttons and any research runs: each workspace row heads its member conversations, the + next to the **Workspaces** label creates one, clicking a row opens its editor (name, prompt, documents, cards), and everything unassigned sits below under **Conversations**.
 A conversation joins or leaves through **Conversation settings**; membership is a single link, so joining, leaving, or deleting the workspace leaves the conversation's own cards and messages exactly as they were.
 In a member conversation the card panel lists the workspace's cards read-only, with the same live "active" dots as its own; editing them happens in the workspace so a change to shared context is always a deliberate act.
 The include and exclude buttons on a workspace card are the exception: they are stored on the conversation, so one conversation can force a shared card to send every turn, or silence it, while the rest of the workspace keeps it as is.
 
 Documents are sent whole with every request and count as input tokens, so keep them to what the conversations actually need.
+Click a document in the workspace editor to read it rendered, or use the download button to save it as a file.
+That is how a research report gets out of the browser.
+
+### Prompt caching: pay for a big workspace once
+
+Turn on **Cache the workspace prompt & docs** and the provider caches the stable part of your prompt: the workspace prompt, your system messages, and the workspace documents. A big shared context then gets billed once per cache window instead of on every turn.
+
+It is off by default because it is a bet. A cache write costs 25% more than an ordinary one and expires after a few minutes, so it wants a lot of stable text and a steady back-and-forth.
+
+Caching is prefix-match: change one byte and everything after it is re-billed. That makes conversa's own assembly order the thing that decides what you actually save.
+
+> [!TIP]
+> Cards cost you nothing here. They are assembled last, after the cache breakpoint, so a card firing on turn seven rewrites only the uncached tail while the workspace prompt and documents above it stay cached.
+
+> [!NOTE]
+> Memory and recall sit outside the cache on purpose.
+> The summary is rewritten after every reply and recall re-picks which old turns to resend each turn, so caching either would invalidate the block constantly. You re-pay for both every turn.
+
+> [!WARNING]
+> The messages array is never cached at all. The send window drops old turns off the front as it slides, so the message prefix changes on most turns. Only the system prompt benefits from this setting, which is why it needs workspace documents to be worth turning on.
 
 ### Templates
 
-Set up a conversation the way you like (system messages, cards, settings, a few seed messages) and save it as a **template**.
-Starting from a template clones all of that into a fresh conversation.
+Set up a conversation the way you like (system messages, cards, settings, a few seed messages) and save it as a **template**. Starting from a template clones all of that into a fresh conversation.
 Templates live in the sidebar.
 
 Templates keep their workspace link: save a workspace conversation as a template and every conversation started from it joins that workspace automatically.
