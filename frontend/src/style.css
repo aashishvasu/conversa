@@ -53,7 +53,7 @@ input, textarea, select { color: inherit; }
 .md .code-block:hover .code-copy, .md .code-copy:focus { opacity: 1; }
 .md .code-copy:hover { color: var(--c-text); }
 
-/* Syntax highlighting — github-ish palette, flips with .dark. */
+/* Syntax highlighting: github-ish palette, flips with .dark. */
 .hljs { color: var(--c-text); }
 .hljs-comment, .hljs-quote { color: #6e7781; font-style: italic; }
 .hljs-keyword, .hljs-tag, .hljs-selector-tag, .hljs-built_in, .hljs-name, .hljs-literal { color: #cf222e; }
@@ -73,5 +73,6 @@ input, textarea, select { color: inherit; }
 .md a { color: #6366f1; text-decoration: underline; }
 .md h1, .md h2, .md h3 { font-weight: 600; margin: 0.75rem 0 0.5rem; }
 .md blockquote { border-left: 3px solid var(--c-edge); padding-left: 0.75rem; color: var(--c-muted); margin: 0.5rem 0; }
-.md table { border-collapse: collapse; margin: 0.5rem 0; }
+/* display:block so a wide table scrolls inside its column instead of widening the page. */
+.md table { border-collapse: collapse; margin: 0.5rem 0; display: block; overflow-x: auto; max-width: 100%; }
 .md th, .md td { border: 1px solid var(--c-edge); padding: 0.25rem 0.5rem; }

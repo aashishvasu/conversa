@@ -1,7 +1,7 @@
 import { ref, watch } from 'vue'
 
-// Frontend-only UI preferences. These never go to the backend — they live in
-// localStorage and apply purely to how this browser renders the app.
+// Frontend-only UI preferences.
+// They live in localStorage and apply purely to how this browser renders the app.
 
 const FONT_KEY = 'conversa_font_scale'
 const ENTER_KEY = 'conversa_enter_to_send'
@@ -13,7 +13,8 @@ function applyFontScale() {
   document.documentElement.style.fontSize = `${fontScale.value * 100}%`
 }
 
-// Load saved prefs and start persisting changes. Call before mount to avoid a flash.
+// Load saved prefs and start persisting changes.
+// Call before mount to avoid a flash.
 export function initPrefs() {
   const f = parseFloat(localStorage.getItem(FONT_KEY))
   if (f) fontScale.value = f

@@ -20,8 +20,8 @@ const marked = new Marked({
   breaks: true,
   renderer: {
     // Each fenced block: syntax-highlighted body + a Copy button (handled by delegation in ChatPane).
-    // Note: highlightAuto re-runs on every streamed token for unlabelled blocks. Fine for
-    // normal output; gate highlighting to stream-complete if huge code blocks lag.
+    // Note: highlightAuto re-runs on every streamed token for unlabelled blocks.
+    // Fine for normal output; gate highlighting to stream-complete if huge code blocks lag.
     code({ text, lang }) {
       const valid = lang && hljs.getLanguage(lang)
       const body = valid
@@ -32,7 +32,8 @@ const marked = new Marked({
   },
 })
 
-// Render markdown to sanitized HTML. Sanitizing is the security boundary — never skip it.
+// Render markdown to sanitized HTML.
+// Sanitizing is the security boundary, so never skip it.
 export function renderMarkdown(text) {
   return DOMPurify.sanitize(marked.parse(text || ''))
 }

@@ -1,7 +1,6 @@
 import { streamChat } from './api.js'
 
-// Generate/refresh a short title from the conversation's recent direction (not just its
-// opening), seeding the existing title so a regen refines rather than starts over.
+// Generate/refresh a short title from the conversation's recent direction (not just its opening), seeding the existing title so a regen refines rather than starts over.
 export async function generateTitle(convo, model) {
   const recent = convo.messages
     .filter((m) => m.role !== 'system')
@@ -21,7 +20,7 @@ export async function generateTitle(convo, model) {
       model,
       max_tokens: 20,
       temperature: 0.5,
-      system: 'Reply with only a short conversation title — no quotes, no trailing punctuation, no preamble.',
+      system: 'Reply with only a short conversation title. No quotes, no trailing punctuation, no preamble.',
       messages: [{ role: 'user', content: user }],
     },
     (t) => (out += t),

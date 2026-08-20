@@ -4,11 +4,11 @@ import { downloadExport, EFFORT_LEVELS, globalSettings, importData, persistGloba
 import { enterToSend, fontScale } from '../prefs.js'
 import ModelSelect from './ModelSelect.vue'
 
-// Edits the global defaults (absolute values, no inherit). New conversations copy these.
+// Edits the global defaults (absolute values, no inherit).
+// New conversations copy these.
 const g = globalSettings // ref auto-unwraps in template
 
-// The model selects emit a value instead of firing a native change event, so assign
-// and persist in one step rather than pairing v-model with a separate @change.
+// The model selects emit a value instead of firing a native change event, so assign and persist in one step rather than pairing v-model with a separate @change.
 const setGlobal = (k, v) => {
   g.value[k] = v
   persistGlobal()
@@ -94,6 +94,36 @@ async function onImportFile(e) {
       <input v-model="g.use_recall" type="checkbox" @change="persistGlobal" />
       Recall relevant old messages
     </label>
+
+    <label class="flex items-center gap-2">
+      <input v-model="g.use_cache" type="checkbox" @change="persistGlobal" />
+      Cache the workspace prompt &amp; docs
+    </label>
+
+    <hr class="border-edge" />
+    <p class="text-muted">Research runs. A run can override any of these for itself.</p>
+
+    <div>
+      <label class="mb-1 block text-muted">Search model</label>
+      <ModelSelect :model-value="g.research_search_model" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setGlobal('research_search_model', $event)" />
+    </div>
+
+    <div>
+      <label class="mb-1 block text-muted">Note-taking model</label>
+      <ModelSelect :model-value="g.research_note_model" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setGlobal('research_note_model', $event)" />
+      <p class="mt-1 text-xs text-muted">Around 78% of a run's input tokens go through this one, so a cheap model belongs here.</p>
+    </div>
+
+    <div>
+      <label class="mb-1 block text-muted">Plan &amp; report model</label>
+      <ModelSelect :model-value="g.research_report_model" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setGlobal('research_report_model', $event)" />
+      <p class="mt-1 text-xs text-muted">Plans the subquestions and writes the report. Bad subquestions cannot be recovered later, so this is the tier worth paying for.</p>
+    </div>
+
+    <div>
+      <label class="mb-1 block text-muted">Sources per subquestion</label>
+      <input v-model.number="g.research_depth" type="number" min="1" max="12" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal" />
+    </div>
 
     <hr class="border-edge" />
     <p class="text-muted">Appearance &amp; input. Applies to this browser only.</p>

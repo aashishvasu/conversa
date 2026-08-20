@@ -1,16 +1,17 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { authed, fetchModels, fetchSettings, getToken, logout } from './api.js'
-import { cacheModels, initStore, setGlobalSettings } from './store.js'
+import { cacheModels, currentRunId, initStore, setGlobalSettings } from './store.js'
 import ChatPane from './components/ChatPane.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import Login from './components/Login.vue'
+import ResearchPane from './components/ResearchPane.vue'
 import Sidebar from './components/Sidebar.vue'
 
 const ready = ref(false)
-// Server-side config problems (missing provider key, unusable DEFAULT_MODEL). Shown
-// once, dismissible. It is the only place the user learns why a model vanished from the
-// dropdown, or why a utility model stopped producing titles and memory.
+// Server-side config problems (missing provider key, unusable DEFAULT_MODEL).
+// Shown once, dismissible.
+// It is the only place the user learns why a model vanished from the dropdown, or why a utility model stopped producing titles and memory.
 const configErrors = ref([])
 
 onMounted(async () => {
@@ -52,7 +53,9 @@ async function onAuthed({ config_errors: errors, ...settings }) {
     </div>
     <div class="flex min-h-0 flex-1">
       <Sidebar />
-      <ChatPane />
+      <!-- A run and a conversation are siblings, so selecting one is what swaps the pane. -->
+      <ResearchPane v-if="currentRunId" />
+      <ChatPane v-else />
     </div>
   </div>
   <ConfirmModal />

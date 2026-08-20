@@ -1,4 +1,5 @@
-// Run: node src/cards.selfcheck.js  — fails loudly if card logic breaks.
+// Run: node src/cards.selfcheck.js.
+// Fails loudly if card logic breaks.
 import assert from 'node:assert'
 import { buildPayload, matchCards, parseTriggers, recallMessages } from './cards.js'
 
@@ -162,8 +163,7 @@ assert.ok(!wp2.system.includes('WS_PROMPT') && wp2.system.includes('DOC_TEXT') &
 // no workspace arg: payload identical to before the feature
 assert.equal(buildPayload(convo, wSettings).system, buildPayload(convo, wSettings, null).system)
 
-// per-convo overrides of workspace cards: 'skip' mutes a triggered card, 'include'
-// sends an untriggered one, and the shared card keeps its own force for other convos
+// per-convo overrides of workspace cards: 'skip' mutes a triggered card, 'include' sends an untriggered one, and the shared card keeps its own force for other convos
 const wsMulti = { ...ws, cards: [...ws.cards, { id: 'wq', triggers: 'kraken', content: 'WS_QUIET' }] }
 const skipped = buildPayload({ ...convo, cardOverrides: { wc: 'skip' } }, wSettings, wsMulti)
 assert.ok(!skipped.system.includes('WS_CARD'), 'convo override skips a workspace card')
@@ -172,5 +172,21 @@ const forcedWs = buildPayload({ ...convo, cardOverrides: { wq: 'include' } }, wS
 assert.ok(forcedWs.system.includes('WS_QUIET'), 'convo override force-includes an untriggered workspace card')
 assert.equal(wsMulti.cards[0].force, undefined, 'override never mutates the shared card')
 assert.ok(buildPayload(convo, wSettings, wsMulti).system.includes('WS_CARD'), 'other convos keep the card')
+
+// use_cache: system splits into [stable, volatile].
+// Anything that changes turn to turn belongs in the second half, or it invalidates the cache on the turn it changes.
+const cSettings = { ...wSettings, use_cache: true, use_memory: true }
+const cached = buildPayload({ ...convo, memory: 'MEM', memoryCount: 0 }, cSettings, ws)
+assert.ok(Array.isArray(cached.system) && cached.system.length === 2, 'use_cache splits system in two')
+const [stableHalf, volatileHalf] = cached.system
+assert.ok(stableHalf.includes('WS_PROMPT') && stableHalf.includes('DOC_TEXT'), 'workspace prompt + docs cached')
+assert.ok(!stableHalf.includes('WS_CARD') && volatileHalf.includes('WS_CARD'), 'a firing card must not invalidate the cache')
+assert.ok(!stableHalf.includes('MEM') && volatileHalf.includes('MEM'), 'the memory summary refreshes, so it stays uncached')
+// off (the default) leaves the payload exactly as it was before the flag existed
+assert.equal(typeof buildPayload(convo, wSettings, ws).system, 'string')
+// nothing stable to cache: no breakpoint rather than an empty cached block
+const noStable = buildPayload(convo, { ...cSettings, send_system_prompt: false })
+assert.equal(typeof noStable.system, 'string', 'a bare convo has no cacheable prefix')
+assert.ok(noStable.system.includes('DRAGON_LORE'))
 
 console.log('cards selfcheck OK')
