@@ -142,6 +142,7 @@ class ClarifyRequest(BaseModel):
 
 @app.post("/api/research/clarify")
 async def research_clarify(req: ClarifyRequest, _=Depends(require_auth)):
+    research.evict()
     return {"questions": await research.clarify(req.brief, req.model or DEFAULT_MODEL)}
 
 
@@ -164,7 +165,7 @@ async def research_start(req: ResearchRequest, _=Depends(require_auth)):
 
 @app.get("/api/research/{run_id}")
 async def research_state(run_id: str, after: int = 0, _=Depends(require_auth)):
-
+    research.evict()
     run = research.RUNS.get(run_id)
     if not run:
         raise HTTPException(404, "no such run, or it ended before you came back")
@@ -202,14 +203,21 @@ async def research_stream(run_id: str, after: int = 0, _=Depends(require_auth)):
 
 
 @app.delete("/api/research/{run_id}")
-async def research_stop(run_id: str, _=Depends(require_auth)):
+async def research_discard(run_id: str, _=Depends(require_auth)):
+    """Done with this run.
 
+    Running means cancel, and the run stays so the stream can deliver its final frame.
+    Finished means forget, which is what the client calls once it has saved the payload into a workspace.
+    """
     run = research.RUNS.get(run_id)
     if not run:
         raise HTTPException(404, "no such run")
-    if run.task:
-        run.task.cancel()
-    return {"status": "cancelling"}
+    if run.status == "running":
+        if run.task:
+            run.task.cancel()
+        return {"status": "cancelling"}
+    research.forget(run_id)
+    return {"status": "forgotten"}
 
 
 @app.post("/api/fetch")

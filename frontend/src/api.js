@@ -153,7 +153,10 @@ export async function startResearch(body) {
   return check(res).json()
 }
 
-export async function stopResearch(id) {
+// Done with this run.
+// A running one is cancelled and kept, so its stream can still deliver the final frame.
+// A finished one is forgotten, which is what saving the payload into a workspace triggers.
+export async function discardResearch(id) {
   return check(await fetch(`/api/research/${id}`, { method: 'DELETE', headers: authHeaders(false) })).json()
 }
 

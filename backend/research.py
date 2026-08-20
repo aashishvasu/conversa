@@ -494,14 +494,28 @@ def _notes_prompt(brief, sections):
 
 
 def start(brief, models, depth=6, title=None):
-    _evict()
+    evict()
     run = Run(brief, models, depth, title=title)
     RUNS[run.id] = run
     run.task = asyncio.create_task(_run(run))
     return run
 
 
-def _evict():
+def forget(run_id):
+    """Drop a run whose payload the client has taken.
+
+    Collecting is the normal end of a run's life here, and evict() is the backstop for one nobody collects.
+    """
+    RUNS.pop(run_id, None)
+    evict()
+
+
+def evict():
+    """Drop finished runs past their window.
+
+    Called from every research route, so any activity sweeps the ones before it.
+    A run still outlives its window when nothing else happens, and the process restarting is the outer bound on that.
+    """
     cutoff = time.time() - FINISHED_TTL
     for run_id in [i for i, r in RUNS.items() if r.finished_at and r.finished_at < cutoff]:
         del RUNS[run_id]
@@ -613,6 +627,27 @@ if __name__ == "__main__":  # self-check: python research.py
         assert run.payload["cards"], "and the qN cards survive too"
 
     asyncio.run(_resilience_checks())
+
+    # A collected run is forgotten, and an uncollected one is swept once it is past its window.
+    # Retention is bounded by the next bit of research activity, and by the process ending.
+    RUNS.clear()
+    kept = Run("b", {}, 1)
+    RUNS[kept.id] = kept
+    taken = Run("b", {}, 1)
+    RUNS[taken.id] = taken
+    forget(taken.id)
+    assert taken.id not in RUNS and kept.id in RUNS, "collecting drops one run and leaves the others"
+
+    stale = Run("b", {}, 1)
+    stale.finished_at = time.time() - FINISHED_TTL - 1
+    RUNS[stale.id] = stale
+    running = Run("b", {}, 1)
+    RUNS[running.id] = running
+    evict()
+    assert stale.id not in RUNS, "a finished run past its window is swept"
+    assert running.id in RUNS, "a run that never finished is left alone"
+    RUNS.clear()
+
 
 
     print("research selfcheck OK")

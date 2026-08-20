@@ -1,7 +1,7 @@
 <script setup>
 import { Ban, Boxes, Menu, MessagesSquare, Play, RotateCcw } from '@lucide/vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { clarifyResearch, startResearch, stopResearch, streamResearch } from '../api.js'
+import { clarifyResearch, discardResearch, startResearch, streamResearch } from '../api.js'
 import { renderMarkdown } from '../md.js'
 import {
   applyResearch,
@@ -137,7 +137,7 @@ function onEvent(data) {
 async function stop() {
   if (!run.value?.serverId) return
   try {
-    await stopResearch(run.value.serverId)
+    await discardResearch(run.value.serverId)
   } catch (e) {
     error.value = e.message
   }
@@ -145,11 +145,16 @@ async function stop() {
 }
 
 const target = ref('')
-function save() {
+async function save() {
   const existing = workspaces.value.find((w) => w.id === target.value)
   const w = applyResearch(run.value.payload, existing || null)
   run.value.workspaceId = w.id
   persistNow()
+  // The browser now holds the only copy that matters, so the server can drop its own.
+  // Best-effort: a failure here costs some server memory until the next run sweeps it, and nothing the user has.
+  try {
+    await discardResearch(run.value.serverId)
+  } catch { /* the eviction sweep will get it */ }
 }
 const savedTo = computed(() => workspaces.value.find((w) => w.id === run.value?.workspaceId) || null)
 
