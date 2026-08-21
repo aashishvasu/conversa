@@ -203,3 +203,25 @@ export function buildPayload(convo, settings, workspace = null) {
     effort: settings.effort,
   }
 }
+
+// System prompt for the card builder in CardsPanel: utility model turns pasted text into trigger cards.
+export const CARDGEN_SYSTEM =
+  'You convert text into trigger cards for a chat app. A card is {"triggers": "...", "content": "..."}.\n' +
+  'Trigger syntax: comma separates alternatives (OR); "&" joins words that must all appear (AND). ' +
+  'Example: "dragon & red, wyrm" fires on "wyrm", or on "dragon" and "red" together. ' +
+  'Triggers match case-insensitively as substrings of the last few conversation messages.\n' +
+  'Split the text into self-contained topical chunks. Give each chunk the triggers someone would naturally type when that chunk becomes relevant. ' +
+  'Prefer chunks that apply occasionally over always-on material, but every part of the source text must land in exactly one card\'s content: never drop anything.\n' +
+  'Output only a JSON array of {"triggers", "content"} objects. No code fences, no commentary.'
+
+// Parse the card builder's reply: tolerate fences or prose around the array, keep only well-shaped cards.
+export function parseGeneratedCards(text) {
+  const start = text.indexOf('[')
+  const end = text.lastIndexOf(']')
+  if (start === -1 || end <= start) throw new Error('No card list in model output')
+  const cards = JSON.parse(text.slice(start, end + 1))
+    .filter((c) => c && typeof c.triggers === 'string' && typeof c.content === 'string' && c.content.trim())
+    .map((c) => ({ triggers: c.triggers.trim(), content: c.content.trim() }))
+  if (!cards.length) throw new Error('No usable cards in model output')
+  return cards
+}

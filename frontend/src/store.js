@@ -58,6 +58,8 @@ let savedGlobal = null // user's edited global defaults, loaded from IDB
 // Loads persisted state.
 // Call once before showing the UI.
 export async function initStore() {
+  // IDB is best-effort storage; this asks the browser to exempt the origin from eviction. Denial is fine, export stays the real backup.
+  globalThis.navigator?.storage?.persist?.()
   state.conversations = (await get(STORE_KEY)) || []
   state.workspaces = (await get(WORKSPACES_KEY)) || []
   state.runs = (await get(RUNS_KEY)) || []
@@ -74,17 +76,27 @@ export async function initStore() {
   watch(() => state.runs, save, { deep: true })
 }
 
+// Set when an IndexedDB write fails (quota, disk). State is intact in memory, so the banner in App.vue offers an export while that is still true. Cleared by the next successful write.
+export const storageError = ref(null)
+
 let saveTimer
 function save() {
   if (!loaded) return
   clearTimeout(saveTimer)
-  // Snapshot inside the timer, not out here, because save() runs on every mutation, meaning every streamed token.
-  // The JSON round-trip strips the Vue reactive proxy so structured-clone can store it, and it costs the whole archive each time.
-  saveTimer = setTimeout(() => {
-    set(STORE_KEY, JSON.parse(JSON.stringify(state.conversations)))
-    set(WORKSPACES_KEY, JSON.parse(JSON.stringify(state.workspaces)))
-    set(RUNS_KEY, JSON.parse(JSON.stringify(state.runs)))
-  }, 400)
+  saveTimer = setTimeout(flush, 400)
+}
+
+// Snapshot inside flush, not in save(), because save() runs on every mutation, meaning every streamed token.
+// The JSON round-trip strips the Vue reactive proxy so structured-clone can store it, and it costs the whole archive each time.
+function flush() {
+  return Promise.all([
+    set(STORE_KEY, JSON.parse(JSON.stringify(state.conversations))),
+    set(WORKSPACES_KEY, JSON.parse(JSON.stringify(state.workspaces))),
+    set(RUNS_KEY, JSON.parse(JSON.stringify(state.runs))),
+  ]).then(
+    () => (storageError.value = null),
+    (e) => (storageError.value = String(e?.stack || e)),
+  )
 }
 
 // Write immediately, bypassing the debounce.
@@ -92,9 +104,7 @@ function save() {
 export function persistNow() {
   if (!loaded) return
   clearTimeout(saveTimer)
-  set(WORKSPACES_KEY, JSON.parse(JSON.stringify(state.workspaces)))
-  set(RUNS_KEY, JSON.parse(JSON.stringify(state.runs)))
-  return set(STORE_KEY, JSON.parse(JSON.stringify(state.conversations)))
+  return flush()
 }
 
 export function cacheModels(list) {
