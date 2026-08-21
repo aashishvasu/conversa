@@ -1,7 +1,7 @@
 // Run: node src/cards.selfcheck.js.
 // Fails loudly if card logic breaks.
 import assert from 'node:assert'
-import { buildPayload, matchCards, parseTriggers, recallMessages } from './cards.js'
+import { buildPayload, matchCards, parseGeneratedCards, parseTriggers, recallMessages } from './cards.js'
 
 const cards = [
   { id: '1', triggers: 'dragon, wyrm', content: 'DRAGON_LORE' },
@@ -188,5 +188,12 @@ assert.equal(typeof buildPayload(convo, wSettings, ws).system, 'string')
 const noStable = buildPayload(convo, { ...cSettings, send_system_prompt: false })
 assert.equal(typeof noStable.system, 'string', 'a bare convo has no cacheable prefix')
 assert.ok(noStable.system.includes('DRAGON_LORE'))
+
+// parseGeneratedCards: tolerant of fences and prose, strict on shape
+const gen = parseGeneratedCards('```json\n[{"triggers": "a, b", "content": " X "}, {"triggers": "c", "content": ""}]\n```')
+assert.deepEqual(gen, [{ triggers: 'a, b', content: 'X' }], 'trims fields, drops empty-content cards')
+assert.deepEqual(parseGeneratedCards('Here you go: [{"triggers": "t", "content": "body [1]"}] hope that helps'), [{ triggers: 't', content: 'body [1]' }], 'survives surrounding prose and brackets in content')
+assert.throws(() => parseGeneratedCards('no json here'), /No card list/)
+assert.throws(() => parseGeneratedCards('[{"triggers": 1, "content": 2}]'), /No usable cards/)
 
 console.log('cards selfcheck OK')

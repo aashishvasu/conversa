@@ -1,7 +1,8 @@
 <script setup>
 import { Ban, ChevronDown, CircleCheck, GripVertical, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
-import { effectiveCards, matchedCardIds } from '../cards.js'
+import { streamChat } from '../api.js'
+import { CARDGEN_SYSTEM, effectiveCards, matchedCardIds, parseGeneratedCards } from '../cards.js'
 import { confirmDelete } from '../confirm.js'
 import { effectiveSettings, workspaceOf } from '../store.js'
 
@@ -99,6 +100,51 @@ function toggleForce(e, card, mode) {
 function addCard() {
   props.convo.cards.push({ id: crypto.randomUUID(), triggers: '', content: '' })
 }
+
+// Card builder: utility model decomposes pasted text into trigger cards, appended here for review.
+// Works in both scopes because cards land on whatever owner this panel got.
+const genText = ref('')
+const genBusy = ref(false)
+const genError = ref('')
+async function generate() {
+  if (!genText.value.trim() || genBusy.value) return
+  genBusy.value = true
+  genError.value = ''
+  try {
+    // A few real cards anchor granularity and trigger style better than the syntax spec alone.
+    // One per folder when folders exist, since folders are where style diverges; else the first few.
+    const usable = effectiveCards(props.convo, ws.value).filter((c) => c.triggers.trim() && c.content.trim())
+    const byFolder = new Map()
+    for (const c of usable) {
+      const key = (c.path || '').trim()
+      if (!byFolder.has(key)) byFolder.set(key, c)
+    }
+    const picks = byFolder.size > 1 ? [...byFolder.values()] : usable.slice(0, 3)
+    const examples = picks.map((c) => JSON.stringify({ triggers: c.triggers, content: c.content.slice(0, 300) })).join('\n')
+    const content = examples
+      ? `Existing cards, match their granularity and trigger style:\n${examples}\n\nText to convert:\n${genText.value}`
+      : genText.value
+    let out = ''
+    await streamChat(
+      {
+        model: effectiveSettings(props.convo).utility_model,
+        max_tokens: 4096,
+        temperature: 0.2,
+        system: CARDGEN_SYSTEM,
+        messages: [{ role: 'user', content }],
+      },
+      (t) => (out += t),
+    )
+    for (const c of parseGeneratedCards(out)) {
+      props.convo.cards.push({ id: crypto.randomUUID(), ...c })
+    }
+    genText.value = ''
+  } catch (e) {
+    genError.value = String(e?.message || e)
+  } finally {
+    genBusy.value = false
+  }
+}
 async function removeCard(id) {
   if (await confirmDelete('Delete this card?')) {
     props.convo.cards = props.convo.cards.filter((c) => c.id !== id)
@@ -158,6 +204,15 @@ async function removeCard(id) {
     </template>
 
     <button class="w-full rounded bg-surface2 py-2 hover:opacity-80" @click="addCard()">+ Add card</button>
+
+    <details class="rounded border border-edge">
+      <summary class="cursor-pointer list-none px-2 py-1.5 text-muted [&::-webkit-details-marker]:hidden">Generate cards from text</summary>
+      <div class="space-y-2 border-t border-edge p-2">
+        <textarea v-model="genText" rows="5" placeholder="Paste text (a large system prompt, lore, notes…); the utility model splits it into trigger cards you can edit above." class="w-full rounded bg-surface2 px-2 py-1"></textarea>
+        <button class="w-full rounded bg-surface2 py-2 hover:opacity-80 disabled:opacity-50" :disabled="genBusy || !genText.trim()" @click="generate()">{{ genBusy ? 'Generating…' : 'Generate' }}</button>
+        <p v-if="genError" class="text-xs text-red-500">{{ genError }}</p>
+      </div>
+    </details>
     <datalist id="folder-paths"><option v-for="p in paths" :key="p" :value="p" /></datalist>
   </div>
 </template>
