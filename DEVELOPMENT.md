@@ -72,7 +72,9 @@ Gather fans out one coroutine per subquestion under a semaphore; each searches, 
 The search, fetch and note-taking stages live in `research.py`, with `PageCache`, `Spend`, and the prompts; `runs.py` imports them.
 Notes and source URLs are all that survive, so a run's memory is flat whether it reads 20 sources or 200.
 
-Search prompt wording does not move source quality, because the hosted tool returns what its backend returns; `BLOCKED_DOMAINS` does, and blocking server-side makes the backend offer a replacement instead of a gap.
+`search()` prefers an app finder (Exa, Brave, SearXNG; first configured wins) so the search step costs an HTTP request instead of a model call; the search model's hosted tool is the fallback, and the only finder when no key is set.
+The finder that served each query is logged to the uvicorn console, and a finder failing logs a warning naming the error before the next one runs.
+Search prompt wording does not move hosted-tool source quality, because the tool returns what its backend returns; `BLOCKED_DOMAINS` does, and blocking server-side makes the backend offer a replacement instead of a gap. Results from every other finder pass the same list post-hoc via `is_blocked`.
 Subquestions overlap enough that one canonical source gets picked repeatedly, so `PageCache` downloads each URL once per run and topic-selects it per subquestion, which keeps the notes distinct while paying for one fetch.
 
 Failure handling is deliberate, because a run makes about 30 calls and a transient 429 or 529 during one of them should be expected.
@@ -260,7 +262,7 @@ cd backend                          # .venv/Scripts on Windows, .venv/bin on *ni
 .venv/Scripts/python auth.py        # token mint/verify roundtrip, require_auth rejections
 .venv/Scripts/python fetcher.py     # SSRF guard, URL canonicalization
 .venv/Scripts/python topic.py       # section ranking, headingless fallback
-.venv/Scripts/python research.py    # blocklist matching, list parsing, spend, page cache, source-failure isolation
+.venv/Scripts/python research.py    # blocklist matching, finder parsing + precedence, list parsing, spend, page cache, source-failure isolation
 .venv/Scripts/python runs.py        # payload numbering, failed-report recovery, forget and evict
 ```
 

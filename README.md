@@ -134,7 +134,10 @@ Set these as environment variables when you start the container.
 | `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches on its own when a message needs it. Empty disables it. |
 | `WEB_FETCH_TOOL_VERSION` | no | `web_fetch_20250910` | Anthropic web-fetch tool version; lets the model open a URL you paste in chat. Empty disables it. |
 | `WEB_FETCH_BETA` | no | `web-fetch-2025-09-10` | Beta header the web-fetch tool requires. |
-| `DEFAULT_RESEARCH_SEARCH_MODEL` | no | `DEFAULT_MODEL` | Model that runs the searches in a research run. |
+| `EXA_API_KEY` | no | _(none)_ | [Exa](https://exa.ai) key. When set, research runs search via Exa instead of spending a model call on the hosted search tool; chat keeps the hosted tools. |
+| `BRAVE_API_KEY` | no | _(none)_ | [Brave Search](https://brave.com/search/api/) key, same role. Used when Exa is not configured. |
+| `SEARXNG_URL` | no | _(none)_ | Base URL of a self-hosted SearXNG instance (`format=json` must be enabled in its settings.yml), same role. Last in precedence. |
+| `DEFAULT_RESEARCH_SEARCH_MODEL` | no | `DEFAULT_MODEL` | Model that runs the searches in a research run when no app search key above is set, and the fallback when one fails. |
 | `DEFAULT_RESEARCH_NOTE_MODEL` | no | `DEFAULT_UTILITY_MODEL` | Model that reads pages and takes notes. Around 78% of a run's input tokens, so a cheap model belongs here. |
 | `DEFAULT_RESEARCH_REPORT_MODEL` | no | `DEFAULT_MODEL` | Model that plans the subquestions and writes the report. |
 | `DEFAULT_RESEARCH_DEPTH` | no | `5` | Sources read per subquestion. |
@@ -177,7 +180,9 @@ The result lands in a workspace: the report as a reference document, and each su
 Open the workspace to read the report, or download it as a markdown file.
 That way the report is always in context and the raw notes are one keystroke away without costing anything on the turns you do not ask for them.
 
-Three models are set separately, because the stages differ: one searches, one reads pages and takes notes (this is most of the spend, so a cheap model belongs here), and one plans and writes the report.
+With a search key configured (`EXA_API_KEY`, `BRAVE_API_KEY`, or `SEARXNG_URL` in the table above), the searching itself is a plain API request that costs no tokens; without one, the search model runs it through its provider's hosted search tool.
+
+Three models are set separately, because the stages differ: one searches (only when no search key is set), one reads pages and takes notes (this is most of the spend, so a cheap model belongs here), and one plans and writes the report.
 
 ### Cards: notes that appear only when relevant
 

@@ -1,4 +1,4 @@
-import { del, get, set } from 'idb-keyval'
+import { get, set } from 'idb-keyval'
 import { computed, reactive, ref, watch } from 'vue'
 
 // All conversation state lives client-side in IndexedDB (via idb-keyval).

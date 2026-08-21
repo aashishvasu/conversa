@@ -11,6 +11,8 @@ The run lifecycle that drives these stages lives in runs.py, which imports this 
 """
 
 import asyncio
+import logging
+import os
 import re
 
 import httpx
@@ -160,6 +162,54 @@ def is_blocked(url):
     return any(host == d or host.endswith("." + d) for d in BLOCKED_DOMAINS)
 
 
+# App-level search: a plain HTTP request instead of a model call burnt on triggering the hosted tool.
+# Each finder returns the same [{"title", "url"}] shape as the hosted ones.
+EXA_API_KEY = os.environ.get("EXA_API_KEY")
+BRAVE_API_KEY = os.environ.get("BRAVE_API_KEY")
+SEARXNG_URL = (os.environ.get("SEARXNG_URL") or "").rstrip("/")
+
+
+def _hits(results):
+    """Normalize one search API's result list, dropping rows without a url."""
+    return [{"title": r.get("title"), "url": r["url"]} for r in results or [] if r.get("url")]
+
+
+async def _search_exa(query, limit):
+    async with httpx.AsyncClient(timeout=fetcher.REQUEST_TIMEOUT) as http:
+        response = await http.post(
+            "https://api.exa.ai/search",
+            headers={"x-api-key": EXA_API_KEY},
+            json={"query": query, "numResults": limit * 3},
+        )
+    response.raise_for_status()
+    return _hits(response.json().get("results"))
+
+
+async def _search_brave(query, limit):
+    async with httpx.AsyncClient(timeout=fetcher.REQUEST_TIMEOUT) as http:
+        response = await http.get(
+            "https://api.search.brave.com/res/v1/web/search",
+            headers={"X-Subscription-Token": BRAVE_API_KEY, "Accept": "application/json"},
+            params={"q": query, "count": min(limit * 3, 20)},  # 20 is the API's cap
+        )
+    response.raise_for_status()
+    return _hits((response.json().get("web") or {}).get("results"))
+
+
+async def _search_searxng(query, limit):
+    # The instance must have format=json enabled in settings.yml.
+    async with httpx.AsyncClient(timeout=fetcher.REQUEST_TIMEOUT) as http:
+        response = await http.get(f"{SEARXNG_URL}/search", params={"q": query, "format": "json"})
+    response.raise_for_status()
+    return _hits(response.json().get("results"))[: limit * 3]
+
+
+def app_finders():
+    """The configured app finders, in precedence order: Exa, Brave, SearXNG."""
+    keyed = ((EXA_API_KEY, _search_exa), (BRAVE_API_KEY, _search_brave), (SEARXNG_URL, _search_searxng))
+    return [finder for key, finder in keyed if key]
+
+
 async def _search_anthropic(query, model, limit):
     tools = [{
         "type": providers.WEB_SEARCH_TOOL,
@@ -209,19 +259,42 @@ async def _search_openai(query, model, limit):
     return hits[: limit * 3]
 
 
+HOSTED_FINDERS = {"anthropic": _search_anthropic, "openai": _search_openai}
+
+
 async def search(query, model_id, limit=8):
     """Source candidates for a query, deduped by canonical URL, newest search first.
 
-    Uses the provider's hosted search rather than a dedicated search API, so there is no extra key to hold.
-    Swap in Brave or Exa here if the result quality disappoints; nothing above this function cares.
+    App finders run first when configured, so searching costs an HTTP request instead of a model call.
+    The search model's hosted tool is the fallback, and the only finder when no app key is set.
+    A provider missing from HOSTED_FINDERS with no app key configured raises here, naming what is missing.
     """
     provider, model = providers.split_model(model_id)
-    finder = _search_anthropic if provider == "anthropic" else _search_openai
+    hosted = HOSTED_FINDERS.get(provider)
+    attempts = app_finders()
+    if not attempts and hosted is None:
+        raise RuntimeError(f"provider {provider} has no hosted search and no app search key is configured")
+    # uvicorn's logger, so these reach the server console at its default level.
+    log = logging.getLogger("uvicorn.error")
+    hits = error = None
+    for finder in attempts:
+        name = finder.__name__.removeprefix("_search_")
+        try:
+            hits = await finder(query, limit)
+            log.info("research search via %s", name)
+            break
+        except Exception as e:
+            error = e
+            log.warning("research search via %s failed (%s), trying the next finder", name, e)
+    if hits is None:
+        if hosted is None:
+            raise error
+        hits = await hosted(query, model, limit)
     seen, out = set(), []
-    for hit in await finder(query, model, limit):
+    for hit in hits:
         canonical = fetcher.canonicalize(hit["url"])
         # Anthropic filters server-side, which is better because the backend then offers something in its place.
-        # OpenAI's tool takes no domain filter, so the same list is applied here to whatever it returns.
+        # Everything else (OpenAI's tool and the app finders) is filtered here with the same list.
         if canonical in seen or is_blocked(canonical):
             continue
         seen.add(canonical)
@@ -330,6 +403,16 @@ if __name__ == "__main__":  # self-check: python research.py
     assert not is_blocked("https://notmedium.com/x")
     assert not is_blocked("https://docs.python.org/3/library/asyncio-task.html")
     assert not is_blocked("https://www.sqlite.org/wal.html")
+
+    # App finders: one normalizer for every API's result list, and precedence follows configuration order.
+    assert _hits([{"title": "T", "url": "https://x.org/a"}, {"title": "row without url"}]) == [{"title": "T", "url": "https://x.org/a"}]
+    assert _hits(None) == []
+    EXA_API_KEY, BRAVE_API_KEY, SEARXNG_URL = None, "key", ""
+    assert app_finders() == [_search_brave]
+    EXA_API_KEY, SEARXNG_URL = "key", "https://sx.local"
+    assert app_finders() == [_search_exa, _search_brave, _search_searxng]
+    EXA_API_KEY = BRAVE_API_KEY = SEARXNG_URL = None
+    assert app_finders() == []
 
     # lines(): models add numbering and bullets whatever the prompt says, and sometimes a preamble.
     parsed = lines("Here you go:\n1. What is the cost?\n- How does it scale over time?\n\n* Why now, though?\nok", 5)
