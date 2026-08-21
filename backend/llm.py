@@ -113,7 +113,7 @@ def apply_thinking(kwargs, effort, max_tokens):
 
 
 def split_model(mid):
-    """"openai/gpt-5.6" -> ("openai", "gpt-5.6"); a bare id -> ("anthropic", id).
+    """Split "openai/gpt-5.6" into ("openai", "gpt-5.6"); a bare id -> ("anthropic", id).
 
     Unprefixed means Anthropic permanently, the way a bare Docker image name means docker.io.
     Conversations saved before OpenAI support hold bare ids in IndexedDB and .env files still use them, so this

@@ -17,4 +17,6 @@ backend/static/
 .claude/
 .pi/
 CLAUDE.md
+CONVENTIONS.md
+AGENTS.md
 tools/

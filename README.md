@@ -212,7 +212,6 @@ Turn on **Recall relevant old messages** and, before each reply, conversa looks 
 Ask "what was the dragon called again?" 200 messages later and the turn that names it comes back.
 
 Recall returns the original turns word for word, where memory summarizes.
-The two work well together.
 
 ### Models
 

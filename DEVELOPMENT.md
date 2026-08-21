@@ -66,9 +66,8 @@ Phases are plan, gather, gap, report.
 Gather fans out one coroutine per subquestion under a semaphore; each searches, fetches, and writes notes, then drops the document.
 Notes and source URLs are all that survive, so a run's memory is flat whether it reads 20 sources or 200.
 
-Two measured findings shaped this.
 Search prompt wording does not move source quality, because the hosted tool returns what its backend returns; `BLOCKED_DOMAINS` does, and blocking server-side makes the backend offer a replacement instead of a gap.
-And subquestions overlap enough that one canonical source gets picked repeatedly, so `PageCache` downloads each URL once per run and topic-selects it per subquestion, which keeps the notes distinct while paying for one fetch.
+Subquestions overlap enough that one canonical source gets picked repeatedly, so `PageCache` downloads each URL once per run and topic-selects it per subquestion, which keeps the notes distinct while paying for one fetch.
 
 Failure handling is deliberate, because a run makes about 30 calls and a transient 429 or 529 during one of them should be expected.
 The SDK retries are raised to 5.
@@ -82,7 +81,7 @@ The finished payload is a workspace: the report as a doc, per-subquestion notes 
 
 ### Fetching (`backend/fetcher.py`, `backend/topic.py`)
 
-Ported from [magpi](https://github.com/grainologic/magpi) (MIT). trafilatura extracts HTML, chosen over readability-lxml because it keeps fenced code blocks; a content-type branch handles JSON and plain text; a Wayback lookup retries 403/404/410/451.
+Ported from [magpi](https://github.com/grainologic/magpi) (MIT). trafilatura extracts HTML and keeps fenced code blocks; a content-type branch handles JSON and plain text; a Wayback lookup retries 403/404/410/451.
 
 `assert_public_target()` is the security boundary: this endpoint opens a caller-supplied URL from inside the network, so it rejects non-http schemes, loopback names, literal private IPs, and names that resolve into a private range.
 Redirects are followed by hand so the check runs on every hop.
@@ -187,8 +186,8 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | File | Responsibility |
 |------|----------------|
 | `store.js` | Reactive conversation, workspace and research-run state, IndexedDB persistence (debounced, with `persistNow()`). Owns `SETTING_KEYS` (what a conversation may override), `RESEARCH_KEYS` (what a run may override), and `EFFORT_LEVELS`, the single definition of the thinking-effort lever. `effectiveSettings(owner, keys)` resolves either list against the global defaults. Also `applyResearch()`, which lands a finished run in a workspace, and `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write sets `storageError`, which App.vue surfaces with an export offer while the data is still intact in memory. |
-| `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `stopResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
-| `cards.js` | Pure card-matching, lexical recall, + `buildPayload`. With `use_cache` on, `buildPayload` returns `system` as `[stable, volatile]` instead of a string. Also the card builder's halves that can run in Node: `CARDGEN_SYSTEM` (the prompt that teaches the trigger syntax) and `parseGeneratedCards()` (fence- and prose-tolerant JSON parsing, strict on shape). Vue-free, so it runs in Node. |
+| `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `discardResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
+| `cards.js` | Pure card-matching, lexical recall, + `buildPayload`. With `use_cache` on, `buildPayload` returns `system` as `[stable, volatile]` instead of a string. Also the card builder's halves: `CARDGEN_SYSTEM` (the prompt that teaches the trigger syntax) and `parseGeneratedCards()` (fence- and prose-tolerant JSON parsing, strict on shape). Vue-free, so it runs in Node. |
 | `memory.js` | Background sliding-window summarization. |
 | `titles.js` | Auto-titling from recent turns via the utility model. |
 | `md.js` | Markdown in, sanitized and highlighted HTML out. |
