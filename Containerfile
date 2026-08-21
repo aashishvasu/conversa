@@ -2,8 +2,8 @@
 FROM node:22-alpine AS frontend
 WORKDIR /app/frontend
 # npm here, pnpm for local dev: corepack/pnpm is flaky in the container build.
-# The repo has no package-lock.json, so each build resolves the package.json
-# ranges fresh. For a reproducible image, commit a lockfile and use `npm ci`.
+# The repo has no package-lock.json, so each build resolves the package.json ranges fresh.
+# For a reproducible image, commit a lockfile and use `npm ci`.
 COPY frontend/package.json ./
 RUN npm install --no-audit --no-fund
 COPY frontend/ ./
