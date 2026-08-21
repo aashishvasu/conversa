@@ -1,4 +1,4 @@
-// Run: node src/confirm.selfcheck.js.
+// Run: node src/utils/confirm.selfcheck.js.
 // Fails loudly if the confirm contract breaks.
 import assert from 'node:assert'
 import { answerConfirm, confirmDelete, confirmState } from './confirm.js'

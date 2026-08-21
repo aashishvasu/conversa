@@ -1,5 +1,5 @@
 <script setup>
-import { answerConfirm, confirmState } from '../confirm.js'
+import { answerConfirm, confirmState } from '../utils/confirm.js'
 import Modal from './Modal.vue'
 </script>
 

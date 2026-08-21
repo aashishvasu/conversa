@@ -2,8 +2,8 @@
 import { Boxes, CopyPlus, Download, LogOut, MessageSquarePlus, Moon, Plus, SlidersHorizontal, Sun, Telescope, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { logout } from '../api.js'
-import { confirmDelete } from '../confirm.js'
-import { formatShort } from '../format.js'
+import { confirmDelete } from '../utils/confirm.js'
+import { formatShort } from '../utils/format.js'
 import {
   conversations,
   createConversation,
@@ -25,10 +25,10 @@ import {
   workspaceOf,
   workspaces,
 } from '../store.js'
-import { isDark, toggleTheme } from '../theme.js'
-import GlobalSettings from './GlobalSettings.vue'
-import Modal from './Modal.vue'
-import WorkspacePanel from './WorkspacePanel.vue'
+import { isDark, toggleTheme } from '../utils/theme.js'
+import GlobalSettings from '../components/GlobalSettings.vue'
+import Modal from '../components/Modal.vue'
+import WorkspacePanel from '../components/WorkspacePanel.vue'
 
 const showGlobal = ref(false)
 const editingWs = ref(null) // workspace being edited in the modal, or null
@@ -144,9 +144,8 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
       </div>
     </div>
 
-    <!-- Workspace rows head their convo groups and are the management surface:
-         click to edit (name, shared prompt, docs, cards), X to delete (clears
-         membership only). Convos join a workspace via their settings panel. -->
+    <!-- Workspace rows head their convo groups and are the management surface: click to edit (name, shared prompt, docs, cards), X to delete (clears membership only).
+         Convos join a workspace via their settings panel. -->
     <div class="flex-1 overflow-y-auto p-2">
       <p class="flex items-center justify-between px-1 pb-1 text-xs uppercase text-muted">
         Workspaces

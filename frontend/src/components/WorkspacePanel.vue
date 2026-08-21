@@ -1,8 +1,8 @@
 <script setup>
 import { Download, X } from '@lucide/vue'
-import { confirmDelete } from '../confirm.js'
-import { renderMarkdown } from '../md.js'
 import { downloadText } from '../store.js'
+import { confirmDelete } from '../utils/confirm.js'
+import { renderMarkdown } from '../utils/md.js'
 import CardsPanel from './CardsPanel.vue'
 
 const props = defineProps({ workspace: Object })

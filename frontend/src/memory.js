@@ -1,7 +1,7 @@
 import { streamChat } from './api.js'
 
-// Summarize a window of turns via the utility model. Stateless: the window is
-// re-read in full on every refresh, so message edits/deletes can never desync it.
+// Summarize a window of turns via the utility model.
+// Stateless: the window is re-read in full on every refresh, so message edits/deletes can never desync it.
 async function summarize(msgs, model) {
   const transcript = msgs.map((m) => `${m.role}: ${m.content}`).join('\n\n')
   const system =
@@ -22,13 +22,11 @@ async function summarize(msgs, model) {
   return out.trim()
 }
 
-// Refresh convo.memory in the background, fired after each assistant reply and left
-// off the send path. Summarizes the summarize_n turns just above the send window.
-// memoryCount records where coverage ends; buildPayload sends everything after it
-// verbatim, so an in-flight or stale summary only widens the verbatim window and
-// every turn stays covered by one or the other.
-// Turns older than summarize_n + the send window drop out of context entirely, and
-// use_recall retrieves them on demand. Rolling accumulation is the upgrade path.
+// Refresh convo.memory in the background, fired after each assistant reply and left off the send path.
+// Summarizes the summarize_n turns just above the send window.
+// memoryCount records where coverage ends; buildPayload sends everything after it verbatim, so an in-flight or stale summary only widens the verbatim window and every turn stays covered by one or the other.
+// Turns older than summarize_n + the send window drop out of context entirely, and use_recall retrieves them on demand.
+// Rolling accumulation is the upgrade path.
 const inflight = new Map() // convo.id -> seq; the last-started refresh wins
 export async function refreshMemory(convo, settings) {
   if (!settings.use_memory) return

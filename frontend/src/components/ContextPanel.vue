@@ -2,7 +2,7 @@
 import { X } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { fetchUrl } from '../api.js'
-import { confirmDelete } from '../confirm.js'
+import { confirmDelete } from '../utils/confirm.js'
 
 const props = defineProps({ convo: Object })
 

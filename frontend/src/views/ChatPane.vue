@@ -1,21 +1,23 @@
 <script setup>
-import { Bot, Brain, Bug, Check, ChevronDown, ChevronRight, Cog, Copy, Layers, Menu, NotebookText, Pencil, Pin, Plus, RotateCcw, Send, SlidersHorizontal, Square, Trash2, User, X } from '@lucide/vue'
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { Bot, Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Plus, RotateCcw, Send, SlidersHorizontal, Square } from '@lucide/vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
-import { buildPayload, sendWindow } from '../cards.js'
-import { confirmDelete } from '../confirm.js'
-import { formatTime } from '../format.js'
-import { CHECK_SVG, COPY_SVG, renderMarkdown } from '../md.js'
+import { useStreamGuard } from '../composables/useStreamGuard.js'
 import { refreshMemory } from '../memory.js'
-import { enterToSend, fontScale } from '../prefs.js'
-import { currentConversation, effectiveSettings, EFFORT_LEVELS, persistNow, sidebarOpen, workspaceOf } from '../store.js'
+import { buildPayload, sendWindow } from '../payload.js'
+import { effectiveSettings, EFFORT_LEVELS } from '../settings.js'
+import { currentConversation, persistNow, sidebarOpen, workspaceOf } from '../store.js'
 import { generateTitle } from '../titles.js'
-import CardsPanel from './CardsPanel.vue'
-import DebugPanel from './DebugPanel.vue'
-import ModelSelect from './ModelSelect.vue'
-import Modal from './Modal.vue'
-import ContextPanel from './ContextPanel.vue'
-import SettingsPanel from './SettingsPanel.vue'
+import { confirmDelete } from '../utils/confirm.js'
+import { CHECK_SVG, COPY_SVG } from '../utils/md.js'
+import { enterToSend, fontScale } from '../utils/prefs.js'
+import CardsPanel from '../components/CardsPanel.vue'
+import DebugPanel from '../components/DebugPanel.vue'
+import MessageBubble from '../components/MessageBubble.vue'
+import ModelSelect from '../components/ModelSelect.vue'
+import Modal from '../components/Modal.vue'
+import ContextPanel from '../components/ContextPanel.vue'
+import SettingsPanel from '../components/SettingsPanel.vue'
 
 const convo = currentConversation
 const input = ref('')
@@ -25,21 +27,21 @@ const titleErr = ref('')
 const panel = ref(null)
 const editingId = ref(null)
 let editBackup = null // original {content, role} so Cancel can revert; null = newly added
-const copiedId = ref(null)
 const activeId = ref(null) // tapped bubble: shows its action toolbar (mobile has no hover)
-// Live thinking/search trace for the latest turn. Deliberately ephemeral: not on the
-// message, not persisted, so a reload wipes it. It stays visible after the turn completes
-// (until the next send resets it), and can be collapsed via liveOpen.
+// Live thinking/search trace for the latest turn.
+// Deliberately ephemeral: not on the message, not persisted, so a reload wipes it.
+// It stays visible after the turn completes (until the next send resets it), and can be collapsed via liveOpen.
 const streamId = ref(null)
 const liveTrace = ref([])
 const liveOpen = ref(true)
 const atBottom = ref(true)
 const scroller = ref(null)
 let controller = null
+const guard = useStreamGuard(() => streaming.value, () => controller?.abort())
 
-// Render only the last N messages for speed; "Load more" reveals older ones in
-// PAGE_SIZE batches. Tune PAGE_SIZE here. Display-only: all messages stay in memory,
-// and what's sent to the API is governed separately by num_messages_to_send.
+// Render only the last N messages for speed; "Load more" reveals older ones in PAGE_SIZE batches.
+// Tune PAGE_SIZE here.
+// Display-only: all messages stay in memory, and what's sent to the API is governed separately by num_messages_to_send.
 const PAGE_SIZE = 100
 const visibleCount = ref(PAGE_SIZE)
 const visibleMessages = computed(() => {
@@ -47,11 +49,9 @@ const visibleMessages = computed(() => {
   return all.length > visibleCount.value ? all.slice(-visibleCount.value) : all
 })
 
-const ROLE_ICON = { user: User, assistant: Bot, system: Cog }
-
-// First message of the send window. A divider renders above it so the user can see
-// how much of the conversation goes to the model. Pins and system messages go every
-// turn regardless, so they carry no marker.
+// First message of the send window.
+// A divider renders above it so the user can see how much of the conversation goes to the model.
+// Pins and system messages go every turn regardless, so they carry no marker.
 const windowStartId = computed(() =>
   convo.value ? sendWindow(convo.value, effectiveSettings(convo.value))[0]?.id : null,
 )
@@ -61,19 +61,6 @@ function setModel(id) {
 }
 function setThinking(v) {
   convo.value.settings.effort = v
-}
-function bubbleClass(role) {
-  if (role === 'user') return 'bg-indigo-600 text-white'
-  if (role === 'system') return 'border border-amber-600/40 bg-surface'
-  return 'bg-surface2'
-}
-function rowAlign(role) {
-  if (role === 'user') return 'justify-end'
-  if (role === 'system') return 'justify-center'
-  return 'justify-start'
-}
-function colAlign(role) {
-  return role === 'user' ? 'items-end' : 'items-start'
 }
 
 function addMessage() {
@@ -95,20 +82,10 @@ function removeMessage(id) {
   convo.value.messages = convo.value.messages.filter((m) => m.id !== id)
   if (editingId.value === id) editingId.value = null
 }
-// Trash button: confirm first. (cancelEdit calls removeMessage directly, since
-// discarding a blank new message needs no confirmation.)
+// Trash button: confirm first.
+// (cancelEdit calls removeMessage directly, since discarding a blank new message needs no confirmation.)
 async function confirmRemoveMessage(id) {
   if (await confirmDelete('Delete this message?')) removeMessage(id)
-}
-function togglePin(m) {
-  m.pinned = !m.pinned
-}
-async function copyMessage(m) {
-  await navigator.clipboard.writeText(m.content)
-  copiedId.value = m.id
-  setTimeout(() => {
-    if (copiedId.value === m.id) copiedId.value = null
-  }, 1200)
 }
 
 // Delegated handler for every code-block Copy button (markdown is v-html).
@@ -138,53 +115,15 @@ watch(convo, () => {
   atBottom.value = true
   scrollDown()
 })
-// On reload, convo already has its value when this mounts, so the watcher above
-// won't fire. Scroll to the bottom once for the initial conversation.
+// On reload, convo already has its value when this mounts, so the watcher above won't fire.
+// Scroll to the bottom once for the initial conversation.
 onMounted(scrollDown)
-
-// --- Backgrounded-tab streams ---------------------------------------------------
-// Mobile browsers freeze a backgrounded tab and the read hangs: no chunks, no error,
-// so `finally` never runs and the composer stays locked behind a spinner. Two
-// defences. A screen wake lock held while streaming prevents the freeze when the
-// cause is the screen locking. And on returning to a visible tab, a stream that went
-// silent is aborted through the existing stop() path, keeping the partial reply and
-// unlocking the composer.
-// Neither provider can restart a dropped stream, so a clean stop is the best outcome
-// available. Typing "continue" picks up from the partial assistant turn, which the
-// next request already sends as history.
-// The knob: 60s of silence, no server keepalive. If a long search or thinking gap
-// trips it, emit a periodic `: ping` from /api/chat and key the watchdog off that.
-const STALL_MS = 60_000
-let lastChunkAt = 0
-let wakeLock = null
-
-async function acquireWakeLock() {
-  // The lock is dropped automatically whenever the page hides, so this re-runs on
-  // every return to visible. Unsupported, insecure-context, and denied all land in
-  // catch, and the watchdog below still covers those cases.
-  try {
-    wakeLock = (await navigator.wakeLock?.request('screen')) || null
-  } catch { /* best-effort */ }
-}
-function releaseWakeLock() {
-  wakeLock?.release().catch(() => {})
-  wakeLock = null
-}
-
-function onVisibilityChange() {
-  if (document.visibilityState !== 'visible' || !streaming.value) return
-  acquireWakeLock()
-  if (Date.now() - lastChunkAt > STALL_MS) controller?.abort()
-}
-onMounted(() => document.addEventListener('visibilitychange', onVisibilityChange))
-onUnmounted(() => document.removeEventListener('visibilitychange', onVisibilityChange))
 
 async function runCompletion(c) {
   const settings = effectiveSettings(c)
   streaming.value = true
   controller = new AbortController()
-  lastChunkAt = Date.now() // watchdog baseline: nothing has arrived yet
-  acquireWakeLock()
+  guard.start()
   let assistant = null
   try {
     const payload = buildPayload(c, settings, workspaceOf(c)) // built BEFORE the empty assistant placeholder
@@ -194,10 +133,10 @@ async function runCompletion(c) {
     streamId.value = assistant.id
     // Every frame, text or trace, counts as liveness for the stall watchdog.
     await streamChat(payload, (t) => {
-      lastChunkAt = Date.now()
+      guard.heartbeat()
       assistant.content += t
     }, controller.signal, (type, value) => {
-      lastChunkAt = Date.now()
+      guard.heartbeat()
       const last = liveTrace.value.at(-1) // coalesce a run of thinking deltas into one entry
       if (type === 'thinking' && last?.type === 'thinking') last.text += value
       else if (type === 'results') liveTrace.value.push({ type, links: value })
@@ -214,15 +153,15 @@ async function runCompletion(c) {
       assistant.content += `${assistant.content ? '\n\n' : ''}> ⚠️ **Error:** ${e.message}`
   } finally {
     streaming.value = false
-    releaseWakeLock()
+    guard.end()
     // Refresh the memory summary in the background, off the send path.
     refreshMemory(c, settings).catch(() => {})
     persistNow() // don't let a quick reload lose the completed message
   }
 }
 
-// Enter behaviour is a frontend pref: by default Enter sends and Shift+Enter makes a
-// newline; flip enterToSend and they swap. Let the textarea insert the newline itself.
+// Enter behaviour is a frontend pref: by default Enter sends and Shift+Enter makes a newline; flip enterToSend and they swap.
+// Let the textarea insert the newline itself.
 const composerHint = computed(() => enterToSend.value
   ? 'Enter to send, Shift+Enter for newline'
   : 'Shift+Enter to send, Enter for newline')
@@ -235,9 +174,9 @@ function onComposerKeydown(e) {
   }
 }
 
-// Auto-grow the composer with its content, capped by max-h; shrinks back when cleared
-// (watch also fires when send() empties it). Native field-sizing:content would be one
-// line of CSS, but Firefox still lacks it. fontScale reflows the text, so re-measure.
+// Auto-grow the composer with its content, capped by max-h; shrinks back when cleared (watch also fires when send() empties it).
+// Native field-sizing:content would be one line of CSS, but Firefox still lacks it.
+// fontScale reflows the text, so re-measure.
 const composerEl = ref(null)
 watch([input, fontScale], () => {
   const el = composerEl.value
@@ -252,16 +191,15 @@ async function send() {
   const c = convo.value
   c.messages.push({ id: crypto.randomUUID(), role: 'user', content: text, createdAt: Date.now() })
   input.value = ''
-  // Sending is an explicit jump to the present: follow the new turn even if the user
-  // had scrolled up, and re-arm the streaming autoscroll below.
+  // Sending is an explicit jump to the present: follow the new turn even if the user had scrolled up, and re-arm the streaming autoscroll below.
   atBottom.value = true
   scrollDown()
   runCompletion(c)
 }
 
-// Regenerate: re-stream from a message, discarding everything after it. From an
-// assistant turn, the turn itself is discarded too, back to the last user turn,
-// which is kept. System messages are never discarded (they're standing instructions).
+// Regenerate: re-stream from a message, discarding everything after it.
+// From an assistant turn, the turn itself is discarded too, back to the last user turn, which is kept.
+// System messages are never discarded (they're standing instructions).
 function regenerate(m) {
   if (streaming.value || !convo.value) return
   const c = convo.value
@@ -327,77 +265,24 @@ async function regenTitle() {
             Load {{ PAGE_SIZE }} more ({{ convo.messages.length - visibleCount }} older)
           </button>
         </div>
-        <!-- v-memo: re-render a bubble only when something it shows changes, so streaming
-             one message doesn't re-parse markdown for every other visible message. -->
-        <template v-for="m in visibleMessages" :key="m.id">
-          <!-- Ephemeral live trace, rendered ABOVE the streaming bubble and OUTSIDE the
-               v-memo below, so it appears the instant search/thinking events arrive rather
-               than waiting for the first text token to invalidate the memo. -->
-          <div v-if="m.id === streamId && liveTrace.length" class="mb-1 text-xs text-muted">
-            <button class="flex items-center gap-0.5 hover:text-base" @click.stop="liveOpen = !liveOpen">
-              <ChevronRight :size="12" class="transition-transform" :class="liveOpen && 'rotate-90'" />
-              {{ liveTrace.length }} step{{ liveTrace.length > 1 ? 's' : '' }}
-            </button>
-            <div v-if="liveOpen" class="mt-1 flex flex-col gap-2 border-l-2 border-indigo-500/40 pl-2">
-              <div v-for="(s, i) in liveTrace" :key="i">
-                <div class="text-[10px] uppercase tracking-wide opacity-60">{{ s.type }}</div>
-                <div v-if="s.type === 'results'" class="flex flex-col gap-0.5">
-                  <a v-for="(l, j) in s.links" :key="j" :href="l.url" target="_blank" rel="noopener" class="truncate text-indigo-400 hover:underline">{{ l.title || l.url }}</a>
-                </div>
-                <div v-else class="whitespace-pre-wrap [overflow-wrap:anywhere]">{{ s.text }}</div>
-              </div>
-            </div>
-          </div>
-        <div v-memo="[m.content, m.role, m.pinned, editingId === m.id, copiedId === m.id, activeId === m.id, windowStartId === m.id]" class="group">
-          <div v-if="windowStartId === m.id" class="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-wide text-indigo-400" title="Messages from here down are sent to the model">
-            <div class="h-px flex-1 bg-indigo-500/40"></div>
-            sent from here
-            <div class="h-px flex-1 bg-indigo-500/40"></div>
-          </div>
-          <!-- edit mode -->
-          <div v-if="editingId === m.id" class="rounded-lg border border-edge bg-surface p-2">
-            <div class="mb-2 flex items-center gap-2">
-              <select v-model="m.role" class="rounded bg-surface2 px-2 py-1 text-xs">
-                <option value="system">system</option>
-                <option value="user">user</option>
-                <option value="assistant">assistant</option>
-              </select>
-              <button class="ml-auto rounded p-1.5 text-muted hover:bg-surface2 hover:text-base" title="Cancel" @click="cancelEdit(m)"><X :size="14" /></button>
-              <button class="rounded bg-indigo-600 p-1.5 text-white hover:bg-indigo-500" title="Done" @click="editingId = null"><Check :size="14" /></button>
-            </div>
-            <textarea v-model="m.content" rows="5" class="w-full rounded bg-surface2 px-3 py-2 text-sm outline-none"></textarea>
-          </div>
-
-          <!-- view mode -->
-          <div v-else class="flex" :class="rowAlign(m.role)" @click="activeId = m.id">
-            <div class="flex min-w-0 max-w-2xl flex-col" :class="colAlign(m.role)">
-              <!-- min-w keeps a narrow bubble wider than the hover toolbar so the toolbar (anchored right-2) sits inset from both edges rather than overflowing left. -->
-              <div class="relative min-w-[11rem] max-w-full rounded-lg px-4 py-2" :class="bubbleClass(m.role)">
-                <div class="mb-1 flex items-center gap-1 opacity-60">
-                  <component :is="ROLE_ICON[m.role]" :size="13" />
-                  <Pin v-if="m.pinned" :size="12" class="fill-current text-indigo-400" />
-                </div>
-                <div v-if="m.role === 'system'" class="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm" :class="!m.content && 'italic text-muted'">{{ m.content || 'You are a helpful assistant.' }}</div>
-                <div v-else-if="m.content" class="md [overflow-wrap:anywhere]" v-html="renderMarkdown(m.content)"></div>
-                <div v-else class="text-muted">…</div>
-                <div class="absolute -top-3 right-2 hidden gap-0.5 rounded-md border border-edge bg-surface p-0.5 text-muted shadow group-hover:flex" :class="{ '!flex': activeId === m.id }">
-                  <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Regenerate from here" @click="regenerate(m)"><RotateCcw :size="14" /></button>
-                  <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Edit" @click="startEdit(m)"><Pencil :size="14" /></button>
-                  <button v-if="m.role !== 'system'" class="rounded p-1 hover:bg-surface2" :class="m.pinned ? 'text-indigo-400' : 'hover:text-base'" :title="m.pinned ? 'Unpin' : 'Pin (always sent)'" @click="togglePin(m)"><Pin :size="14" :class="m.pinned && 'fill-current'" /></button>
-                  <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Copy raw" @click="copyMessage(m)">
-                    <Check v-if="copiedId === m.id" :size="14" class="text-green-500" />
-                    <Copy v-else :size="14" />
-                  </button>
-                  <button class="rounded p-1 hover:bg-surface2 hover:text-red-500" title="Delete" @click="confirmRemoveMessage(m.id)"><Trash2 :size="14" /></button>
-                </div>
-              </div>
-              <div v-if="m.role !== 'system' && m.createdAt" class="mt-0.5 px-1 text-[10px] text-muted">
-                {{ formatTime(m.createdAt) }}
-              </div>
-            </div>
-          </div>
-        </div>
-        </template>
+        <!-- The component boundary scopes re-renders: streaming one message re-renders only its own bubble, so it doesn't re-parse markdown for every other visible message. -->
+        <MessageBubble
+          v-for="m in visibleMessages"
+          :key="m.id"
+          :message="m"
+          :editing="editingId === m.id"
+          :active="activeId === m.id"
+          :window-start="windowStartId === m.id"
+          :trace="m.id === streamId ? liveTrace : null"
+          :trace-open="liveOpen"
+          @activate="activeId = m.id"
+          @edit="startEdit(m)"
+          @cancel-edit="cancelEdit(m)"
+          @done-edit="editingId = null"
+          @delete="confirmRemoveMessage(m.id)"
+          @regenerate="regenerate(m)"
+          @toggle-trace="liveOpen = !liveOpen"
+        />
 
         <div class="flex justify-center">
           <button class="flex items-center gap-1 rounded px-3 py-1 text-xs text-muted hover:bg-surface2 hover:text-base" @click="addMessage">
