@@ -1,7 +1,8 @@
 <script setup>
 import { ref } from 'vue'
-import { downloadExport, EFFORT_LEVELS, globalSettings, importData, persistGlobal } from '../store.js'
-import { enterToSend, fontScale } from '../prefs.js'
+import { EFFORT_LEVELS } from '../settings.js'
+import { downloadExport, globalSettings, importData, persistGlobal } from '../store.js'
+import { enterToSend, fontScale } from '../utils/prefs.js'
 import ModelSelect from './ModelSelect.vue'
 
 // Edits the global defaults (absolute values, no inherit).

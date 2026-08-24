@@ -75,8 +75,7 @@ systemctl --user daemon-reload
 systemctl --user start conversa
 ```
 
-> Build the image first (`podman build -t conversa -f Containerfile .`) so
-> `localhost/conversa:latest` exists.
+> Build the image first (`podman build -t conversa -f Containerfile .`) so `localhost/conversa:latest` exists.
 
 > Want to run the frontend and backend separately for development?
 > See [DEVELOPMENT.md](DEVELOPMENT.md).
@@ -131,24 +130,25 @@ Set these as environment variables when you start the container.
 | `DEFAULT_SUMMARIZE_N` | no | `20` | How many turns just above the send window get summarized into memory. |
 | `DEFAULT_USE_RECALL` | no | `false` | Whether relevant dropped turns get resent verbatim. |
 | `DEFAULT_USE_CACHE` | no | `false` | Whether the stable part of the prompt is cached by the provider. Off by default because it only pays back in long conversations with a large shared context. |
-| `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; OpenAI ids need the `openai/` prefix. Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/llm.py`. |
+| `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; OpenAI ids need the `openai/` prefix. Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/providers.py`. |
 | `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches on its own when a message needs it. Empty disables it. |
 | `WEB_FETCH_TOOL_VERSION` | no | `web_fetch_20250910` | Anthropic web-fetch tool version; lets the model open a URL you paste in chat. Empty disables it. |
 | `WEB_FETCH_BETA` | no | `web-fetch-2025-09-10` | Beta header the web-fetch tool requires. |
-| `DEFAULT_RESEARCH_SEARCH_MODEL` | no | `DEFAULT_MODEL` | Model that runs the searches in a research run. |
+| `EXA_API_KEY` | no | _(none)_ | [Exa](https://exa.ai) key. When set, research runs search via Exa instead of spending a model call on the hosted search tool; chat keeps the hosted tools. |
+| `BRAVE_API_KEY` | no | _(none)_ | [Brave Search](https://brave.com/search/api/) key, same role. Used when Exa is not configured. |
+| `SEARXNG_URL` | no | _(none)_ | Base URL of a self-hosted SearXNG instance (`format=json` must be enabled in its settings.yml), same role. Last in precedence. |
+| `DEFAULT_RESEARCH_SEARCH_MODEL` | no | `DEFAULT_MODEL` | Model that runs the searches in a research run when no app search key above is set, and the fallback when one fails. |
 | `DEFAULT_RESEARCH_NOTE_MODEL` | no | `DEFAULT_UTILITY_MODEL` | Model that reads pages and takes notes. Around 78% of a run's input tokens, so a cheap model belongs here. |
 | `DEFAULT_RESEARCH_REPORT_MODEL` | no | `DEFAULT_MODEL` | Model that plans the subquestions and writes the report. |
 | `DEFAULT_RESEARCH_DEPTH` | no | `5` | Sources read per subquestion. |
 | `API_MAX_RETRIES` | no | `5` | Provider retries on 429, 5xx and connection errors. A run makes ~30 calls, so the SDK default of 2 is too few. |
 | `OPENAI_WEB_SEARCH_TOOL` | no | `web_search` | OpenAI's hosted search tool. One tool covers both searching and opening pages, so it does the job of the two Anthropic ones. Empty disables it. |
 
-Every default above is a starting point.
 Change any of them globally (in **Global settings**) or per conversation (in **Conversation settings**).
 
 ## How it works
 
 Most of conversa is an ordinary chat window.
-A few features are worth knowing about.
 
 ### Context: what the assistant always sees
 
@@ -180,7 +180,9 @@ The result lands in a workspace: the report as a reference document, and each su
 Open the workspace to read the report, or download it as a markdown file.
 That way the report is always in context and the raw notes are one keystroke away without costing anything on the turns you do not ask for them.
 
-Three models are set separately, because the stages differ: one searches, one reads pages and takes notes (this is most of the spend, so a cheap model belongs here), and one plans and writes the report.
+With a search key configured (`EXA_API_KEY`, `BRAVE_API_KEY`, or `SEARXNG_URL` in the table above), the searching itself is a plain API request that costs no tokens; without one, the search model runs it through its provider's hosted search tool.
+
+Three models are set separately, because the stages differ: one searches (only when no search key is set), one reads pages and takes notes (this is most of the spend, so a cheap model belongs here), and one plans and writes the report.
 
 ### Cards: notes that appear only when relevant
 
@@ -212,7 +214,6 @@ Turn on **Recall relevant old messages** and, before each reply, conversa looks 
 Ask "what was the dragon called again?" 200 messages later and the turn that names it comes back.
 
 Recall returns the original turns word for word, where memory summarizes.
-The two work well together.
 
 ### Models
 

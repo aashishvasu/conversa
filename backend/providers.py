@@ -1,7 +1,7 @@
 """Provider layer: clients, the model registry, and the two shapes of a model call.
 
 Everything that knows an API key or a model id lives here.
-main.py owns the web app and research.py owns the run loop, and both import this, which is what keeps them from importing each other.
+main.py owns the web app, research.py the gather stage, and runs.py the run loop; all three import this, which is what keeps them from importing each other.
 """
 
 import logging
@@ -113,7 +113,7 @@ def apply_thinking(kwargs, effort, max_tokens):
 
 
 def split_model(mid):
-    """"openai/gpt-5.6" -> ("openai", "gpt-5.6"); a bare id -> ("anthropic", id).
+    """Split "openai/gpt-5.6" into ("openai", "gpt-5.6"); a bare id -> ("anthropic", id).
 
     Unprefixed means Anthropic permanently, the way a bare Docker image name means docker.io.
     Conversations saved before OpenAI support hold bare ids in IndexedDB and .env files still use them, so this
@@ -210,7 +210,7 @@ async def complete(model_id, system, prompt, max_tokens=2048, effort="", spend=N
     raise ValueError(f"unknown provider: {provider}")
 
 
-if __name__ == "__main__":  # self-check: python llm.py
+if __name__ == "__main__":  # self-check: python providers.py
     def _k(model, temperature=1.0):
         return {"model": model, "max_tokens": 4096, "temperature": temperature}
 
@@ -267,4 +267,4 @@ if __name__ == "__main__":  # self-check: python llm.py
     assert field(_Obj(), "type") == "url_citation"
     assert field({"a": 1}, "missing") is None and field(_Obj(), "missing") is None
 
-    print("llm selfcheck OK")
+    print("providers selfcheck OK")

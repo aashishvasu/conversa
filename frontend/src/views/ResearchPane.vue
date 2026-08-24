@@ -2,17 +2,16 @@
 import { Ban, Boxes, Menu, MessagesSquare, Play, RotateCcw } from '@lucide/vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { clarifyResearch, discardResearch, startResearch, streamResearch } from '../api.js'
-import { renderMarkdown } from '../md.js'
+import { effectiveSettings, RESEARCH_KEYS } from '../settings.js'
 import {
   applyResearch,
   currentRun,
-  effectiveSettings,
   persistNow,
-  RESEARCH_KEYS,
   sidebarOpen,
   workspaces,
 } from '../store.js'
-import ModelSelect from './ModelSelect.vue'
+import { renderMarkdown } from '../utils/md.js'
+import ModelSelect from '../components/ModelSelect.vue'
 
 const run = currentRun
 

@@ -1,7 +1,8 @@
 <script setup>
 import { computed } from 'vue'
-import { buildPayload } from '../cards.js'
-import { effectiveSettings, workspaceOf } from '../store.js'
+import { buildPayload } from '../payload.js'
+import { effectiveSettings } from '../settings.js'
+import { workspaceOf } from '../store.js'
 
 const props = defineProps({ convo: Object })
 

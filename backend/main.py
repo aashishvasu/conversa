@@ -1,14 +1,10 @@
 import asyncio
-import hmac
 import json
 import logging
 import os
-import secrets
-import time
 
-import jwt
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +12,9 @@ from pydantic import BaseModel
 
 import fetcher
 import research
-from llm import (
+import runs
+from auth import require_auth, router as auth_router
+from providers import (
     CONFIG_ERRORS, DEFAULT_EFFORT, DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_TEMPERATURE,
     DEFAULT_UTILITY_MODEL, EFFORT_VALUES, MODELS, OPENAI_REASONING_PREFIXES, OPENAI_WEB_SEARCH,
     WEB_FETCH_BETA, WEB_FETCH_TOOL, WEB_SEARCH_TOOL, apply_thinking, client, field, openai_client,
@@ -24,13 +22,6 @@ from llm import (
 )
 
 load_dotenv()
-
-APP_PASSWORD = os.environ.get("APP_PASSWORD")
-# Signing key for session tokens.
-# If unset, generate a random one per process: secure by default, though restarting logs everyone out.
-# Set it to persist sessions.
-JWT_SECRET = os.environ.get("JWT_SECRET") or secrets.token_urlsafe(32)
-TOKEN_TTL = int(os.environ.get("TOKEN_TTL_SECONDS", str(7 * 24 * 3600)))
 
 DEFAULT_NUM_MESSAGES = int(os.environ.get("DEFAULT_NUM_MESSAGES", "20"))
 DEFAULT_SEND_SYSTEM = os.environ.get("DEFAULT_SEND_SYSTEM_PROMPT", "true").lower() == "true"
@@ -48,25 +39,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-def mint_token():
-    # iat lets the client compute the half-life for sliding renewal.
-    now = int(time.time())
-    return jwt.encode({"iat": now, "exp": now + TOKEN_TTL}, JWT_SECRET, algorithm="HS256")
-
-
-def require_auth(authorization: str = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "missing token")
-    try:
-        jwt.decode(authorization[7:], JWT_SECRET, algorithms=["HS256"])
-    except jwt.InvalidTokenError:  # covers expired and tampered tokens
-        raise HTTPException(401, "invalid or expired token")
-
-
-class LoginBody(BaseModel):
-    password: str
+app.include_router(auth_router)
 
 
 class Msg(BaseModel):
@@ -82,23 +55,6 @@ class ChatRequest(BaseModel):
     temperature: float | None = None
     max_tokens: int | None = None
     effort: str | None = None  # "" | low | medium | high; empty/None = thinking off
-
-
-@app.post("/api/login")
-def login(body: LoginBody):
-    # Single shared secret, constant-time compare.
-    # Add a per-IP attempt limiter here if brute force becomes a concern.
-    if not APP_PASSWORD:
-        raise HTTPException(503, "server password not configured")
-    if not hmac.compare_digest(body.password, APP_PASSWORD):  # constant-time
-        raise HTTPException(401, "bad password")
-    return {"token": mint_token()}
-
-
-@app.post("/api/refresh")
-def refresh(_=Depends(require_auth)):
-    # Sliding session: any still-valid token can be traded for a fresh full-TTL one.
-    return {"token": mint_token()}
 
 
 @app.get("/api/settings")
@@ -142,7 +98,7 @@ class ClarifyRequest(BaseModel):
 
 @app.post("/api/research/clarify")
 async def research_clarify(req: ClarifyRequest, _=Depends(require_auth)):
-    research.evict()
+    runs.evict()
     return {"questions": await research.clarify(req.brief, req.model or DEFAULT_MODEL)}
 
 
@@ -159,14 +115,14 @@ async def research_start(req: ResearchRequest, _=Depends(require_auth)):
 
     if req.prompts:
         research.PROMPTS.update({k: v for k, v in req.prompts.items() if k in research.PROMPTS})
-    run = research.start(req.brief, req.models, depth=max(1, min(req.depth, 12)), title=req.title)
+    run = runs.start(req.brief, req.models, depth=max(1, min(req.depth, 12)), title=req.title)
     return {"id": run.id}
 
 
 @app.get("/api/research/{run_id}")
 async def research_state(run_id: str, after: int = 0, _=Depends(require_auth)):
-    research.evict()
-    run = research.RUNS.get(run_id)
+    runs.evict()
+    run = runs.RUNS.get(run_id)
     if not run:
         raise HTTPException(404, "no such run, or it ended before you came back")
     return run.state(after)
@@ -179,7 +135,7 @@ async def research_stream(run_id: str, after: int = 0, _=Depends(require_auth)):
     Reconnecting with the last seq you saw is lossless, because the events are a list rather than a broadcast.
     """
 
-    run = research.RUNS.get(run_id)
+    run = runs.RUNS.get(run_id)
     if not run:
         raise HTTPException(404, "no such run, or it ended before you came back")
 
@@ -209,14 +165,14 @@ async def research_discard(run_id: str, _=Depends(require_auth)):
     Running means cancel, and the run stays so the stream can deliver its final frame.
     Finished means forget, which is what the client calls once it has saved the payload into a workspace.
     """
-    run = research.RUNS.get(run_id)
+    run = runs.RUNS.get(run_id)
     if not run:
         raise HTTPException(404, "no such run")
     if run.status == "running":
         if run.task:
             run.task.cancel()
         return {"status": "cancelling"}
-    research.forget(run_id)
+    runs.forget(run_id)
     return {"status": "forgotten"}
 
 
@@ -377,12 +333,5 @@ if __name__ == "__main__":  # self-check: python main.py (uvicorn imports app, n
     assert _b[0] == {"type": "text", "text": "stable", "cache_control": {"type": "ephemeral"}}, _b
     assert _b[1] == {"type": "text", "text": "volatile"}, _b
     assert [b["text"] for b in system_param(["stable", ""])] == ["stable"], "empty half dropped"
-
-    # field() reads SDK objects and plain dicts alike, and returns None on a shape it doesn't recognise instead of raising mid-stream.
-    class _Obj:
-        type = "url_citation"
-    assert field({"type": "url_citation"}, "type") == "url_citation"
-    assert field(_Obj(), "type") == "url_citation"
-    assert field({"a": 1}, "missing") is None and field(_Obj(), "missing") is None
 
     print("selfcheck OK")

@@ -31,8 +31,7 @@
 }
 
 html, body, #app { height: 100dvh; }
-/* Lock the page to the visible viewport so the chat header (and its menu button)
-   can't scroll off-screen on mobile when the browser toolbar shows/hides. */
+/* Lock the page to the visible viewport so the chat header (and its menu button) can't scroll off-screen on mobile when the browser toolbar shows/hides. */
 body { background: var(--c-app); color: var(--c-text); overflow: hidden; }
 input, textarea, select { color: inherit; }
 

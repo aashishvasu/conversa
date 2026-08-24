@@ -3,8 +3,9 @@ import { Ban, ChevronDown, CircleCheck, GripVertical, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { streamChat } from '../api.js'
 import { CARDGEN_SYSTEM, effectiveCards, matchedCardIds, parseGeneratedCards } from '../cards.js'
-import { confirmDelete } from '../confirm.js'
-import { effectiveSettings, workspaceOf } from '../store.js'
+import { effectiveSettings } from '../settings.js'
+import { workspaceOf } from '../store.js'
+import { confirmDelete } from '../utils/confirm.js'
 
 // Also reused by WorkspacePanel with a workspace as `convo`; workspaces have cards but no messages, settings, or workspaceId, so those reads are guarded below.
 const props = defineProps({ convo: Object })
@@ -160,8 +161,7 @@ async function removeCard(id) {
       text is added to the system prompt. Click a card to expand.
     </p>
 
-    <!-- Shared cards, read-only here: editing one affects every conversation in the
-         workspace, so edits go through the workspace editor in the sidebar. -->
+    <!-- Shared cards, read-only here: editing one affects every conversation in the workspace, so edits go through the workspace editor in the sidebar. -->
     <template v-if="ws">
       <p class="px-1 text-xs uppercase text-muted">Workspace cards · {{ ws.name }} (edit in workspace; include/exclude is per-conversation)</p>
       <p v-if="!ws.cards.length" class="px-1 text-xs italic text-muted">No workspace cards.</p>

@@ -7,7 +7,7 @@ const FONT_KEY = 'conversa_font_scale'
 const ENTER_KEY = 'conversa_enter_to_send'
 
 export const fontScale = ref(1) // root font-size multiplier; Tailwind is rem-based, so this zooms the whole UI
-export const enterToSend = ref(true) // false → Enter makes a newline and Shift+Enter sends
+export const enterToSend = ref(true) // false: Enter makes a newline and Shift+Enter sends
 
 function applyFontScale() {
   document.documentElement.style.fontSize = `${fontScale.value * 100}%`

@@ -2,11 +2,11 @@
 import { onMounted, ref } from 'vue'
 import { authed, fetchModels, fetchSettings, getToken, logout } from './api.js'
 import { cacheModels, currentRunId, downloadExport, initStore, setGlobalSettings, storageError } from './store.js'
-import ChatPane from './components/ChatPane.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
-import Login from './components/Login.vue'
-import ResearchPane from './components/ResearchPane.vue'
-import Sidebar from './components/Sidebar.vue'
+import ChatPane from './views/ChatPane.vue'
+import Login from './views/Login.vue'
+import ResearchPane from './views/ResearchPane.vue'
+import Sidebar from './views/Sidebar.vue'
 
 const ready = ref(false)
 // initStore() failing means IndexedDB could not be read (blocked, corrupt), so there is nothing to show and nothing to export. The raw error is the page.

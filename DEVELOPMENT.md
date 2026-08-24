@@ -50,25 +50,32 @@ Browser (Vue SPA, IndexedDB)  --HTTPS-->  FastAPI  -->  Anthropic API
 - `POST /api/research`: starts a run and returns its id.
   `GET /api/research/{id}` reads its state, `GET /api/research/{id}/stream` replays from `?after=<seq>` then tails live as SSE, `DELETE /api/research/{id}` cancels it.
 
-### Provider layer (`backend/llm.py`)
+All endpoints except `/api/login` require `Authorization: Bearer <token>`.
+`/api/login`, `/api/refresh`, and the `require_auth` dependency the other routes depend on live in `backend/auth.py`.
+A 401 logs the client out automatically.
+In production the SPA is served from the same origin (`StaticFiles` mount), so CORS is irrelevant; `CORS_ORIGINS` is dev-only.
+
+### Provider layer (`backend/providers.py`)
 
 Clients, the model registry, `split_model`, `apply_thinking`, and `complete()`.
 Anything that knows an API key or a model id lives here.
-`main.py` owns the web app and `research.py` owns the run loop, and both import this, which is what lets them avoid importing each other.
+`main.py` owns the web app, `research.py` the gather stage, and `runs.py` the run loop; all three import this and nothing imports back up.
 
-### Research runs (`backend/research.py`)
+### Research runs (`backend/runs.py`, `backend/research.py`)
 
-A run is an `asyncio.Task` plus an event list held in the `RUNS` dict.
+`runs.py` owns the run lifecycle: a run is an `asyncio.Task` plus an event list held in the `RUNS` dict.
 That is enough to survive the client closing its tab, which is the only durability the feature needs: the brief lives in the browser, and a process restart means starting again.
 Nothing touches disk.
 
 Phases are plan, gather, gap, report.
 Gather fans out one coroutine per subquestion under a semaphore; each searches, fetches, and writes notes, then drops the document.
+The search, fetch and note-taking stages live in `research.py`, with `PageCache`, `Spend`, and the prompts; `runs.py` imports them.
 Notes and source URLs are all that survive, so a run's memory is flat whether it reads 20 sources or 200.
 
-Two measured findings shaped this.
-Search prompt wording does not move source quality, because the hosted tool returns what its backend returns; `BLOCKED_DOMAINS` does, and blocking server-side makes the backend offer a replacement instead of a gap.
-And subquestions overlap enough that one canonical source gets picked repeatedly, so `PageCache` downloads each URL once per run and topic-selects it per subquestion, which keeps the notes distinct while paying for one fetch.
+`search()` prefers an app finder (Exa, Brave, SearXNG; first configured wins) so the search step costs an HTTP request instead of a model call; the search model's hosted tool is the fallback, and the only finder when no key is set.
+The finder that served each query is logged to the uvicorn console, and a finder failing logs a warning naming the error before the next one runs.
+Search prompt wording does not move hosted-tool source quality, because the tool returns what its backend returns; `BLOCKED_DOMAINS` does, and blocking server-side makes the backend offer a replacement instead of a gap. Results from every other finder pass the same list post-hoc via `is_blocked`.
+Subquestions overlap enough that one canonical source gets picked repeatedly, so `PageCache` downloads each URL once per run and topic-selects it per subquestion, which keeps the notes distinct while paying for one fetch.
 
 Failure handling is deliberate, because a run makes about 30 calls and a transient 429 or 529 during one of them should be expected.
 The SDK retries are raised to 5.
@@ -82,19 +89,19 @@ The finished payload is a workspace: the report as a doc, per-subquestion notes 
 
 ### Fetching (`backend/fetcher.py`, `backend/topic.py`)
 
-Ported from [magpi](https://github.com/grainologic/magpi) (MIT). trafilatura extracts HTML, chosen over readability-lxml because it keeps fenced code blocks; a content-type branch handles JSON and plain text; a Wayback lookup retries 403/404/410/451.
+Ported from [magpi](https://github.com/grainologic/magpi) (MIT). trafilatura extracts HTML and keeps fenced code blocks; a content-type branch handles JSON and plain text; a Wayback lookup retries 403/404/410/451.
 
 `assert_public_target()` is the security boundary: this endpoint opens a caller-supplied URL from inside the network, so it rejects non-http schemes, loopback names, literal private IPs, and names that resolve into a private range.
 Redirects are followed by hand so the check runs on every hop.
 The known gap is DNS rebinding between the resolve and the connect; closing it needs a custom transport that dials a pinned IP.
 
-### Providers (`split_model`, `parse_models` in `backend/llm.py`)
+### Providers (`split_model`, `parse_models` in `backend/providers.py`)
 
 A model id carries its provider as a prefix: `openai/gpt-5.6-sol`.
 `split_model()` splits on the last `/` and treats a bare id as Anthropic, permanently: conversations persisted before OpenAI support hold bare ids in IndexedDB, and `.env` files still use them.
 Bare keeps meaning Anthropic the way a bare Docker image name keeps meaning `docker.io`.
 
-Everything downstream of the dropdown treats the id as opaque, so provider logic lives entirely in `llm.py`.
+Everything downstream of the dropdown treats the id as opaque, so provider logic lives entirely in `providers.py`.
 
 A provider with no key follows two rules:
 
@@ -121,7 +128,7 @@ The event mapping onto conversa's own SSE frames:
 Effort remains a hint: at `low` with a short system prompt these models often return no reasoning item, which reaches the UI as an empty trace.
 `field()` reads SDK objects and plain dicts alike, so an annotation shape that changes between SDK versions costs one trace event and the stream continues.
 
-### Thinking effort (`apply_thinking` in `backend/llm.py`)
+### Thinking effort (`apply_thinking` in `backend/providers.py`)
 
 The wire format for extended thinking split across model generations, so one branch translates the single `effort` lever (`""` / `low` / `medium` / `high`) per model:
 
@@ -137,10 +144,6 @@ Unknown model ids are treated as modern.
 `LEGACY_MODELS` is a hand-maintained set of older ids, so adding a pre-4.6 model to `MODELS` means adding its id there too.
 The three lever words (`low` / `medium` / `high`) are `EFFORT_VALUES`, and both providers accept them verbatim, which is why one picker drives both.
 Covered by the self-check at the bottom of `main.py` (`python main.py`).
-
-All endpoints except `/api/login` require `Authorization: Bearer <token>`.
-A 401 logs the client out automatically.
-In production the SPA is served from the same origin (`StaticFiles` mount), so CORS is irrelevant; `CORS_ORIGINS` is dev-only.
 
 ### How a request is assembled (`frontend/src/cards.js`)
 
@@ -186,26 +189,30 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 
 | File | Responsibility |
 |------|----------------|
-| `store.js` | Reactive conversation, workspace and research-run state, IndexedDB persistence (debounced, with `persistNow()`). Owns `SETTING_KEYS` (what a conversation may override), `RESEARCH_KEYS` (what a run may override), and `EFFORT_LEVELS`, the single definition of the thinking-effort lever. `effectiveSettings(owner, keys)` resolves either list against the global defaults. Also `applyResearch()`, which lands a finished run in a workspace, and `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write sets `storageError`, which App.vue surfaces with an export offer while the data is still intact in memory. |
-| `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `stopResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
-| `cards.js` | Pure card-matching, lexical recall, + `buildPayload`. With `use_cache` on, `buildPayload` returns `system` as `[stable, volatile]` instead of a string. Also the card builder's halves that can run in Node: `CARDGEN_SYSTEM` (the prompt that teaches the trigger syntax) and `parseGeneratedCards()` (fence- and prose-tolerant JSON parsing, strict on shape). Vue-free, so it runs in Node. |
+| `store.js` | Reactive conversation, workspace and research-run state, IndexedDB persistence (debounced, with `persistNow()`). Also `applyResearch()`, which lands a finished run in a workspace, and `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write sets `storageError`, which App.vue surfaces with an export offer while the data is still intact in memory. |
+| `settings.js` | The settings surface: `SETTING_KEYS` (what a conversation may override), `RESEARCH_KEYS` (what a run may override), and `EFFORT_LEVELS`, the single definition of the thinking-effort lever. `effectiveSettings(owner, keys)` resolves either list against the global defaults. |
+| `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `discardResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
+| `cards.js` | Pure card concerns: trigger matching, force overrides, `effectiveCards`, and the card builder's parsing half: `CARDGEN_SYSTEM` (the prompt that teaches the trigger syntax) and `parseGeneratedCards()` (fence- and prose-tolerant JSON parsing, strict on shape). Vue-free, so it runs in Node. |
+| `payload.js` | Request assembly: `buildPayload`, the send window, and lexical recall. With `use_cache` on, `buildPayload` returns `system` as `[stable, volatile]` instead of a string. Imports from cards.js, never the reverse; Vue-free like it. |
 | `memory.js` | Background sliding-window summarization. |
 | `titles.js` | Auto-titling from recent turns via the utility model. |
-| `md.js` | Markdown in, sanitized and highlighted HTML out. |
-| `format.js` | Timestamp formatting (native `Intl`). |
-| `theme.js` | Light/dark toggle. |
-| `prefs.js` | Frontend-only UI prefs (font scale, Enter-to-send), persisted to localStorage. |
-| `confirm.js` | Promise-based confirm: `await confirmDelete(msg)`, backed by one `ConfirmModal` at app root. |
-| `components/ChatPane.vue` | The chat window: messages, actions, composer, toolbar (model + thinking-effort pickers). Renders the last `PAGE_SIZE` (100) messages with "Load more" (display-only, and separate from what's sent), marks the send-window start with a divider, and shows the live thinking/search trace (ephemeral, dropped on reload). Also owns the backgrounded-tab defences: a screen wake lock held while streaming, and a `visibilitychange` watchdog that aborts a stream gone silent for `STALL_MS` (60s), so a frozen tab ends in the normal stop path instead of a stuck spinner. |
+| `composables/useStreamGuard.js` | The backgrounded-tab defences: a screen wake lock held while streaming, and a `visibilitychange` watchdog that aborts a stream gone silent for `STALL_MS` (60s), so a frozen tab ends in the normal stop path instead of a stuck spinner. |
+| `utils/md.js` | Markdown in, sanitized and highlighted HTML out. |
+| `utils/format.js` | Timestamp formatting (native `Intl`). |
+| `utils/theme.js` | Light/dark toggle. |
+| `utils/prefs.js` | Frontend-only UI prefs (font scale, Enter-to-send), persisted to localStorage. |
+| `utils/confirm.js` | Promise-based confirm: `await confirmDelete(msg)`, backed by one `ConfirmModal` at app root. |
+| `views/ChatPane.vue` | The chat window: message list, composer, toolbar (model + thinking-effort pickers), and the stream loop. Renders the last `PAGE_SIZE` (100) messages with "Load more" (display-only, and separate from what's sent), and marks the send-window start with a divider. |
+| `components/MessageBubble.vue` | One message: view/edit bubble, pin/copy/delete/regenerate actions, and the live thinking/search trace while it streams (ephemeral, dropped on reload). List and stream mutations stay in ChatPane, behind events. |
 | `components/ModelSelect.vue` | The one model dropdown, rendered in five places. Groups models by provider with native `<optgroup>`. |
-| `components/Login.vue` | Password prompt shown until a token exists. |
+| `views/Login.vue` | Password prompt shown until a token exists. |
 | `components/ContextPanel.vue` | Edits system + pinned messages together. Also the URL fetch box: a fetched page lands as a system message, so it edits, deletes and sends like any other context. |
 | `components/CardsPanel.vue` | Card editor with live "active" indicators. For a convo in a workspace, lists the workspace's cards read-only above the convo's own. Also reused by WorkspacePanel as the shared-card editor (a workspace passes as `convo`; its missing messages/settings are guarded). The card builder lives here: pasted text goes to the utility model, and the parsed cards are appended to whichever owner the panel got, which is what makes it work in both scopes. |
 | `components/WorkspacePanel.vue` | Workspace editor: name, shared prompt, shared cards (via CardsPanel), and documents. A doc expands to a rendered read view and carries a download button, because a research report arrives here and has to be readable and savable, not just deletable. |
 | `components/DebugPanel.vue` | Read-only live preview of the assembled `system` param (via `buildPayload`). |
 | `components/SettingsPanel.vue` / `GlobalSettings.vue` | Per-conversation overrides / global defaults. |
-| `components/Sidebar.vue` | New-chat and new-research buttons, then template, research-run and conversation lists. Workspace rows head their member conversations (click to edit, X to delete) and double as the management surface; unassigned conversations sit under a "Conversations" label. |
-| `components/ResearchPane.vue` | The research window, a sibling of ChatPane rather than a panel inside it. `currentRunId` being set is what swaps it in. Brief, clarifying questions, per-run model overrides, live progress and spend, then `applyResearch()` into a workspace. Reconnects a live run from the last stored seq, so a dropped stream resumes instead of reading as finished. |
+| `views/Sidebar.vue` | New-chat and new-research buttons, then template, research-run and conversation lists. Workspace rows head their member conversations (click to edit, X to delete) and double as the management surface; unassigned conversations sit under a "Conversations" label. |
+| `views/ResearchPane.vue` | The research window, a sibling of ChatPane rather than a panel inside it. `currentRunId` being set is what swaps it in. Brief, clarifying questions, per-run model overrides, live progress and spend, then `applyResearch()` into a workspace. Reconnects a live run from the last stored seq, so a dropped stream resumes instead of reading as finished. |
 | `components/Modal.vue` / `ConfirmModal.vue` | Generic modal shell / shared delete-confirmation dialog. |
 
 ## Local development
@@ -241,7 +248,8 @@ Card / payload logic, the confirm dialog, and export/import:
 ```sh
 cd frontend
 node src/cards.selfcheck.js
-node src/confirm.selfcheck.js
+node src/payload.selfcheck.js
+node src/utils/confirm.selfcheck.js
 node src/store.selfcheck.js
 ```
 
@@ -249,14 +257,16 @@ The backend's live at the bottom of each module, behind `__main__`, so uvicorn (
 
 ```sh
 cd backend                          # .venv/Scripts on Windows, .venv/bin on *nix
-.venv/Scripts/python llm.py         # apply_thinking, split_model, parse_models, field
+.venv/Scripts/python providers.py   # apply_thinking, split_model, parse_models, field
 .venv/Scripts/python main.py        # system_param, the [stable, volatile] cache split
+.venv/Scripts/python auth.py        # token mint/verify roundtrip, require_auth rejections
 .venv/Scripts/python fetcher.py     # SSRF guard, URL canonicalization
 .venv/Scripts/python topic.py       # section ranking, headingless fallback
-.venv/Scripts/python research.py    # blocklist matching, list parsing, spend, payload numbering, page cache, failure isolation
+.venv/Scripts/python research.py    # blocklist matching, finder parsing + precedence, list parsing, spend, page cache, source-failure isolation
+.venv/Scripts/python runs.py        # payload numbering, failed-report recovery, forget and evict
 ```
 
-The wake lock and stall watchdog in `ChatPane.vue` are verified on a real mobile browser: background a stream mid-reply for over a minute, then return.
+The wake lock and stall watchdog in `composables/useStreamGuard.js` are verified on a real mobile browser: background a stream mid-reply for over a minute, then return.
 Expect the partial reply, an idle composer, and no spinner.
 
 Production build (also what the container runs):

@@ -41,7 +41,7 @@ async function maybeRefresh() {
     // JWT payloads are base64url; atob wants plain base64.
     const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
     const { iat, exp } = JSON.parse(atob(b64))
-    // Pre-renewal tokens have no iat → NaN comparison is false → refresh them now.
+    // Pre-renewal tokens have no iat, so the NaN comparison is false and they refresh now.
     if (Date.now() / 1000 < (iat + exp) / 2) return
   } catch {
     return
@@ -91,7 +91,7 @@ export async function fetchUrl(url, topic) {
 }
 
 // Streams assistant text.
-// Calls onText(chunk) per token; onTrace(type, value) for non-visible activity (type 'thinking' | 'search' → string, 'results' → [{title,url}]); resolves when done.
+// Calls onText(chunk) per token; onTrace(type, value) for non-visible activity (type 'thinking' | 'search' -> string, 'results' -> [{title,url}]); resolves when done.
 export async function streamChat(payload, onText, signal, onTrace) {
   const res = check(
     await fetch('/api/chat', {
