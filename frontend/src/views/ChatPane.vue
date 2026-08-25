@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
 import { useStreamGuard } from '../composables/useStreamGuard.js'
 import { refreshMemory } from '../memory.js'
+import { notify } from '../notify.js'
 import { buildPayload, sendWindow } from '../payload.js'
 import { effectiveSettings, EFFORT_LEVELS } from '../settings.js'
 import { currentConversation, persistNow, sidebarOpen, workspaceOf } from '../store.js'
@@ -23,7 +24,6 @@ const convo = currentConversation
 const input = ref('')
 const streaming = ref(false)
 const titling = ref(false)
-const titleErr = ref('')
 const panel = ref(null)
 const editingId = ref(null)
 let editBackup = null // original {content, role} so Cancel can revert; null = newly added
@@ -149,8 +149,11 @@ async function runCompletion(c) {
       } catch { /* best-effort */ }
     }
   } catch (e) {
-    if (e.name !== 'AbortError' && assistant)
+    if (e.name !== 'AbortError' && assistant) {
       assistant.content += `${assistant.content ? '\n\n' : ''}> ⚠️ **Error:** ${e.message}`
+    } else if (e.name !== 'AbortError') {
+      notify({ key: 'chat', text: e.message, foreground: true })
+    }
   } finally {
     streaming.value = false
     guard.end()
@@ -221,20 +224,18 @@ function stop() {
 async function regenTitle() {
   if (titling.value || !convo.value) return
   titling.value = true
-  titleErr.value = ''
   try {
     const t = await generateTitle(convo.value, effectiveSettings(convo.value).utility_model)
     if (t) {
       convo.value.title = t
       await persistNow()
     } else {
-      titleErr.value = 'Empty title returned'
+      notify({ key: 'title', text: 'Empty title returned', foreground: true })
     }
   } catch (e) {
-    titleErr.value = e.message
+    notify({ key: 'title', text: e.message, foreground: true })
   } finally {
     titling.value = false
-    if (titleErr.value) setTimeout(() => (titleErr.value = ''), 5000)
   }
 }
 </script>
@@ -250,7 +251,6 @@ async function regenTitle() {
         v-model="convo.title"
         class="min-w-0 flex-1 truncate bg-transparent text-base font-semibold outline-none"
       />
-      <span v-if="titleErr" class="max-w-[35%] truncate text-xs text-red-500" :title="titleErr">{{ titleErr }}</span>
       <button class="rounded p-1.5 text-muted hover:bg-surface2 hover:text-base disabled:opacity-50" title="Regenerate title" :disabled="titling" @click="regenTitle">
         <RotateCcw :size="15" :class="titling && 'animate-spin'" />
       </button>
