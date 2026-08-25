@@ -202,6 +202,7 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `utils/theme.js` | Light/dark toggle. |
 | `utils/prefs.js` | Frontend-only UI prefs (font scale, Enter-to-send), persisted to localStorage. |
 | `utils/confirm.js` | Promise-based confirm: `await confirmDelete(msg)`, backed by one `ConfirmModal` at app root. |
+| `utils/notify.js` | Reactive app-wide notification queue with keyed dedupe and dismissal; `notify.selfcheck.js` checks its contract. |
 | `views/ChatPane.vue` | The chat window: message list, composer, toolbar (model + thinking-effort pickers), and the stream loop. Renders the last `PAGE_SIZE` (100) messages with "Load more" (display-only, and separate from what's sent), and marks the send-window start with a divider. |
 | `components/MessageBubble.vue` | One message: view/edit bubble, pin/copy/delete/regenerate actions, and the live thinking/search trace while it streams (ephemeral, dropped on reload). List and stream mutations stay in ChatPane, behind events. |
 | `components/ModelSelect.vue` | The one model dropdown, rendered in five places. Groups models by provider with native `<optgroup>`. |
@@ -211,6 +212,7 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `components/WorkspacePanel.vue` | Workspace editor: name, shared prompt, shared cards (via CardsPanel), and documents. A doc expands to a rendered read view and carries a download button, because a research report arrives here and has to be readable and savable, not just deletable. |
 | `components/DebugPanel.vue` | Read-only live preview of the assembled `system` param (via `buildPayload`). |
 | `components/SettingsPanel.vue` / `GlobalSettings.vue` | Per-conversation overrides / global defaults. |
+| `components/Notifications.vue` | App-root renderer for sticky banners and transient Reka toasts. |
 | `views/Sidebar.vue` | New-chat and new-research buttons, then template, research-run and conversation lists. Workspace rows head their member conversations (click to edit, X to delete) and double as the management surface; unassigned conversations sit under a "Conversations" label. |
 | `views/ResearchPane.vue` | The research window, a sibling of ChatPane rather than a panel inside it. `currentRunId` being set is what swaps it in. Brief, clarifying questions, per-run model overrides, live progress and spend, then `applyResearch()` into a workspace. Reconnects a live run from the last stored seq, so a dropped stream resumes instead of reading as finished. |
 | `components/Modal.vue` / `ConfirmModal.vue` | Generic modal shell / shared delete-confirmation dialog. |

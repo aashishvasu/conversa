@@ -1,6 +1,6 @@
 import { get, set } from 'idb-keyval'
 import { computed, reactive, ref, watch } from 'vue'
-import { dismiss, notify } from './notify.js'
+import { dismiss, notify } from './utils/notify.js'
 
 // All conversation state lives client-side in IndexedDB (via idb-keyval).
 

@@ -1,4 +1,4 @@
-// Run: node src/notify.selfcheck.js.
+// Run: node src/utils/notify.selfcheck.js.
 import assert from 'node:assert'
 import { dismiss, notifications, notify } from './notify.js'
 

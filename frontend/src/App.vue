@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { authed, fetchModels, fetchSettings, getToken, logout } from './api.js'
 import { cacheModels, currentRunId, initStore, setGlobalSettings } from './store.js'
-import { dismiss, notify } from './notify.js'
+import { dismiss, notify } from './utils/notify.js'
 import ConfirmModal from './components/ConfirmModal.vue'
 import Notifications from './components/Notifications.vue'
 import ChatPane from './views/ChatPane.vue'

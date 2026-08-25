@@ -1,7 +1,8 @@
 <script setup>
 import { computed } from 'vue'
+// WHY: Reka Toast owns focus, announcements, timers, and swipe dismissal; a local stack would reimplement them.
 import { ToastAction, ToastClose, ToastDescription, ToastProvider, ToastRoot, ToastTitle, ToastViewport } from 'reka-ui'
-import { dismiss, notifications } from '../notify.js'
+import { dismiss, notifications } from '../utils/notify.js'
 
 const sticky = computed(() => notifications.value.filter((n) => n.sticky))
 const transient = computed(() => notifications.value.filter((n) => !n.sticky))
