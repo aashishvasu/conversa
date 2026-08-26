@@ -176,7 +176,8 @@ class Spend:
         self.cache_write += cache_write
         self.usd += usd
         row = self.models.setdefault(
-            model_id, {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "usd": 0.0}
+            model_id,
+            {"calls": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "usd": 0.0, "unpriced": 0},
         )
         row["calls"] += 1
         row["input"] += input_tokens
@@ -184,6 +185,7 @@ class Spend:
         row["cache_read"] += cache_read
         row["cache_write"] += cache_write
         row["usd"] += usd
+        row["unpriced"] += not priced
 
     def as_dict(self):
         return {

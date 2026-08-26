@@ -140,6 +140,9 @@ assert d["calls"] == 3 and d["input"] == 310 and d["output"] == 60, d
 assert d["cache_read"] == 500, d
 assert set(d["models"]) == {"claude-haiku-4-5", "openai/gpt-5.6-luna"}, d
 assert d["models"]["claude-haiku-4-5"]["calls"] == 2, d
+spend.add("openai/some-unknown-model", 0, 100)
+assert spend.as_dict()["models"]["openai/some-unknown-model"]["unpriced"] == 1, spend.as_dict()
+assert spend.as_dict()["models"]["claude-haiku-4-5"]["unpriced"] == 0, "a priced model's row is not flagged"
 
 # anthropic_usage: cache and hosted-search counts alongside tokens, from message.usage.
 assert anthropic_usage(Obj(
