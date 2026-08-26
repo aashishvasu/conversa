@@ -14,51 +14,6 @@ from openai import AsyncOpenAI
 # Idempotent, and it has to run here too: importing this module before main reads the env otherwise finds nothing.
 load_dotenv()
 
-# Providers are data; dialects are code.
-# `dialect` picks the wire protocol, and so both the branch in complete() and the stream generator in main.py.
-# Everything else here is a plain value, so an OpenAI-compatible provider costs one entry plus its key in .env.
-#
-# Fields: dialect (anthropic | responses | chat_completions), key_env, models, and for the OpenAI-compatible
-# dialects base_url and effort_param (absent = this provider has no thinking lever to send).
-# Model ids in `models` carry their own provider prefix, except Anthropic's, which are bare (see split_model).
-PROVIDERS = {
-    "anthropic": {
-        "dialect": "anthropic",
-        "key_env": "ANTHROPIC_API_KEY",
-        "models": (
-            "claude-fable-5:Fable 5,"
-            "claude-opus-5:Opus 5,claude-sonnet-5:Sonnet 5,claude-opus-4-8:Opus 4.8,"
-            "claude-sonnet-4-6:Sonnet 4.6,claude-haiku-4-5:Haiku 4.5"
-        ),
-    },
-    "openai": {
-        "dialect": "responses",
-        "key_env": "OPENAI_API_KEY",
-        "models": (
-            "openai/gpt-5.6-sol:GPT-5.6 Sol,openai/gpt-5.6-terra:GPT-5.6 Terra,"
-            "openai/gpt-5.6-luna:GPT-5.6 Luna,openai/gpt-5.5:GPT-5.5,"
-            "openai/gpt-5-mini:GPT-5 Mini"
-        ),
-    },
-    "deepseek": {
-        "dialect": "chat_completions",
-        "key_env": "DEEPSEEK_API_KEY",
-        "base_url": "https://api.deepseek.com",
-        "effort_param": "reasoning_effort",
-        "models": "deepseek/deepseek-v4-pro:DeepSeek V4 Pro,deepseek/deepseek-v4-flash:DeepSeek V4 Flash",
-    },
-    "moonshot": {
-        "dialect": "chat_completions",
-        "key_env": "MOONSHOT_API_KEY",
-        "base_url": "https://api.moonshot.ai/v1",
-        # Thinking depth rides the model id here, so there is no effort parameter to send.
-        "models": "moonshot/kimi-k2-thinking:Kimi K2 Thinking",
-    },
-}
-
-DIALECTS = ("anthropic", "responses", "chat_completions")
-
-KEYS = {name: os.environ.get(p["key_env"]) for name, p in PROVIDERS.items()}
 
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "claude-sonnet-5")
 DEFAULT_TEMPERATURE = float(os.environ.get("DEFAULT_TEMPERATURE", "1.0"))
@@ -112,6 +67,57 @@ EFFORT_VALUES = ("low", "medium", "high")
 # OpenAI reasoning models take reasoning.effort and reject temperature; older chat models are the inverse.
 # Prefix match, hand-maintained like LEGACY_MODELS above.
 OPENAI_REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+
+# Providers are data; dialects are code.
+# `dialect` picks the wire protocol, and so both the branch in complete() and the stream generator in main.py.
+# Everything else here is a plain value, so a provider on an existing dialect costs one entry plus its key in .env.
+#
+# Fields: dialect (anthropic | responses | chat_completions), key_env, models, and optionally
+# base_url (required away from the first-class endpoints), search_tool (hosted web search; absent = none),
+# and reasoning_prefixes (which ids take the dialect's thinking lever; absent = all of them).
+# Model ids in `models` carry their own provider prefix, except Anthropic's, which are bare (see split_model).
+PROVIDERS = {
+    "anthropic": {
+        "dialect": "anthropic",
+        "key_env": "ANTHROPIC_API_KEY",
+        "models": (
+            "claude-fable-5:Fable 5,"
+            "claude-opus-5:Opus 5,claude-sonnet-5:Sonnet 5,claude-opus-4-8:Opus 4.8,"
+            "claude-sonnet-4-6:Sonnet 4.6,claude-haiku-4-5:Haiku 4.5"
+        ),
+    },
+    "openai": {
+        "dialect": "responses",
+        "key_env": "OPENAI_API_KEY",
+        "search_tool": OPENAI_WEB_SEARCH,
+        "reasoning_prefixes": OPENAI_REASONING_PREFIXES,
+        "models": (
+            "openai/gpt-5.6-sol:GPT-5.6 Sol,openai/gpt-5.6-terra:GPT-5.6 Terra,"
+            "openai/gpt-5.6-luna:GPT-5.6 Luna,openai/gpt-5.5:GPT-5.5,"
+            "openai/gpt-5-mini:GPT-5 Mini"
+        ),
+    },
+    # DeepSeek serves all three dialects (api-docs.deepseek.com, read 2026-08-26).
+    # Responses is the one carrying hosted web search and image input; its chat.completions takes function tools only.
+    # Every model it offers reasons, so there are no reasoning_prefixes to list.
+    "deepseek": {
+        "dialect": "responses",
+        "key_env": "DEEPSEEK_API_KEY",
+        "base_url": "https://api.deepseek.com",
+        "search_tool": "web_search",
+        "models": "deepseek/deepseek-v4-pro:DeepSeek V4 Pro,deepseek/deepseek-v4-flash:DeepSeek V4 Flash",
+    },
+    "moonshot": {
+        "dialect": "chat_completions",
+        "key_env": "MOONSHOT_API_KEY",
+        "base_url": "https://api.moonshot.ai/v1",
+        "models": "moonshot/kimi-k2-thinking:Kimi K2 Thinking",
+    },
+}
+
+DIALECTS = ("anthropic", "responses", "chat_completions")
+
+KEYS = {name: os.environ.get(p["key_env"]) for name, p in PROVIDERS.items()}
 
 # Selectable models, labelled.
 # Format: "provider/id:Label,id2:Label2" (label optional, provider optional).
@@ -175,6 +181,16 @@ def parse_models(raw):
     return out
 
 
+def takes_reasoning(provider, model):
+    """Whether this model takes the Responses dialect's `reasoning` parameter (and so rejects temperature).
+
+    OpenAI splits its lineup, reasoning models one way and chat models the other.
+    A provider that lists no prefixes reasons on every model it offers, which is DeepSeek.
+    """
+    prefixes = PROVIDERS[provider].get("reasoning_prefixes")
+    return model.startswith(prefixes) if prefixes else True
+
+
 def join_system(system):
     """Collapse buildPayload's [stable, volatile] halves into the single system string every non-Anthropic dialect takes.
 
@@ -183,20 +199,17 @@ def join_system(system):
     return "\n\n".join(s for s in system if s) if isinstance(system, list) else system
 
 
-def chat_completions_kwargs(provider, model, messages, system, max_tokens, effort, temperature=None):
+def chat_completions_kwargs(model, messages, system, max_tokens, temperature=None):
     """Request body for the chat.completions dialect, shared by complete() and main.py's stream.
 
-    The thinking lever is per provider (`effort_param`), because chat.completions has no standard one;
-    a provider without one silently ignores the effort setting, which is what the UI lever already implies elsewhere.
+    No thinking lever: the dialect has no standard one, and Moonshot, the only provider here, picks
+    thinking depth by model id. A provider with its own parameter name adds it as registry data.
     """
     if system:
         messages = [{"role": "system", "content": join_system(system)}, *messages]
     kwargs = dict(model=model, messages=messages, max_tokens=max_tokens)
     if temperature is not None:
         kwargs["temperature"] = temperature
-    effort_param = PROVIDERS[provider].get("effort_param")
-    if effort and effort_param:
-        kwargs[effort_param] = effort
     return kwargs
 
 
@@ -250,10 +263,6 @@ def _build_client(name):
 
 CLIENTS = {name: _build_client(name) for name in PROVIDERS}
 
-# The two first-class clients by name, for the hosted-search finders in research.py, which are dialect-specific by nature.
-client = CLIENTS["anthropic"]
-openai_client = CLIENTS["openai"]
-
 
 async def complete(model_id, system, prompt, max_tokens=2048, effort="", spend=None):
     """One non-streaming call, returning text.
@@ -285,15 +294,13 @@ async def complete(model_id, system, prompt, max_tokens=2048, effort="", spend=N
         kwargs = dict(model=model, input=prompt, max_output_tokens=max_tokens)
         if system:
             kwargs["instructions"] = join_system(system)
-        if effort and model.startswith(OPENAI_REASONING_PREFIXES):
+        if effort and takes_reasoning(provider, model):
             kwargs["reasoning"] = {"effort": effort}
         response = await api.responses.create(**kwargs)
         if spend and response.usage:
             spend.add(model_id, response.usage.input_tokens, response.usage.output_tokens)
         return (response.output_text or "").strip()
-    kwargs = chat_completions_kwargs(
-        provider, model, [{"role": "user", "content": prompt}], system, max_tokens, effort
-    )
+    kwargs = chat_completions_kwargs(model, [{"role": "user", "content": prompt}], system, max_tokens)
     response = await api.chat.completions.create(**kwargs)
     if spend and response.usage:
         spend.add(model_id, response.usage.prompt_tokens, response.usage.completion_tokens)
@@ -352,23 +359,23 @@ if __name__ == "__main__":  # self-check: python providers.py
     for _name, _entry in PROVIDERS.items():
         assert _entry["dialect"] in DIALECTS, _name
         assert _entry["key_env"] and _entry["models"], _name
-        if _entry["dialect"] == "chat_completions":
-            assert _entry.get("base_url"), _name
+        # Only the two first-class endpoints are the SDK defaults; anything else needs its own address.
+        assert _entry.get("base_url") or _name in ("anthropic", "openai"), _name
         # An entry whose ids carry the wrong prefix stays hidden whatever keys are set, since MODELS filters on provider.
         for _m in parse_models(_entry["models"]):
             assert _m["provider"] == _name, (_name, _m)
 
-    # chat.completions: system becomes the leading message, and the effort lever travels under the provider's own name.
-    _cc = chat_completions_kwargs("deepseek", "deepseek-v4-pro", [{"role": "user", "content": "hi"}],
-                                  ["stable", "volatile"], 2048, "high", temperature=0.3)
+    # Reasoning gate: OpenAI splits its lineup by id prefix, DeepSeek reasons on everything it offers.
+    assert takes_reasoning("openai", "gpt-5.6-sol") and not takes_reasoning("openai", "gpt-4o")
+    assert takes_reasoning("deepseek", "deepseek-v4-flash")
+
+    # chat.completions: the system param becomes the leading message, and temperature is omitted unless asked for.
+    _cc = chat_completions_kwargs("kimi-k2-thinking", [{"role": "user", "content": "hi"}],
+                                  ["stable", "volatile"], 2048, temperature=0.3)
     assert _cc["messages"][0] == {"role": "system", "content": "stable\n\nvolatile"}, _cc
     assert _cc["messages"][1]["content"] == "hi" and _cc["temperature"] == 0.3, _cc
-    assert _cc["reasoning_effort"] == "high", _cc
-
-    # A provider with no effort_param sends no lever at all rather than a parameter the API rejects.
-    _cc = chat_completions_kwargs("moonshot", "kimi-k2-thinking", [{"role": "user", "content": "hi"}], None, 2048, "high")
-    assert "reasoning_effort" not in _cc and _cc["messages"][0]["content"] == "hi", _cc
-    assert "temperature" not in _cc, _cc
+    _cc = chat_completions_kwargs("kimi-k2-thinking", [{"role": "user", "content": "hi"}], None, 2048)
+    assert _cc["messages"][0]["content"] == "hi" and "temperature" not in _cc, _cc
 
     # An empty half is dropped rather than joined into leading blank lines.
     assert join_system(["stable", ""]) == "stable"
