@@ -207,7 +207,8 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `components/DebugPanel.vue` | Read-only live preview of the assembled `system` param (via `buildPayload`). |
 | `components/SettingsPanel.vue` / `GlobalSettings.vue` | Per-conversation overrides / global defaults. |
 | `components/Notifications.vue` | App-root renderer for sticky banners and transient Reka toasts. |
-| `views/Sidebar.vue` | New-chat and new-research buttons, then template, research-run and conversation lists. Workspace rows head their member conversations (click to edit, X to delete) and double as the management surface; unassigned conversations sit under a "Conversations" label. |
+| `views/Sidebar.vue` | New-chat and new-research buttons, then template, research-run and conversation lists. Workspace rows head their member conversations (click to edit, RowActionsMenu to delete) and double as the management surface; unassigned conversations sit under a "Conversations" label. |
+| `components/RowActionsMenu.vue` | Reka `DropdownMenu` behind one "..." trigger per sidebar row, replacing the hover icon strips run/template/workspace/convo rows each had. |
 | `views/ResearchPane.vue` | Research view selected by `currentRunId`: brief, clarifying questions, per-run model overrides, live progress and spend, then `applyResearch()` into a workspace. Reconnects from the last stored sequence after a dropped stream. |
 | `components/Modal.vue` / `ConfirmModal.vue` | Reka `Dialog` shell (focus trap, aria wiring) / Reka `AlertDialog` shared delete-confirmation dialog. |
 

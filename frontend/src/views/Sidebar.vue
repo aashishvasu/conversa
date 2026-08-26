@@ -28,6 +28,7 @@ import {
 import { isDark, toggleTheme } from '../utils/theme.js'
 import GlobalSettings from '../components/GlobalSettings.vue'
 import Modal from '../components/Modal.vue'
+import RowActionsMenu from '../components/RowActionsMenu.vue'
 import WorkspacePanel from '../components/WorkspacePanel.vue'
 
 const showGlobal = ref(false)
@@ -121,8 +122,8 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
           </div>
           <div class="mt-0.5 text-[10px] text-muted">{{ runSummary(r) }}</div>
         </button>
-        <div class="absolute right-1 top-1.5 hidden opacity-40 pointer-coarse:flex group-hover:flex">
-          <button class="rounded p-1 text-muted hover:text-red-500" title="Delete run" @click="removeRun(r)"><X :size="14" /></button>
+        <div class="absolute right-1 top-1.5">
+          <RowActionsMenu :actions="[{ label: 'Delete run', icon: X, danger: true, onSelect: () => removeRun(r) }]" />
         </div>
       </div>
     </div>
@@ -136,10 +137,12 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         class="group relative rounded hover:bg-surface2"
         :class="t.id === currentId && !currentRunId && 'bg-surface2'"
       >
-        <button class="w-full truncate px-2 py-1.5 pr-14 text-left text-sm" @click="pick(t.id)">{{ t.title }}</button>
-        <div class="absolute right-1 top-1.5 hidden gap-0.5 opacity-40 pointer-coarse:flex group-hover:flex">
-          <button class="rounded p-1 text-muted hover:text-base" title="New conversation from template" @click="createFromTemplate(t)"><CopyPlus :size="14" /></button>
-          <button class="rounded p-1 text-muted hover:text-red-500" title="Delete template" @click="remove(t.id, 'Delete this template?')"><X :size="14" /></button>
+        <button class="w-full truncate px-2 py-1.5 pr-8 text-left text-sm" @click="pick(t.id)">{{ t.title }}</button>
+        <div class="absolute right-1 top-1.5">
+          <RowActionsMenu :actions="[
+            { label: 'New conversation from template', icon: CopyPlus, onSelect: () => createFromTemplate(t) },
+            { label: 'Delete template', icon: X, danger: true, onSelect: () => remove(t.id, 'Delete this template?') },
+          ]" />
         </div>
       </div>
     </div>
@@ -156,8 +159,8 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
           <button class="flex w-full items-center gap-1.5 truncate px-2 py-1.5 pr-8 text-left text-sm font-medium" title="Edit workspace" @click="editingWs = row.ws">
             <Boxes :size="14" class="shrink-0 text-muted" />{{ row.ws.name }}
           </button>
-          <div class="absolute right-1 top-1.5 hidden opacity-40 pointer-coarse:flex group-hover:flex">
-            <button class="rounded p-1 text-muted hover:text-red-500" title="Delete workspace" @click="removeWorkspace(row.ws)"><X :size="14" /></button>
+          <div class="absolute right-1 top-1.5">
+            <RowActionsMenu :actions="[{ label: 'Delete workspace', icon: X, danger: true, onSelect: () => removeWorkspace(row.ws) }]" />
           </div>
         </div>
         <p v-else-if="row.label" class="flex items-center px-1 pb-1 pt-2 text-xs uppercase text-muted">{{ row.label }}</p>
@@ -167,15 +170,17 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
           :class="[row.convo.id === currentId && 'bg-surface2', row.grouped && 'ml-2']"
         >
           <button class="w-full px-2 py-2 text-left" @click="pick(row.convo.id)">
-            <div class="truncate pr-12 text-sm">{{ row.convo.title }}</div>
+            <div class="truncate pr-8 text-sm">{{ row.convo.title }}</div>
             <div class="mt-0.5 flex justify-between text-[10px] text-muted">
               <span>{{ row.convo.messages.length }} msgs</span>
               <span>{{ formatShort(lastTs(row.convo)) }}</span>
             </div>
           </button>
-          <div class="absolute right-1 top-1.5 hidden gap-0.5 opacity-40 pointer-coarse:flex group-hover:flex">
-            <button class="rounded p-1 text-muted hover:text-base" title="Export conversation" @click="downloadExport(row.convo.id)"><Download :size="14" /></button>
-            <button class="rounded p-1 text-muted hover:text-red-500" title="Delete" @click="remove(row.convo.id, 'Delete this conversation? This cannot be undone.')"><X :size="14" /></button>
+          <div class="absolute right-1 top-1.5">
+            <RowActionsMenu :actions="[
+              { label: 'Export conversation', icon: Download, onSelect: () => downloadExport(row.convo.id) },
+              { label: 'Delete', icon: X, danger: true, onSelect: () => remove(row.convo.id, 'Delete this conversation? This cannot be undone.') },
+            ]" />
           </div>
         </div>
       </template>
