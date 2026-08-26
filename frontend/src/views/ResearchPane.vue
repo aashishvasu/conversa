@@ -13,6 +13,7 @@ import {
 import { foldRunUsage } from '../usage.js'
 import { renderMarkdown } from '../utils/md.js'
 import ModelSelect from '../components/ModelSelect.vue'
+import SpendBadge from '../components/SpendBadge.vue'
 
 const run = currentRun
 
@@ -183,12 +184,7 @@ onUnmounted(() => abort?.abort())
         <p class="truncate text-sm font-medium">{{ run.title }}</p>
         <p class="text-xs text-muted">
           {{ running ? run.phase || 'starting' : run.status }}
-          <span v-if="spend.calls">
-            · {{ spend.calls }} calls · {{ Math.round((spend.input + spend.output) / 1000) }}k tokens ·
-            <span :title="spend.unpriced ? spend.unpriced + ' call(s) used a model with no published rate, charged here at the top tier' : 'estimated from published rates'">
-              {{ spend.unpriced ? '>' : '' }}${{ spend.usd.toFixed(2) }}
-            </span>
-          </span>
+          <template v-if="spend.calls">· <SpendBadge :spend="spend" /></template>
         </p>
       </div>
       <button v-if="running" class="flex items-center gap-1.5 rounded bg-surface2 px-2.5 py-1.5 text-sm hover:text-red-500" @click="stop">

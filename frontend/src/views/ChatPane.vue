@@ -18,6 +18,7 @@ import DebugPanel from '../components/DebugPanel.vue'
 import MessageBubble from '../components/MessageBubble.vue'
 import ModelSelect from '../components/ModelSelect.vue'
 import Modal from '../components/Modal.vue'
+import SpendBadge from '../components/SpendBadge.vue'
 import ContextPanel from '../components/ContextPanel.vue'
 import SettingsPanel from '../components/SettingsPanel.vue'
 
@@ -56,6 +57,9 @@ const visibleMessages = computed(() => {
 const windowStartId = computed(() =>
   convo.value ? sendWindow(convo.value, effectiveSettings(convo.value))[0]?.id : null,
 )
+
+// This conversation's running spend, same shape and rendering as the research pane's.
+const convoSpend = computed(() => convo.value?.usage || { calls: 0, input: 0, output: 0, usd: 0, unpriced: 0 })
 
 function setModel(id) {
   convo.value.settings.model = id
@@ -326,6 +330,9 @@ async function regenTitle() {
             <option v-for="l in EFFORT_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
           </select>
         </div>
+        <span v-if="convoSpend.calls" class="rounded bg-surface2 px-2 py-1 text-xs text-muted">
+          <SpendBadge :spend="convoSpend" />
+        </span>
         <div class="ml-auto flex gap-1">
           <button class="rounded p-1.5 hover:bg-surface2" title="Context editor" @click="panel = 'context'"><NotebookText :size="16" /></button>
           <button class="rounded p-1.5 hover:bg-surface2" title="Cards" @click="panel = 'cards'"><Layers :size="16" /></button>
