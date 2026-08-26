@@ -5,6 +5,7 @@ import { streamChat } from '../api.js'
 import { CARDGEN_SYSTEM, effectiveCards, matchedCardIds, parseGeneratedCards } from '../cards.js'
 import { effectiveSettings } from '../settings.js'
 import { workspaceOf } from '../store.js'
+import { addConvoUsage, recordUsage } from '../usage.js'
 import { confirmDelete } from '../utils/confirm.js'
 
 // Also reused by WorkspacePanel with a workspace as `convo`; workspaces have cards but no messages, settings, or workspaceId, so those reads are guarded below.
@@ -135,6 +136,11 @@ async function generate() {
         messages: [{ role: 'user', content }],
       },
       (t) => (out += t),
+      null, null,
+      (usage) => {
+        addConvoUsage(props.convo, usage)
+        recordUsage('utility', usage)
+      },
     )
     for (const c of parseGeneratedCards(out)) {
       props.convo.cards.push({ id: crypto.randomUUID(), ...c })

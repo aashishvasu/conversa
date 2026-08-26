@@ -10,6 +10,7 @@ import {
   sidebarOpen,
   workspaces,
 } from '../store.js'
+import { foldRunUsage } from '../usage.js'
 import { renderMarkdown } from '../utils/md.js'
 import ModelSelect from '../components/ModelSelect.vue'
 
@@ -124,6 +125,11 @@ function onEvent(data) {
   if (data.kind === 'final') {
     Object.assign(r, { status: data.status, phase: data.phase, payload: data.payload, updatedAt: Date.now() })
     if (data.error) error.value = data.error
+    // Fold once: a reconnect or reopen replays this same final frame, and a second fold would double the ledger.
+    if (!r.spendLedgered) {
+      foldRunUsage(data.spend?.models)
+      r.spendLedgered = true
+    }
     persistNow()
     return
   }

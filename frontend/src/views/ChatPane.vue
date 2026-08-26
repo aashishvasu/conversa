@@ -7,6 +7,7 @@ import { refreshMemory } from '../memory.js'
 import { notify } from '../utils/notify.js'
 import { buildPayload, sendWindow } from '../payload.js'
 import { effectiveSettings, EFFORT_LEVELS } from '../settings.js'
+import { addConvoUsage, recordUsage } from '../usage.js'
 import { currentConversation, persistNow, sidebarOpen, workspaceOf } from '../store.js'
 import { generateTitle } from '../titles.js'
 import { confirmDelete } from '../utils/confirm.js'
@@ -141,6 +142,9 @@ async function runCompletion(c) {
       if (type === 'thinking' && last?.type === 'thinking') last.text += value
       else if (type === 'results') liveTrace.value.push({ type, links: value })
       else liveTrace.value.push({ type, text: value })
+    }, (usage) => {
+      addConvoUsage(c, usage)
+      recordUsage('chat', usage)
     })
     if (c.title === 'New conversation') {
       try {

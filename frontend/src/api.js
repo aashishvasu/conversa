@@ -90,8 +90,9 @@ export async function fetchUrl(url, topic) {
 }
 
 // Streams assistant text.
-// Calls onText(chunk) per token; onTrace(type, value) for non-visible activity (type 'thinking' | 'search' -> string, 'results' -> [{title,url}]); resolves when done.
-export async function streamChat(payload, onText, signal, onTrace) {
+// Calls onText(chunk) per token; onTrace(type, value) for non-visible activity (type 'thinking' | 'search' -> string, 'results' -> [{title,url}]);
+// onUsage(usage) once per generation with {model, input, output, cache_read, cache_write, usd, unpriced}; resolves when done.
+export async function streamChat(payload, onText, signal, onTrace, onUsage) {
   const res = check(
     await fetch('/api/chat', {
       method: 'POST',
@@ -108,6 +109,7 @@ export async function streamChat(payload, onText, signal, onTrace) {
     else if (data.search && onTrace) onTrace('search', data.search)
     else if (data.fetch && onTrace) onTrace('fetch', data.fetch)
     else if (data.results && onTrace) onTrace('results', data.results)
+    else if (data.usage && onUsage) onUsage(data.usage)
   })
 }
 

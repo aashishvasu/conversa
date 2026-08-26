@@ -105,6 +105,7 @@ function blank(overrides = {}) {
     cardOverrides: {}, // workspace card id -> 'include' | 'skip', this convo only
     memory: '', // rolling summary of compressed-away history
     memoryCount: 0, // how many leading non-system messages are folded into memory
+    usage: null, // running {calls, input, output, cacheRead, cacheWrite, usd} total for this conversation
     messages: [{ id: crypto.randomUUID(), role: 'system', content: '', createdAt: Date.now() }],
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -177,6 +178,7 @@ export function createRun() {
     phase: '',
     events: [],
     spend: null,
+    spendLedgered: false, // set once its finished spend is folded into the usage ledger, so a reopen doesn't refold
     payload: null,
     workspaceId: null,
     createdAt: Date.now(),

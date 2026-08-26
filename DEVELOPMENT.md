@@ -35,7 +35,7 @@ Browser (Vue SPA, IndexedDB)  --HTTPS-->  FastAPI  --streaming-->  Model APIs
 - `GET  /api/settings`: global setting defaults from env vars, plus `config_errors` (see Providers below).
 - `GET  /api/models`: selectable models as `{id, label, provider}`, filtered to configured providers.
 - `POST /api/chat`: streams a completion as SSE from the provider that owns the requested model.
-  The server environment supplies API keys. The provider layer translates `effort`, attaches configured hosted tools, and emits text, thinking, and tool-trace events (`search`, `fetch`, `results`).
+  The server environment supplies API keys. The provider layer translates `effort`, attaches configured hosted tools, and emits text, thinking, and tool-trace events (`search`, `fetch`, `results`), plus one `usage` frame (`{model, input, output, cache_read, cache_write, usd, unpriced}`, priced server-side) before `done`.
   `main.py` JSON-encodes each event so newlines and special characters remain inside one SSE frame.
   A list-valued `system` is `[stable, volatile]`: the Anthropic dialect marks the first block for prompt caching (`use_cache`, off by default); the other dialects rejoin it.
 - `POST /api/fetch`: returns readable markdown from a URL (`backend/fetcher.py`).
@@ -117,6 +117,16 @@ The event mapping onto conversa's own SSE frames:
 Effort remains a hint: at `low` with a short system prompt these models often return no reasoning item, which reaches the UI as an empty trace.
 `field()` reads SDK objects and plain dicts alike, so an annotation shape that changes between SDK versions costs one trace event and the stream continues.
 
+### Usage and pricing (`backend/providers/registry.py`, `backend/providers/dialects.py`)
+
+`cost()` in `registry.py` is the one pricing function: base input/output rate from the provider entry's `prices` dict, a cache write at 1.25x and a cache read at 0.1x that same input rate, and Anthropic's hosted `web_search` tool at $10 per 1,000 uses. An unpriced model falls back to `UNKNOWN_PRICE`, the top tier, and reports `unpriced: true`.
+`Spend` (also in `registry.py`) accumulates calls through `cost()` and keeps a per-model breakdown in `as_dict()["models"]`; research owns one `Spend` per run, and it is what backs the research pane and sidebar spend display.
+Three pure functions extract token and cache counts from each dialect's usage shape, shared by the streaming adapters and by `complete()`'s utility-call path: `anthropic_usage()` reads `message.usage` directly; `responses_usage()`/`responses_usage_from()` split the streamed `response.completed` event from the usage object inside it; `chat_completion_usage()`/`chat_completion_usage_from()` do the same for the chunk `stream_options.include_usage` attaches.
+`_chat_completions_stream` always sends `stream_options: {"include_usage": true}`; an OpenAI-compatible endpoint that rejects the parameter would 400 the whole stream, unverified without a key.
+
+On the frontend, `usage.js` is the client-side ledger: day buckets, one row per model per kind (`chat`, `utility`, `research`), persisted to IndexedDB like `store.js`. `streamChat`'s `onUsage` callback feeds it from all four call sites (`ChatPane.vue`, `memory.js`, `titles.js`, `CardsPanel.vue`'s card builder); each also folds the same frame into `convo.usage`, a flat running total for that conversation. A finished research run folds its `Spend.as_dict().models` breakdown into the ledger once, guarded by `spendLedgered` on the persisted run record so a reconnect or reopen replaying the same `final` frame does not double it.
+The ledger is not yet in `exportData`/snapshot restore; a usage-carrying backup is a later step.
+
 ### chat.completions specifics (`_chat_completions_stream` in `backend/providers/dialects.py`)
 
 The generic compatibility entry uses this dialect. `text` comes from `delta.content`; `reasoning_content` becomes `think` when a provider sends it.
@@ -190,6 +200,7 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `payload.js` | Request assembly: `buildPayload`, the send window, and lexical recall. With `use_cache` on, `buildPayload` returns `system` as `[stable, volatile]`. Dependency direction is payload.js -> cards.js; both are Vue-free. |
 | `memory.js` | Background sliding-window summarization. |
 | `titles.js` | Auto-titling from recent turns via the utility model. |
+| `usage.js` | Client-side usage ledger: day/model/kind buckets, `convo.usage`, IndexedDB-persisted. No display component yet. |
 | `composables/useStreamGuard.js` | Holds a screen wake lock while streaming and aborts a stream after `STALL_MS` (60s) of silence when the tab returns to the foreground. The abort uses the normal stop path. |
 | `utils/md.js` | Markdown in, sanitized and highlighted HTML out. |
 | `utils/format.js` | Timestamp formatting (native `Intl`). |
@@ -247,6 +258,7 @@ node src/cards.selfcheck.js
 node src/payload.selfcheck.js
 node src/utils/confirm.selfcheck.js
 node src/store.selfcheck.js
+node src/usage.selfcheck.js
 ```
 
 The backend's live at the bottom of each module, behind `__main__`, so uvicorn (which imports `app`) skips them:

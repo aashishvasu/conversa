@@ -1,8 +1,9 @@
 import { streamChat } from './api.js'
+import { addConvoUsage, recordUsage } from './usage.js'
 
 // Summarize a window of turns via the utility model.
 // Stateless: the window is re-read in full on every refresh, so message edits/deletes can never desync it.
-async function summarize(msgs, model) {
+async function summarize(msgs, model, convo) {
   const transcript = msgs.map((m) => `${m.role}: ${m.content}`).join('\n\n')
   const system =
     'You summarize part of a conversation. Preserve key facts, decisions, names, ' +
@@ -18,6 +19,11 @@ async function summarize(msgs, model) {
       messages: [{ role: 'user', content: `Summarize this conversation excerpt:\n${transcript}` }],
     },
     (t) => (out += t),
+    null, null,
+    (usage) => {
+      addConvoUsage(convo, usage)
+      recordUsage('utility', usage)
+    },
   )
   return out.trim()
 }
@@ -36,7 +42,7 @@ export async function refreshMemory(convo, settings) {
   const end = Math.max(0, turns.length - settings.num_messages_to_send)
   const start = Math.max(0, end - settings.summarize_n)
   const window = turns.slice(start, end)
-  const summary = window.length ? await summarize(window, settings.utility_model) : ''
+  const summary = window.length ? await summarize(window, settings.utility_model, convo) : ''
   if (inflight.get(convo.id) !== seq) return // superseded by a newer refresh
   convo.memory = summary
   convo.memoryCount = end

@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { authed, fetchModels, fetchSettings, getToken, logout } from './api.js'
 import { cacheModels, currentRunId, initStore, setGlobalSettings } from './store.js'
+import { initUsage } from './usage.js'
 import { dismiss, notify } from './utils/notify.js'
 import ConfirmModal from './components/ConfirmModal.vue'
 import Notifications from './components/Notifications.vue'
@@ -17,7 +18,7 @@ const serverError = ref('')
 
 onMounted(async () => {
   try {
-    await initStore()
+    await Promise.all([initStore(), initUsage()])
   } catch (e) {
     bootError.value = String(e?.stack || e)
     return
