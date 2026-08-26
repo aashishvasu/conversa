@@ -260,6 +260,7 @@ cd frontend
 node src/cards.selfcheck.js
 node src/payload.selfcheck.js
 node src/utils/confirm.selfcheck.js
+node src/utils/md.selfcheck.js
 node src/store.selfcheck.js
 node src/usage.selfcheck.js
 ```
