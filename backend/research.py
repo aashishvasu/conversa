@@ -110,7 +110,8 @@ async def clarify(brief, model_id, context=None, spend=None):
     The NONE sentinel needs no handling here: lines() drops it for being under its length floor.
     """
     prompt = f"Conversation so far:\n{context}\n\nResearch request: {brief}" if context else brief
-    return lines(await complete(model_id, PROMPTS["clarify"], prompt, max_tokens=512, spend=spend), 5)
+    # 1024, not the ~200 five questions need: a chatty model padding its list past 512 hands back a question cut mid-sentence.
+    return lines(await complete(model_id, PROMPTS["clarify"], prompt, max_tokens=1024, spend=spend), 5)
 
 
 def is_blocked(url):

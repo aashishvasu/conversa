@@ -13,6 +13,10 @@ from .registry import (
 )
 
 
+# Reasoning spends from the output budget, so any effort-enabled call gets at least this much or the answer starves after the thinking.
+REASONING_OUTPUT_FLOOR = 32000
+
+
 def apply_thinking(kwargs: dict, effort: str, max_tokens: int) -> dict:
     """Attach Anthropic thinking config to a request kwargs dict."""
     legacy = kwargs["model"] in LEGACY_MODELS
@@ -28,7 +32,7 @@ def apply_thinking(kwargs: dict, effort: str, max_tokens: int) -> dict:
     else:
         kwargs["thinking"] = {"type": "adaptive", "display": "summarized"}
         kwargs["output_config"] = {"effort": effort}
-        kwargs["max_tokens"] = max(max_tokens, 32000)
+        kwargs["max_tokens"] = max(max_tokens, REASONING_OUTPUT_FLOOR)
     return kwargs
 
 
@@ -229,6 +233,7 @@ async def _responses_stream(
     if takes_reasoning(provider, model):
         if effort:
             kwargs["reasoning"] = {"effort": effort, "summary": "auto"}
+            kwargs["max_output_tokens"] = max(max_tokens, REASONING_OUTPUT_FLOOR)
     else:
         kwargs["temperature"] = temperature
     if search_tool := PROVIDERS[provider].get("search_tool"):
@@ -251,9 +256,8 @@ async def _chat_completions_stream(
     temperature: float,
 ) -> AsyncIterator[dict]:
     kwargs = chat_completions_kwargs(model, messages, system, max_tokens, temperature)
-    # WHY: opt into the OpenAI-standard usage-on-final-chunk flag, otherwise chat.completions
-    # pricing is permanently blind. A strict OpenAI-compatible endpoint that rejects the param
-    # would 400 the whole stream; no key is available to verify one that does.
+    # WHY: opt into the OpenAI-standard usage-on-final-chunk flag, otherwise chat.completions pricing is permanently blind.
+    # A strict OpenAI-compatible endpoint that rejects the param would 400 the whole stream; no key is available to verify one that does.
     kwargs["stream_options"] = {"include_usage": True}
     stream = await CLIENTS[provider].chat.completions.create(stream=True, **kwargs)
     async for chunk in stream:
@@ -333,6 +337,7 @@ async def complete(
             kwargs["instructions"] = join_system(system)
         if effort and takes_reasoning(provider, model):
             kwargs["reasoning"] = {"effort": effort}
+            kwargs["max_output_tokens"] = max(max_tokens, REASONING_OUTPUT_FLOOR)
         response = await api.responses.create(**kwargs)
         if spend and response.usage:
             usage = responses_usage_from(response.usage)
