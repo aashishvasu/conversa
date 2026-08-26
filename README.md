@@ -6,7 +6,7 @@
 
 A local-first chat client for Claude, GPT, and DeepSeek. Conversation data lives in browser IndexedDB.
 
-The FastAPI server holds provider keys and the app password, relays model streams, and fetches pages.
+The FastAPI server holds provider keys and the app password, relays model streams, fetches pages, and keeps research runs going after the browser closes.
 
 The production build includes a PWA manifest and service worker.
 
@@ -16,6 +16,8 @@ Storage locations:
 |------|-----------------|---------------|
 | Chat transcripts | IndexedDB | |
 | Cards, workspaces, documents, templates | IndexedDB | |
+| Finished research reports | IndexedDB, as documents | Run memory until collected, eviction, or restart |
+| Pages read during research | | Run memory while processed |
 | Provider API keys | | Environment variables |
 | App password | | Environment variable |
 
@@ -39,7 +41,7 @@ Set several to pick between their models per conversation.
 The model picker contains models from configured providers. A `MODELS` entry with incomplete provider configuration produces a banner on first load.
 
 Conversa supports Anthropic's Messages API, OpenAI's Responses API, and DeepSeek's Responses API.
-The `compatible` entry serves one chat.completions endpoint at a time. Set its key and base URL, then list models with the `compatible/` prefix. It sends text messages and reads text plus `reasoning_content`.
+The `compatible` entry serves one chat.completions endpoint at a time. Set its key and base URL, then list models with the `compatible/` prefix. It sends text messages and reads text plus `reasoning_content`. Research through this entry uses Exa, Brave, or SearXNG.
 
 ### Run it as a systemd service (Podman Quadlet)
 
@@ -169,6 +171,26 @@ Two kinds of note live there:
 Paste a URL into the context editor's fetch box and the page comes back as clean markdown, pinned to the board as a system message you can edit or delete.
 The server fetches it, because your browser is blocked from most pages by CORS.
 
+### Research: a conversation turn that reads the web and writes you a report
+
+Flip the **Research** toggle in the composer toolbar (or start a conversation from the sidebar's Research tab) and sends become research runs instead of chat turns.
+
+Send a request and it first comes back with a few scoping questions: how deep to go, which time period, who is reading.
+Answer what matters and skip the rest; a request that leaves nothing open gets no questions.
+Nothing runs until you press **Start research**.
+
+The run then breaks the request into subquestions, searches for each, reads what it finds, and writes a cited report, all inside the conversation.
+Its progress (subquestions, sources read, token spend) lives in a collapsible block on the turn, with a stop button.
+It keeps going if you close the tab, and reopening the conversation picks the stream back up.
+Other conversations stay usable while it runs; the one that started it waits for its result.
+
+The finished report lands in the document store, attached to the conversation, so follow-up questions in the same conversation have it in context and any other conversation can attach it from the Context editor.
+The turn keeps the run's plan, sources, and spend as its audit trail.
+
+Research tries configured app finders in Exa, Brave, SearXNG order. The search model's hosted tool runs after those finders fail or when all three are absent.
+
+Research has separate search, note, and report models, set per run in the turn's models-and-depth section. The note model reads every page and accounts for most model input, so a cheap model belongs there.
+
 ### Cards: notes that appear only when relevant
 
 A **card** is like an index card in a box.
@@ -203,7 +225,7 @@ Recall returns the original turns word for word, where memory summarizes.
 ### Models
 
 The model picker in the composer toolbar (also in **Conversation settings** and **Global settings**) groups models under their provider.
-Every feature works the same on either: cards, memory, recall, workspaces, templates, thinking effort, web search, and the utility model that writes titles and memory summaries.
+Every feature works the same on either: cards, memory, recall, workspaces, templates, thinking effort, web search, research, and the utility model that writes titles and memory summaries.
 You can point the utility model at one provider while chatting with another.
 
 ### Thinking effort
@@ -225,8 +247,8 @@ A **workspace** bundles a shared system prompt, shared cards, and plain-text doc
 Every reply in a member conversation carries the workspace's prompt, its documents in full, and whichever of its cards trigger, on top of the conversation's own system messages and cards.
 Where the same topic has a card in both, the workspace card is sent first and the conversation card after it, so a conversation can refine the shared note.
 
-The sidebar is a vertical tab rail: **Chat** lists templates and conversations outside any workspace, **Workspaces** lists each workspace with its member conversations beneath it, and **Usage** shows the spend table.
-The + in a list's header creates a conversation or workspace, and clicking a workspace row opens its editor (name, prompt, documents, cards).
+The sidebar is a vertical tab rail: **Chat** lists templates and chat conversations outside any workspace, **Research** lists research conversations wherever they live, **Workspaces** lists each workspace with its member conversations beneath it, and **Usage** shows the spend table.
+The + in a list's header creates its kind, clicking a workspace row opens its editor (name, prompt, documents, cards), and a workspace's menu can also spawn a member conversation.
 A conversation joins or leaves through **Conversation settings**; membership is a single link, so joining, leaving, or deleting the workspace leaves the conversation's own cards and messages exactly as they were.
 In a member conversation the card panel lists the workspace's cards read-only, with the same live "active" dots as its own; editing them happens in the workspace so a change to shared context is always a deliberate act.
 The include and exclude buttons on a workspace card are the exception: they are stored on the conversation, so one conversation can force a shared card to send every turn, or silence it, while the rest of the workspace keeps it as is.

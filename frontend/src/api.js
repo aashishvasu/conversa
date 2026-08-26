@@ -138,11 +138,11 @@ async function readSSE(res, onEvent) {
 
 // One round of questions about a brief, before any run starts.
 // The planner receives answers inside the brief.
-export async function clarifyResearch(brief, model) {
+export async function clarifyResearch(brief, model, context = null) {
   const res = await fetch('/api/research/clarify', {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ brief, model }),
+    body: JSON.stringify({ brief, model, context }),
   })
   if (res.status === 400) throw new Error((await res.json()).detail)
   return (await check(res).json()).questions

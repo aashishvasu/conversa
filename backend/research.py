@@ -29,8 +29,10 @@ PROMPTS = {
     ),
     "clarify": """You ask what a research brief leaves open.
 
-Write 3 to 5 short questions whose answers would change how the research is run: scope boundaries, how deep to go, time period, intended reader, and what that reader already knows.
+Write up to 5 short questions whose answers would change how the research is run: scope boundaries, how deep to go, time period, intended reader, and what that reader already knows.
 Ask only what the brief leaves genuinely ambiguous, and keep each question answerable in a sentence.
+When conversation context accompanies the brief, resolve pronouns and prior decisions from it instead of asking about them.
+A brief that leaves nothing open gets the single word NONE.
 
 One question per line, no numbering, no preamble.""",
     "plan": (
@@ -101,9 +103,14 @@ def lines(text, limit):
     return out[:limit]
 
 
-async def clarify(brief, model_id, spend=None):
-    """Questions whose answers join the planner's brief."""
-    return lines(await complete(model_id, PROMPTS["clarify"], brief, max_tokens=512, spend=spend), 5)
+async def clarify(brief, model_id, context=None, spend=None):
+    """Questions whose answers join the planner's brief; empty when the brief leaves nothing open.
+
+    `context` is a bounded conversation excerpt so a mid-conversation brief can lean on pronouns and prior decisions.
+    The NONE sentinel needs no handling here: lines() drops it for being under its length floor.
+    """
+    prompt = f"Conversation so far:\n{context}\n\nResearch request: {brief}" if context else brief
+    return lines(await complete(model_id, PROMPTS["clarify"], prompt, max_tokens=512, spend=spend), 5)
 
 
 def is_blocked(url):
@@ -354,6 +361,10 @@ async def gather(question, search_model, note_model, limit=6, spend=None, on_sou
 
 
 if __name__ == "__main__":  # self-check: python research.py
+    # The clarify prompt's NONE sentinel resolves to no questions through lines()' length floor.
+    assert lines("NONE", 5) == []
+    assert lines("Sure, here you go:\n- What time period should this cover?", 5) == ["What time period should this cover?"]
+
     assert is_blocked("https://medium.com/x") and is_blocked("https://foo.medium.com/x")
     assert is_blocked("https://www.geeksforgeeks.org/python/")
     # Suffix matching has to respect the dot, or an unrelated host gets blocked by accident.

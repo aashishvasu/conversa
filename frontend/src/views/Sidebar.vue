@@ -1,5 +1,5 @@
 <script setup>
-import { Boxes, CopyPlus, Download, LogOut, Moon, Plus, SlidersHorizontal, Sun, X } from '@lucide/vue'
+import { Boxes, CopyPlus, Download, LogOut, MessageSquarePlus, Moon, Plus, SlidersHorizontal, Sun, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { logout } from '../api.js'
 import { confirmDelete } from '../utils/confirm.js'
@@ -42,22 +42,32 @@ async function removeWorkspace(w) {
 
 const version = __APP_VERSION__ // injected by Vite at build time (package.json version)
 
-// Chat lists convos outside any workspace; each workspace lists its members on the Workspaces tab.
+// Chat lists chat-mode convos outside any workspace; Research filters by mode; each workspace lists its members on the Workspaces tab.
+// The tabs are views over one conversation list, so a workspace-member research convo shows under both its workspace and Research.
 // A workspaceId pointing at a deleted or unimported workspace resolves to null, so that convo lands back under Chat.
-const unassigned = computed(() => conversations.value.filter((c) => !workspaceOf(c)))
+const unassigned = computed(() => conversations.value.filter((c) => !workspaceOf(c) && c.mode !== 'research'))
+const researchConvos = computed(() => conversations.value.filter((c) => c.mode === 'research'))
 const membersOf = (w) => conversations.value.filter((c) => c.workspaceId === w.id)
 
 function pick(id) {
   selectConversation(id)
   sidebarOpen.value = false
 }
-// Selecting a member convo keeps the Workspaces tab active; the main pane shows the conversation either way.
-function pickMember(id) {
+// Selecting from the Workspaces or Research list keeps that tab active; the main pane shows the conversation either way.
+function pickInPlace(id) {
   currentId.value = id
   sidebarOpen.value = false
 }
 function newConversation() {
   createConversation()
+  sidebarOpen.value = false
+}
+function newResearchConversation() {
+  createConversation().mode = 'research'
+  sidebarOpen.value = false
+}
+function newWorkspaceConversation(w) {
+  createConversation().workspaceId = w.id
   sidebarOpen.value = false
 }
 async function remove(id, message) {
@@ -124,6 +134,35 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
       </div>
     </div>
 
+    <!-- Research tab: conversations whose composer defaults to research, wherever they live -->
+    <div v-else-if="activePane === 'research'" class="flex-1 overflow-y-auto p-2">
+      <p class="flex items-center justify-between px-1 pb-1 text-xs uppercase text-muted">
+        Research
+        <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" title="New research conversation" @click="newResearchConversation"><Plus :size="14" /></button>
+      </p>
+      <div
+        v-for="c in researchConvos"
+        :key="c.id"
+        class="group relative rounded hover:bg-surface2"
+        :class="c.id === currentId && 'bg-surface2'"
+      >
+        <button class="w-full px-2 py-2 text-left" @click="pickInPlace(c.id)">
+          <div class="truncate pr-8 text-sm">{{ c.title }}</div>
+          <div class="mt-0.5 flex justify-between text-[10px] text-muted">
+            <span>{{ c.messages.length }} msgs</span>
+            <span>{{ formatShort(lastTs(c)) }}</span>
+          </div>
+        </button>
+        <div class="absolute right-1 top-1.5">
+          <RowActionsMenu :actions="[
+            { label: 'Export conversation', icon: Download, onSelect: () => downloadExport(c.id) },
+            { label: 'Delete', icon: X, danger: true, onSelect: () => remove(c.id, 'Delete this conversation? This cannot be undone.') },
+          ]" />
+        </div>
+      </div>
+      <p v-if="!researchConvos.length" class="px-1 text-xs italic text-muted">No research conversations yet.</p>
+    </div>
+
     <!-- Workspaces tab: each row is the management surface, click to edit (name, shared prompt, docs, cards).
          Convos join a workspace via their settings panel. -->
     <div v-else-if="activePane === 'workspaces'" class="flex-1 overflow-y-auto p-2">
@@ -137,7 +176,10 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
             <Boxes :size="14" class="shrink-0 text-muted" />{{ w.name }}
           </button>
           <div class="absolute right-1 top-1.5">
-            <RowActionsMenu :actions="[{ label: 'Delete workspace', icon: X, danger: true, onSelect: () => removeWorkspace(w) }]" />
+            <RowActionsMenu :actions="[
+              { label: 'New conversation here', icon: MessageSquarePlus, onSelect: () => newWorkspaceConversation(w) },
+              { label: 'Delete workspace', icon: X, danger: true, onSelect: () => removeWorkspace(w) },
+            ]" />
           </div>
         </div>
         <div
@@ -146,7 +188,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
           class="group relative ml-2 rounded hover:bg-surface2"
           :class="c.id === currentId && 'bg-surface2'"
         >
-          <button class="w-full px-2 py-2 text-left" @click="pickMember(c.id)">
+          <button class="w-full px-2 py-2 text-left" @click="pickInPlace(c.id)">
             <div class="truncate pr-8 text-sm">{{ c.title }}</div>
             <div class="mt-0.5 flex justify-between text-[10px] text-muted">
               <span>{{ c.messages.length }} msgs</span>

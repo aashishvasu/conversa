@@ -93,12 +93,13 @@ class FetchRequest(BaseModel):
 class ClarifyRequest(BaseModel):
     brief: str
     model: str | None = None
+    context: str | None = None  # bounded conversation excerpt; resolves pronouns and prior decisions
 
 
 @app.post("/api/research/clarify")
 async def research_clarify(req: ClarifyRequest, _=Depends(require_auth)):
     runs.evict()
-    return {"questions": await research.clarify(req.brief, req.model or DEFAULT_MODEL)}
+    return {"questions": await research.clarify(req.brief, req.model or DEFAULT_MODEL, context=req.context)}
 
 
 class ResearchRequest(BaseModel):

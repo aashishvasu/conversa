@@ -1,5 +1,5 @@
 <script setup>
-import { Bot, Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Plus, RotateCcw, Send, SlidersHorizontal, Square } from '@lucide/vue'
+import { Bot, Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Plus, RotateCcw, Send, SlidersHorizontal, Square, Telescope } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { streamChat } from '../api.js'
 import { useStreamGuard } from '../composables/useStreamGuard.js'
@@ -8,7 +8,7 @@ import { notify } from '../utils/notify.js'
 import { buildPayload, sendWindow } from '../payload.js'
 import { effectiveSettings, EFFORT_LEVELS } from '../settings.js'
 import { addConvoUsage, recordUsage } from '../usage.js'
-import { attachedDocs, createDoc, currentConversation, persistNow, sidebarOpen, workspaceOf } from '../store.js'
+import { activeRunOf, attachedDocs, createDoc, createRun, currentConversation, persistNow, sidebarOpen, workspaceOf } from '../store.js'
 import { generateTitle } from '../titles.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { CHECK_SVG, COPY_SVG } from '../utils/md.js'
@@ -17,6 +17,7 @@ import CardsPanel from '../components/CardsPanel.vue'
 import DebugPanel from '../components/DebugPanel.vue'
 import MessageBubble from '../components/MessageBubble.vue'
 import ModelSelect from '../components/ModelSelect.vue'
+import ResearchBlock from '../components/ResearchBlock.vue'
 import Modal from '../components/Modal.vue'
 import SpendBadge from '../components/SpendBadge.vue'
 import ContextPanel from '../components/ContextPanel.vue'
@@ -206,23 +207,44 @@ watch([input, fontScale], () => {
   el.style.height = `${el.scrollHeight}px`
 }, { flush: 'post' })
 
+// The first cut allows one generation per conversation: a running research turn blocks new sends here while other conversations stay free.
+const runActive = computed(() => !!activeRunOf(convo.value?.id))
+const researchMode = computed(() => convo.value?.mode === 'research')
+
 async function send() {
   const text = input.value.trim()
-  if (!text || streaming.value || !convo.value) return
+  if (!text || streaming.value || runActive.value || !convo.value) return
   const c = convo.value
-  c.messages.push({ id: crypto.randomUUID(), role: 'user', content: text, createdAt: Date.now() })
   input.value = ''
   // Sending is an explicit jump to the present: follow the new turn even if the user had scrolled up, and re-arm the streaming autoscroll below.
   atBottom.value = true
+  if (researchMode.value) {
+    sendResearch(c, text)
+    scrollDown()
+    return
+  }
+  c.messages.push({ id: crypto.randomUUID(), role: 'user', content: text, mode: 'chat', createdAt: Date.now() })
   scrollDown()
   runCompletion(c)
+}
+
+// A research send appends the request, its linked run, and the assistant placeholder ResearchBlock renders the lifecycle in.
+function sendResearch(c, text) {
+  const user = { id: crypto.randomUUID(), role: 'user', content: text, mode: 'research', createdAt: Date.now() }
+  const placeholder = { id: crypto.randomUUID(), role: 'assistant', content: '', mode: 'research', createdAt: Date.now() }
+  const r = createRun(c, user.id, placeholder.id, text)
+  user.runId = placeholder.runId = r.id
+  c.messages.push(user, placeholder)
+  if (c.title === 'New conversation') c.title = text.slice(0, 60)
+  persistNow()
 }
 
 // Regenerate: re-stream from a message, discarding everything after it.
 // From an assistant turn, the turn itself is discarded too, back to the last user turn, which is kept.
 // System messages are never discarded (they're standing instructions).
 function regenerate(m) {
-  if (streaming.value || !convo.value) return
+  // A research turn regenerates through its block's Run again, never through the chat completion path.
+  if (streaming.value || m.runId || !convo.value) return
   const c = convo.value
   const idx = c.messages.findIndex((x) => x.id === m.id)
   if (idx < 0) return
@@ -284,24 +306,26 @@ async function regenTitle() {
           </button>
         </div>
         <!-- The component boundary scopes re-renders: streaming one message re-renders only its own bubble, so it doesn't re-parse markdown for every other visible message. -->
-        <MessageBubble
-          v-for="m in visibleMessages"
-          :key="m.id"
-          :message="m"
-          :editing="editingId === m.id"
-          :active="activeId === m.id"
-          :window-start="windowStartId === m.id"
-          :trace="m.id === streamId ? liveTrace : null"
-          :trace-open="liveOpen"
-          @activate="activeId = m.id"
-          @edit="startEdit(m)"
-          @cancel-edit="cancelEdit(m)"
-          @done-edit="editingId = null"
-          @delete="confirmRemoveMessage(m.id)"
-          @regenerate="regenerate(m)"
-          @toggle-trace="liveOpen = !liveOpen"
-          @promote="promoteToDoc(m)"
-        />
+        <template v-for="m in visibleMessages" :key="m.id">
+          <ResearchBlock v-if="m.role === 'assistant' && m.runId" :message="m" :convo="convo" />
+          <MessageBubble
+            v-else
+            :message="m"
+            :editing="editingId === m.id"
+            :active="activeId === m.id"
+            :window-start="windowStartId === m.id"
+            :trace="m.id === streamId ? liveTrace : null"
+            :trace-open="liveOpen"
+            @activate="activeId = m.id"
+            @edit="startEdit(m)"
+            @cancel-edit="cancelEdit(m)"
+            @done-edit="editingId = null"
+            @delete="confirmRemoveMessage(m.id)"
+            @regenerate="regenerate(m)"
+            @toggle-trace="liveOpen = !liveOpen"
+            @promote="promoteToDoc(m)"
+          />
+        </template>
 
         <div class="flex justify-center">
           <button class="flex items-center gap-1 rounded px-3 py-1 text-xs text-muted hover:bg-surface2 hover:text-base" @click="addMessage">
@@ -341,6 +365,14 @@ async function regenTitle() {
             <option v-for="l in EFFORT_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
           </select>
         </div>
+        <button
+          class="flex items-center gap-1 rounded px-2 py-1 text-xs"
+          :class="researchMode ? 'bg-indigo-600 text-white' : 'bg-surface2 text-muted hover:text-base'"
+          :title="researchMode ? 'Sends start research runs; click for normal chat' : 'Sends chat normally; click to make them research runs'"
+          @click="convo.mode = researchMode ? 'chat' : 'research'"
+        >
+          <Telescope :size="14" /> Research
+        </button>
         <span v-if="convoSpend.calls" class="rounded bg-surface2 px-2 py-1 text-xs text-muted">
           <SpendBadge :spend="convoSpend" />
         </span>
@@ -357,12 +389,14 @@ async function regenTitle() {
           ref="composerEl"
           v-model="input"
           rows="2"
-          :placeholder="`Message…  (${composerHint})`"
-          class="min-h-16 max-h-40 flex-1 resize-none rounded bg-surface2 px-3 py-2 outline-none"
+          :placeholder="runActive ? 'Research is running in this conversation…' : `${researchMode ? 'What should the research find out?' : 'Message…'}  (${composerHint})`"
+          :disabled="runActive"
+          class="min-h-16 max-h-40 flex-1 resize-none rounded bg-surface2 px-3 py-2 outline-none disabled:opacity-60"
           @keydown="onComposerKeydown"
         ></textarea>
-        <button v-if="!streaming" class="flex items-center justify-center rounded bg-indigo-600 px-4 text-white hover:bg-indigo-500" title="Send" @click="send">
-          <Send :size="18" />
+        <button v-if="!streaming" class="flex items-center justify-center rounded bg-indigo-600 px-4 text-white hover:bg-indigo-500 disabled:opacity-50" :title="researchMode ? 'Start research' : 'Send'" :disabled="runActive" @click="send">
+          <Telescope v-if="researchMode" :size="18" />
+          <Send v-else :size="18" />
         </button>
         <button v-else class="flex items-center justify-center rounded bg-red-600 px-4 text-white hover:bg-red-500" title="Stop" @click="stop">
           <Square :size="18" />

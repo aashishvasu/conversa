@@ -1,6 +1,6 @@
 import { get, set } from 'idb-keyval'
 import { computed, reactive, ref, watch } from 'vue'
-import { replaceUsage, usageDays } from './usage.js'
+import { foldRunUsage, replaceUsage, usageDays } from './usage.js'
 import { dismiss, notify } from './utils/notify.js'
 import { enterToSend, fontScale } from './utils/prefs.js'
 import { isDark } from './utils/theme.js'
@@ -114,6 +114,7 @@ function blank(overrides = {}) {
     scanAssistant: false,
     workspaceId: null, // workspace membership is only this pointer
     docIds: [], // standing document attachments, resolved through docsOf at send time
+    mode: 'chat', // composer default: 'chat' | 'research'; each sent message records the mode it actually used
     settings: {}, // empty = inherit every key from globalSettings
     cards: [],
     cardOverrides: {}, // workspace card id -> 'include' | 'skip', this convo only
@@ -164,6 +165,7 @@ export function saveAsTemplate(convo) {
 export function deleteConversation(id) {
   const gone = state.conversations.find((c) => c.id === id)
   state.conversations = state.conversations.filter((c) => c.id !== id)
+  state.runs = state.runs.filter((r) => r.convoId !== id)
   if (currentId.value === id) currentId.value = state.conversations[0]?.id || null
   gcDocs(gone?.docIds)
 }
@@ -174,8 +176,80 @@ export function selectConversation(id) {
 }
 
 // --- Runs ---------------------------------------------------------------------
-// Standalone research run records: brief, clarifying exchange, events, spend, payload.
-// Persisted and exported only; the research-in-chat migration attaches them to conversations.
+// A run is a research turn's client record: brief, clarifying exchange, events, spend, and the final payload.
+// It belongs to the conversation that sent it (convoId, promptMessageId, resultMessageId) and dies with it.
+// Records without a convoId are pre-conversational leftovers: persisted and exported, rendered nowhere.
+
+export function createRun(convo, promptMessageId, resultMessageId, brief) {
+  const r = {
+    id: crypto.randomUUID(),
+    convoId: convo.id,
+    promptMessageId,
+    resultMessageId,
+    reportDocId: null,
+    sourceWorkspaceId: convo.workspaceId, // lineage: the shared context the run was planned under
+    brief,
+    clarified: false, // the one automatic clarify call has come back (with or without questions)
+    questions: [],
+    answers: '',
+    settings: {}, // research_* overrides for this run, resolved against the global defaults
+    serverId: null,
+    status: 'draft',
+    phase: '',
+    events: [],
+    spend: null,
+    spendLedgered: false, // set once its finished spend is folded into the usage ledger, so a replayed final frame doesn't refold
+    payload: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }
+  // Return the reactive instance, so mutations through this handle reach the persistence watcher.
+  state.runs.unshift(r)
+  return state.runs[0]
+}
+
+export function runById(id) {
+  return state.runs.find((r) => r.id === id) || null
+}
+
+// The run blocking new sends in this conversation, or null.
+export function activeRunOf(convoId) {
+  return state.runs.find((r) => r.convoId === convoId && r.status === 'running') || null
+}
+
+// Land a run's final stream frame: status, then the report into the doc store, then the spend fold.
+// The doc write precedes the caller's persist-and-forget, so a backend run is only ever forgotten after its report is the app's.
+export function finishRun(run, frame) {
+  Object.assign(run, {
+    status: frame.status,
+    phase: frame.phase,
+    payload: frame.payload,
+    spend: frame.spend ?? run.spend,
+    updatedAt: Date.now(),
+  })
+  const convo = state.conversations.find((c) => c.id === run.convoId)
+  if (frame.status === 'done' && frame.payload && !run.reportDocId) {
+    const doc = createDoc({
+      name: `${frame.payload.name} report.md`,
+      text: frame.payload.report.text,
+      source: { kind: 'research', runId: run.id, convoId: run.convoId, messageId: run.resultMessageId },
+    })
+    run.reportDocId = doc.id
+    if (convo) {
+      ;(convo.docIds ??= []).push(doc.id)
+      const msg = convo.messages.find((m) => m.id === run.resultMessageId)
+      if (msg) {
+        msg.docId = doc.id
+        // What later turns' models see in place of the block: the outcome, and where the full text sits.
+        msg.content = `Research complete. The report is attached to this conversation as "${doc.name}".`
+      }
+    }
+  }
+  if (!run.spendLedgered) {
+    foldRunUsage(frame.spend?.models)
+    run.spendLedgered = true
+  }
+}
 
 // --- Workspaces ---------------------------------------------------------------
 // A workspace = { id, name, systemPrompt, cards, docIds } shared by its conversations, which point at it via convo.workspaceId.

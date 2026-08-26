@@ -117,7 +117,8 @@ export function buildPayload(convo, settings, workspace = null, docs = []) {
 
   return {
     system,
-    messages: outgoing.map((m) => ({ role: m.role, content: m.content })),
+    // Contentless turns (a research placeholder awaiting its report) carry nothing and providers reject empty messages.
+    messages: outgoing.filter((m) => m.content).map((m) => ({ role: m.role, content: m.content })),
     model: settings.model,
     temperature: settings.temperature,
     max_tokens: settings.max_tokens,

@@ -1,6 +1,6 @@
 // Run: node src/store.selfcheck.js.
 import assert from 'node:assert'
-import { activePane, attachedDocs, conversations, createDoc, createFromTemplate, createWorkspace, deleteDoc, deleteWorkspace, docsOf, exportData, globalSettings, importData, modelSupportsCache, models, removeDocRef, restoreData, saveAsTemplate, selectConversation, setGlobalSettings, snapshotInfo, undoDocRevision, updateDocText, workspaceOf } from './store.js'
+import { activePane, activeRunOf, attachedDocs, conversations, createConversation, createDoc, createFromTemplate, createRun, createWorkspace, deleteConversation, deleteDoc, deleteWorkspace, docsOf, exportData, finishRun, globalSettings, importData, modelSupportsCache, models, removeDocRef, restoreData, runById, saveAsTemplate, selectConversation, setGlobalSettings, snapshotInfo, undoDocRevision, updateDocText, workspaceOf } from './store.js'
 // recordUsage/usageDays operate on in-memory state; initUsage() itself needs a real IndexedDB and is not called here, the same reason this file never calls initStore() either.
 import { recordUsage, usageDays } from './usage.js'
 
@@ -140,6 +140,45 @@ models.value = [{ id: 'claude-opus-5', supports_cache: true }, { id: 'openai/gpt
 assert.equal(modelSupportsCache('claude-opus-5'), true)
 assert.equal(modelSupportsCache('openai/gpt-5.6'), false)
 assert.equal(modelSupportsCache('unknown/model'), true, 'a model missing from the cached list defaults to supported, not hidden')
+
+// --- Research turns ---
+// A research send links conversation, messages, and run; the final frame lands the report as a doc and folds spend once.
+const rc = createConversation()
+assert.equal(rc.mode, 'chat', 'a new conversation defaults to chat mode')
+rc.mode = 'research'
+const prompt = { id: 'rp', role: 'user', content: 'find things', mode: 'research' }
+const holder = { id: 'rh', role: 'assistant', content: '', mode: 'research' }
+rc.messages.push(prompt, holder)
+const lr = createRun(rc, 'rp', 'rh', 'find things')
+prompt.runId = holder.runId = lr.id
+assert.equal(runById(lr.id), lr)
+assert.equal(lr.convoId, rc.id, 'a run belongs to the conversation that sent it')
+assert.equal(activeRunOf(rc.id), null, 'a draft run does not block the conversation')
+lr.status = 'running'
+assert.equal(activeRunOf(rc.id), lr, 'a running run does')
+
+const frame = {
+  status: 'done',
+  phase: 'done',
+  payload: { name: 'Find things', report: { name: 'Research report.md', text: 'REPORT' }, sections: [] },
+  spend: { models: { m: { calls: 1, input: 10, output: 5, cache_read: 0, cache_write: 0, usd: 0.01, unpriced: 0 } } },
+}
+const ledgerBefore = JSON.stringify(usageDays())
+finishRun(lr, frame)
+const reportOut = docsOf(rc).find((d) => d.id === lr.reportDocId)
+assert.ok(reportOut, 'the report doc is attached to the conversation')
+assert.deepEqual(reportOut.source, { kind: 'research', runId: lr.id, convoId: rc.id, messageId: 'rh' }, 'the doc carries full lineage')
+assert.equal(holder.docId, lr.reportDocId, 'the result message points at the report')
+assert.ok(holder.content.includes(reportOut.name), 'the placeholder gains model-facing content')
+assert.notEqual(JSON.stringify(usageDays()), ledgerBefore, 'finished spend folds into the ledger')
+const ledgerAfter = JSON.stringify(usageDays())
+finishRun(lr, frame)
+assert.equal(JSON.stringify(usageDays()), ledgerAfter, 'a replayed final frame does not refold')
+assert.equal(docsOf(rc).filter((d) => d.id === lr.reportDocId).length, 1, 'nor duplicate the doc')
+
+deleteConversation(rc.id)
+assert.equal(runById(lr.id), null, 'deleting a conversation deletes its runs')
+assert.ok(!exportData().docs.some((d) => d.id === lr.reportDocId), 'and its unshared report doc goes with it')
 
 // activePane: the sidebar tab; selecting a conversation from any tab lands back on Chat.
 activePane.value = 'usage'

@@ -40,7 +40,7 @@ Browser (Vue SPA, IndexedDB)  --HTTPS-->  FastAPI  --streaming-->  Model APIs
   A list-valued `system` is `[stable, volatile]`: the Anthropic dialect marks the first block for prompt caching (`use_cache`, off by default); the other dialects rejoin it.
 - `POST /api/fetch`: returns readable markdown from a URL (`backend/fetcher.py`).
   With a `topic`, `backend/topic.py` returns the sections matching that topic.
-- `POST /api/research/clarify`: returns 3 to 5 questions about a brief. Their answers become part of the brief read by the planner.
+- `POST /api/research/clarify`: returns up to 5 questions about a brief, or none when it leaves nothing open. An optional `context` excerpt lets a mid-conversation brief lean on pronouns and prior decisions. Answers become part of the brief read by the planner.
 - `POST /api/research`: starts a run and returns its id.
   `GET /api/research/{id}` reads its state, `GET /api/research/{id}/stream` replays from `?after=<seq>` then tails live as SSE, `DELETE /api/research/{id}` cancels it.
 
@@ -58,7 +58,8 @@ Each first-class provider has one file exporting a `PROVIDER` dict. `providers/r
 
 `runs.py` owns the run lifecycle: a run is an `asyncio.Task` plus an event list held in the `RUNS` dict.
 Runs continue after the client closes its tab and end when the process restarts. The browser stores the brief.
-The research endpoints are API-only; the SPA has no surface that calls them.
+The client half of a run lives on the conversation that sent it: a research send appends the request message, a linked run record, and an assistant placeholder that `ResearchBlock.vue` renders the lifecycle in.
+`finishRun` (store.js) is the save-before-forget contract: the final frame writes the report into the doc store, attaches it to the conversation and result message, folds spend into the ledger once, and only after persisting does the client ask the backend to forget the run.
 
 Phases are plan, gather, gap, report.
 Gather fans out one coroutine per subquestion under a semaphore; each searches, fetches, and writes notes, then drops the document.
@@ -74,7 +75,7 @@ A source failure drops that source; a search failure drops that subquestion; a r
 The SSE stream emits a 1-second `tick` to keep idle proxies open during long phases.
 
 `PROMPTS` is the tuning surface and a request may override any key.
-The finished payload is a workspace containing the report as a doc and per-subquestion notes as `q1`..`qN` cards. Cards enter the prompt when their trigger is active.
+The finished payload is the research result: `{name, report: {name, text}, sections: [{question, notes: [{note, url}]}]}`, sections in the report's `qN` heading order.
 
 ### Fetching (`backend/fetcher.py`, `backend/topic.py`)
 
@@ -187,7 +188,7 @@ A doc is `{ id, name, text, createdAt, updatedAt, source, versions }` living onc
 `source` records provenance: `{ kind: 'upload' | 'research' | 'chat' | 'revise', runId?, convoId?, messageId? }`.
 `docsOf(owner)` resolves refs at read time and drops dangling ones; `attachedDocs(convo)` merges workspace docs first, then the conversation's own, deduped by id, and the order is load-bearing because docs sit in the cached stable half of `system`.
 Removing a ref (`removeDocRef`) deletes the doc once no workspace or conversation references it, and deleting a workspace or conversation releases its refs through the same GC; `deleteDoc` removes a doc outright and strips every ref.
-Docs enter the store three ways: workspace upload (WorkspacePanel), promoting an assistant reply (MessageBubble's save-as-document action), and revision (DocRow's utility-model revise, which pushes the prior text onto `versions`, capped at 10 because `flush()` snapshots the whole archive per write).
+Docs enter the store four ways: workspace upload (WorkspacePanel), a finished research turn (`finishRun`, the report tagged with its run, conversation, and message), promoting an assistant reply (MessageBubble's save-as-document action), and revision (DocRow's utility-model revise, which pushes the prior text onto `versions`, capped at 10 because `flush()` snapshots the whole archive per write).
 Docs are plain text sent whole per request; chunked retrieval (the recall scorer fits) is the upgrade path if attached docs outgrow the context window.
 A single-conversation export carries the docs it references; importing merges them with the same keep-local collision rule.
 
@@ -204,9 +205,9 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 
 | File | Responsibility |
 |------|----------------|
-| `store.js` | Reactive conversation, workspace and document state, IndexedDB persistence, versioned export/import, and replace-all snapshot restore. Legacy research-run records persist and export without a UI. Also `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write raises a notification with an export offer while the data is still intact in memory. |
-| `settings.js` | The settings surface: `SETTING_KEYS` (what a conversation may override), `RESEARCH_KEYS` (the research defaults, rendered by no panel), and `EFFORT_LEVELS`, the single definition of the thinking-effort lever. `effectiveSettings(owner, keys)` resolves either list against the global defaults. |
-| `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `discardResearch`), currently uncalled. `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
+| `store.js` | Reactive conversation, workspace, document and research-run state, IndexedDB persistence, versioned export/import, and replace-all snapshot restore. A run is a research turn's client record, linked to its conversation and messages; `finishRun` lands the final frame (report doc, links, one spend fold). Also `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write raises a notification with an export offer while the data is still intact in memory. |
+| `settings.js` | The settings surface: `SETTING_KEYS` (what a conversation may override), `RESEARCH_KEYS` (what a run may override, rendered in ResearchBlock's models-and-depth section), and `EFFORT_LEVELS`, the single definition of the thinking-effort lever. `effectiveSettings(owner, keys)` resolves either list against the global defaults. |
+| `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `discardResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
 | `cards.js` | Pure card concerns: trigger matching, force overrides, `effectiveCards`, and the card builder's parsing half: `CARDGEN_SYSTEM` (the prompt that teaches the trigger syntax) and `parseGeneratedCards()` (fence- and prose-tolerant JSON parsing, strict on shape). Vue-free, so it runs in Node. |
 | `payload.js` | Request assembly: `buildPayload`, the send window, and lexical recall. With `use_cache` on, `buildPayload` returns `system` as `[stable, volatile]`. Dependency direction is payload.js -> cards.js; both are Vue-free. |
 | `memory.js` | Background sliding-window summarization. |
@@ -219,23 +220,24 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `utils/prefs.js` | Frontend-only UI prefs (font scale, Enter-to-send), persisted to localStorage. |
 | `utils/confirm.js` | Promise-based confirm: `await confirmDelete(msg)`, backed by one `ConfirmModal` at app root. |
 | `utils/notify.js` | Reactive app-wide notification queue with keyed dedupe and dismissal; `notify.selfcheck.js` checks its contract. |
-| `views/ChatPane.vue` | The chat window: message list, composer, toolbar (model + thinking-effort pickers), and the stream loop. Renders the last `PAGE_SIZE` (100) messages with "Load more" (display-only, and separate from what's sent), and marks the send-window start with a divider. |
+| `views/ChatPane.vue` | The chat window: message list, composer, toolbar (model + thinking-effort pickers + the Research mode toggle), and the stream loop. A research-mode send appends the request, its linked run, and the placeholder ResearchBlock renders; a running run blocks further sends in that conversation only. Renders the last `PAGE_SIZE` (100) messages with "Load more" (display-only, and separate from what's sent), and marks the send-window start with a divider. |
 | `components/MessageBubble.vue` | One message: view/edit bubble, pin/copy/delete/regenerate/save-as-document actions, and the live thinking/search trace while it streams (ephemeral, dropped on reload). List and stream mutations stay in ChatPane, behind events. |
 | `components/ModelSelect.vue` | The one model dropdown, rendered in five places. Groups models by provider with native `<optgroup>`. |
 | `views/Login.vue` | Password prompt shown until a token exists. |
 | `components/ContextPanel.vue` | Edits system + pinned messages together. Also the URL fetch box: a fetched page lands as a system message, so it edits, deletes and sends like any other context. Also the document picker: attach any stored doc to the conversation, detach it, or delete it from the store. |
 | `components/DocRow.vue` | One document row shared by WorkspacePanel and ContextPanel: rendered preview, download, remove, and the revise action (utility model rewrites the text, prior version kept for undo). |
+| `components/ResearchBlock.vue` | A research turn's timeline item, keyed off `message.runId`: automatic clarification, per-run models and depth, the explicit start, live plan and source trace in a Reka Collapsible, stop, reconnect-on-mount, the collapsed report, and Run again after an error. A missing run record renders as a plain note, with the report doc when it survives. |
 | `components/CardsPanel.vue` | Card editor with live "active" indicators. For a convo in a workspace, lists the workspace's cards read-only above the convo's own. Also reused by WorkspacePanel as the shared-card editor (a workspace passes as `convo`; its missing messages/settings are guarded). The card builder lives here: pasted text goes to the utility model, and the parsed cards are appended to whichever owner the panel got, which is what makes it work in both scopes. |
 | `components/WorkspacePanel.vue` | Workspace editor for the name, shared prompt, shared cards, and documents (uploaded here, rendered as DocRow rows). |
 | `components/DebugPanel.vue` | Read-only live preview of the assembled `system` param (via `buildPayload`). |
 | `components/SettingsPanel.vue` / `GlobalSettings.vue` | Per-conversation overrides / global defaults. |
 | `components/Notifications.vue` | App-root renderer for sticky banners and transient Reka toasts. |
-| `views/Sidebar.vue` | The vertical `PaneTabs` rail, then the selected tab's sublist: Chat lists templates and unassigned conversations (+ creates one), Workspaces lists each workspace row (click to edit name, shared prompt, docs, cards; + creates one) with its member conversations beneath it, Usage lists nothing. A workspaceId pointing at a deleted or unimported workspace resolves to null, so that conversation lands under Chat. Selecting a member conversation keeps the Workspaces tab active. The footer holds global settings, theme, and logout. |
+| `views/Sidebar.vue` | The vertical `PaneTabs` rail, then the selected tab's sublist: Chat lists templates and unassigned chat-mode conversations, Research lists research-mode conversations wherever they live, Workspaces lists each workspace row (click to edit; its menu also spawns a member conversation) with its member conversations beneath it, Usage lists nothing. Each list header's + creates its kind. The tabs are views over one conversation list, so a workspace-member research conversation shows under both its workspace and Research. A workspaceId pointing at a deleted or unimported workspace resolves to null, so that conversation lands under Chat. Selecting from the Research or Workspaces list keeps that tab active. The footer holds global settings, theme, and logout. |
 | `components/RowActionsMenu.vue` | Reka `DropdownMenu` behind one "..." trigger per sidebar row. |
-| `components/shell/PaneTabs.vue` | The vertical Chat/Workspaces/Usage `TabsList`, mounted in `Sidebar.vue` inside the `TabsRoot` App.vue wraps around Sidebar and the panes. Each tab scopes the sidebar sublist; Usage swaps the main pane to `UsagePane`, the other two show `ChatPane`, which stays mounted so the composer draft survives tab switches. |
+| `components/shell/PaneTabs.vue` | The vertical Chat/Research/Workspaces/Usage `TabsList`, mounted in `Sidebar.vue` inside the `TabsRoot` App.vue wraps around Sidebar and the panes. Each tab scopes the sidebar sublist; Usage swaps the main pane to `UsagePane`, the others show `ChatPane`, which stays mounted so the composer draft survives tab switches. |
 | `views/UsagePane.vue` | Usage ledger table by model and kind, optionally scoped by native From/To date inputs. The pane keeps its range while hidden, so returning from Chat preserves it. |
 | `components/Modal.vue` / `ConfirmModal.vue` | Reka `Dialog` shell (focus trap, aria wiring) / Reka `AlertDialog` shared delete-confirmation dialog. |
-| `components/SpendBadge.vue` | One spend summary (calls, k tokens, `>$X.XX` with the unpriced tooltip), mounted in the chat footer (`convo.usage`) and each Usage-pane row. |
+| `components/SpendBadge.vue` | One spend summary (calls, k tokens, `>$X.XX` with the unpriced tooltip), mounted in the chat footer (`convo.usage`), the research block, and each Usage-pane row. |
 
 ### PWA (`frontend/vite.config.js`)
 

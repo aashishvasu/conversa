@@ -105,6 +105,19 @@ assert.ok(rp.system.indexOf('my dragon is called') < rp.system.indexOf('a fine d
 const rpOff = buildPayload(recallConvo, { ...rSettings, use_recall: false })
 assert.ok(!rpOff.system.includes('Smaug'), 'recall off: dropped turns stay dropped')
 
+// a contentless turn (research placeholder awaiting its report) never reaches the messages array
+const holed = {
+  scanAssistant: false,
+  cards: [],
+  messages: [
+    { id: 'u', role: 'user', content: 'ask' },
+    { id: 'h', role: 'assistant', content: '' },
+    { id: 'u2', role: 'user', content: 'follow-up' },
+  ],
+}
+const hp = buildPayload(holed, { model: 'm', max_tokens: 10, num_messages_to_send: 5, send_system_prompt: true })
+assert.deepEqual(hp.messages.map((m) => m.content), ['ask', 'follow-up'], 'empty turns are dropped from the payload')
+
 // stopwords/short words alone never trigger recall ("what was the..." matches nothing)
 const noSignal = recallMessages(recallConvo, [{ id: 'q', role: 'user', content: 'what was the it?' }])
 assert.deepEqual(noSignal, [])

@@ -4,7 +4,7 @@ A run is an asyncio.Task plus its event list, held in the RUNS dict for the life
 That is what survives a client closing the tab.
 A process restart ends every run, and the brief lives in the browser, so the recovery is to start it again.
 Phases are plan, gather, gap, report; the gather stage itself lives in research.py.
-The finished payload is a workspace: the report as a doc, per-subquestion notes as q1..qN cards.
+The finished payload is the research result: the report plus its per-subquestion note sections.
 """
 
 import asyncio
@@ -60,22 +60,18 @@ def answered(sections):
     return [s for s in sections if s["notes"]]
 
 
-def workspace_payload(title, sections, report):
-    """Build a workspace with the report doc and `qN` note cards."""
-    cards = []
-    for i, section in enumerate(sections, 1):
-        body = "\n\n".join(f"{n['note']}\n\nSource: {n['url']}" for n in section["notes"])
-        cards.append({
-            "triggers": f"q{i}",
-            "path": "Research notes",
-            "content": f"Notes for q{i}, {section['question']}:\n\n{body}",
-        })
+def result_payload(title, sections, report):
+    """The provider-blind research result: report text plus the notes behind each answered subquestion.
+
+    Section order matches the report's `qN` headings, so a client can cite either against the other.
+    """
     return {
         "name": title[:60],
-        "systemPrompt": f"You are working from research into: {title}\nThe report is a reference document; "
-                        f"say q1 through q{len(sections)} to pull in the underlying notes for a subquestion.",
-        "docs": [{"name": "Research report.md", "text": report}],
-        "cards": cards,
+        "report": {"name": "Research report.md", "text": report},
+        "sections": [
+            {"question": s["question"], "notes": [{"note": n["note"], "url": n["url"]} for n in s["notes"]]}
+            for s in sections
+        ],
     }
 
 
@@ -138,7 +134,7 @@ async def _run(run):
 The gathered notes follow.
 
 """ + _notes_prompt(run.brief, found)
-        run.payload = workspace_payload(run.title, found, report)
+        run.payload = result_payload(run.title, found, report)
         run.status = "done"
         run.phase = "done"
         run.emit("done")
@@ -189,20 +185,18 @@ def evict():
 
 
 if __name__ == "__main__":  # self-check: python runs.py
-    # The payload uses contiguous qN numbering across its report and note cards.
+    # The payload's sections are the answered subquestions in report order, notes reduced to {note, url}.
     plan_sections = [
-        {"question": "one", "notes": [{"url": "https://a.example/1", "note": "NOTE_A"}]},
+        {"question": "one", "notes": [{"url": "https://a.example/1", "note": "NOTE_A", "title": "extra"}]},
         {"question": "two", "notes": []},
         {"question": "three", "notes": [{"url": "https://a.example/3", "note": "NOTE_C"}]},
     ]
     found = answered(plan_sections)
     assert [s["question"] for s in found] == ["one", "three"], found
-    payload = workspace_payload("brief text", found, "REPORT_BODY")
-    assert payload["docs"][0]["text"] == "REPORT_BODY"
-    assert [c["triggers"] for c in payload["cards"]] == ["q1", "q2"], "numbering is contiguous over answered sections"
-    assert "NOTE_C" in payload["cards"][1]["content"], "q2 is the third subquestion, renumbered"
-    assert "q1 through q2" in payload["systemPrompt"], payload["systemPrompt"]
-    assert "https://a.example/1" in payload["cards"][0]["content"]
+    payload = result_payload("brief text", found, "REPORT_BODY")
+    assert payload["report"] == {"name": "Research report.md", "text": "REPORT_BODY"}
+    assert [s["question"] for s in payload["sections"]] == ["one", "three"], "sections follow the answered order"
+    assert payload["sections"][0]["notes"] == [{"note": "NOTE_A", "url": "https://a.example/1"}], "notes carry note and url only"
 
     # Report failure preserves the gathered notes.
     async def _resilience_checks():
@@ -226,8 +220,8 @@ if __name__ == "__main__":  # self-check: python runs.py
             globals().update(gather=real_gather, complete=real_complete)
         assert run.status == "done", (run.status, run.error)
         assert "report stage failed" in run.error, run.error
-        assert "NOTE_BODY" in run.payload["docs"][0]["text"], "a failed report still hands over the notes"
-        assert run.payload["cards"], "and the qN cards survive too"
+        assert "NOTE_BODY" in run.payload["report"]["text"], "a failed report still hands over the notes"
+        assert run.payload["sections"][0]["notes"], "and the note sections survive too"
 
     asyncio.run(_resilience_checks())
 
