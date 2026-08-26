@@ -1,5 +1,6 @@
 import { get, set } from 'idb-keyval'
 import { computed, reactive, ref, watch } from 'vue'
+import { dismiss, notify } from './utils/notify.js'
 
 // All conversation state lives client-side in IndexedDB (via idb-keyval).
 
@@ -41,9 +42,6 @@ export async function initStore() {
   watch(() => state.runs, save, { deep: true })
 }
 
-// Set when an IndexedDB write fails (quota, disk). State is intact in memory, so the banner in App.vue offers an export while that is still true. Cleared by the next successful write.
-export const storageError = ref(null)
-
 let saveTimer
 function save() {
   if (!loaded) return
@@ -59,8 +57,14 @@ function flush() {
     set(WORKSPACES_KEY, JSON.parse(JSON.stringify(state.workspaces))),
     set(RUNS_KEY, JSON.parse(JSON.stringify(state.runs))),
   ]).then(
-    () => (storageError.value = null),
-    (e) => (storageError.value = String(e?.stack || e)),
+    () => dismiss('storage'),
+    (e) => notify({
+      key: 'storage',
+      sticky: true,
+      text: 'Saving to browser storage is failing. Changes exist only in memory until it recovers, so download a backup now.',
+      detail: String(e?.stack || e),
+      action: { label: 'Download backup', fn: downloadExport },
+    }),
   )
 }
 
