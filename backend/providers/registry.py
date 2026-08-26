@@ -54,7 +54,15 @@ def parse_models(raw: str) -> list[dict[str, str]]:
         if not mid or mid in seen:
             continue
         seen.add(mid)
-        out.append({"id": mid, "label": label.strip() or mid, "provider": split_model(mid)[0]})
+        provider = split_model(mid)[0]
+        # Cache support is a dialect property, not a per-model one: anthropic_system() marks every
+        # Anthropic model's stable half ephemeral, uniformly; every other dialect just rejoins it.
+        out.append({
+            "id": mid,
+            "label": label.strip() or mid,
+            "provider": provider,
+            "supports_cache": PROVIDERS.get(provider, {}).get("dialect") == "anthropic",
+        })
     return out
 
 

@@ -1,7 +1,7 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { EFFORT_LEVELS } from '../settings.js'
-import { downloadExport, globalSettings, importData, persistGlobal, restoreData, snapshotInfo } from '../store.js'
+import { downloadExport, globalSettings, importData, modelSupportsCache, persistGlobal, restoreData, snapshotInfo } from '../store.js'
 import { enterToSend, fontScale, restorePrefs } from '../utils/prefs.js'
 import { restoreTheme } from '../utils/theme.js'
 import { confirmDelete } from '../utils/confirm.js'
@@ -10,6 +10,7 @@ import ModelSelect from './ModelSelect.vue'
 // Edits the global defaults (absolute values, no inherit).
 // New conversations copy these.
 const g = globalSettings // ref auto-unwraps in template
+const cacheSupported = computed(() => modelSupportsCache(g.value.model))
 
 // Model selects emit their value; assign and persist it in one handler.
 const setGlobal = (k, v) => {
@@ -117,8 +118,8 @@ async function onRestoreFile(e) {
       Recall relevant old messages
     </label>
 
-    <label class="flex items-center gap-2">
-      <input v-model="g.use_cache" type="checkbox" @change="persistGlobal" />
+    <label class="flex items-center gap-2" :class="!cacheSupported && 'opacity-50'" :title="cacheSupported ? '' : `${g.model} does not support prompt caching`">
+      <input v-model="g.use_cache" type="checkbox" :disabled="!cacheSupported" @change="persistGlobal" />
       Cache the workspace prompt &amp; docs
     </label>
 

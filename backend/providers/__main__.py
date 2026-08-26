@@ -55,6 +55,9 @@ models = parse_models("claude-opus-5:Opus 5,openai/gpt-5.6:GPT,openai/gpt-5.6:du
 assert [model["id"] for model in models] == ["claude-opus-5", "openai/gpt-5.6", "bare-id"], models
 assert [model["provider"] for model in models] == ["anthropic", "openai", "anthropic"], models
 assert models[1]["label"] == "GPT" and models[2]["label"] == "bare-id", models
+assert models[0]["supports_cache"] and models[2]["supports_cache"], "anthropic (named or bare) supports cache"
+assert not models[1]["supports_cache"], "openai does not"
+assert not parse_models("nosuch/model")[0]["supports_cache"], "an unknown provider defaults to unsupported"
 
 assert set(PROVIDERS) == {"anthropic", "compatible", "deepseek", "openai"}, PROVIDERS
 for name, entry in PROVIDERS.items():

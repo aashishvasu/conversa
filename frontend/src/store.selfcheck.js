@@ -1,6 +1,6 @@
 // Run: node src/store.selfcheck.js.
 import assert from 'node:assert'
-import { createFromTemplate, createRun, createWorkspace, deleteWorkspace, exportData, globalSettings, importData, restoreData, saveAsTemplate, setGlobalSettings, snapshotInfo, workspaceOf } from './store.js'
+import { createFromTemplate, createRun, createWorkspace, deleteWorkspace, exportData, globalSettings, importData, modelSupportsCache, models, restoreData, saveAsTemplate, setGlobalSettings, snapshotInfo, workspaceOf } from './store.js'
 // recordUsage/usageDays operate on in-memory state; initUsage() itself needs a real IndexedDB
 // and is not called here, the same reason this file never calls initStore() either.
 import { recordUsage, usageDays } from './usage.js'
@@ -75,5 +75,12 @@ await restoreData(v1)
 assert.deepEqual(usageDays(), beforeV1Restore, 'a v1 snapshot with no usage field leaves the current ledger alone')
 assert.equal(snapshotInfo(v1)?.conversations, 1, 'an old-versioned snapshot is still accepted')
 assert.equal(snapshotInfo({ ...v1, version: 999 }), null, 'a snapshot from a newer, not-yet-understood format is rejected')
+
+// Assign the ref directly rather than cacheModels(), which persists via idb-keyval's set() and
+// needs a real IndexedDB, the same reason this file never calls initStore()/initUsage() either.
+models.value = [{ id: 'claude-opus-5', supports_cache: true }, { id: 'openai/gpt-5.6', supports_cache: false }]
+assert.equal(modelSupportsCache('claude-opus-5'), true)
+assert.equal(modelSupportsCache('openai/gpt-5.6'), false)
+assert.equal(modelSupportsCache('unknown/model'), true, 'a model missing from the cached list defaults to supported, not hidden')
 
 console.log('store selfcheck OK')

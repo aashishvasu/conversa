@@ -1,7 +1,7 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { effectiveSettings, EFFORT_LEVELS } from '../settings.js'
-import { globalSettings, saveAsTemplate, workspaces } from '../store.js'
+import { globalSettings, modelSupportsCache, saveAsTemplate, workspaces } from '../store.js'
 import { confirmDelete } from '../utils/confirm.js'
 import ModelSelect from './ModelSelect.vue'
 
@@ -9,6 +9,7 @@ const props = defineProps({ convo: Object })
 
 // Override helpers: an empty override inherits the global default.
 const eff = (k) => props.convo.settings[k] ?? globalSettings.value[k]
+const cacheSupported = computed(() => modelSupportsCache(eff('model')))
 const overridden = (k) => props.convo.settings[k] !== undefined
 const setOv = (k, v) => {
   if (v === null || v === '') delete props.convo.settings[k]
@@ -113,8 +114,8 @@ async function clearMemory() {
       <button v-if="overridden('use_recall')" class="text-indigo-500" @click="reset('use_recall')">↺</button>
     </label>
 
-    <label class="flex items-center gap-2">
-      <input type="checkbox" :checked="eff('use_cache')" @change="setOv('use_cache', $event.target.checked)" />
+    <label class="flex items-center gap-2" :class="!cacheSupported && 'opacity-50'" :title="cacheSupported ? '' : `${eff('model')} does not support prompt caching`">
+      <input type="checkbox" :checked="eff('use_cache')" :disabled="!cacheSupported" @change="setOv('use_cache', $event.target.checked)" />
       Cache the workspace prompt &amp; docs
       <button v-if="overridden('use_cache')" class="text-indigo-500" @click="reset('use_cache')">↺</button>
     </label>

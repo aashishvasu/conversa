@@ -84,6 +84,13 @@ export function cacheModels(list) {
   set(MODELS_KEY, list)
 }
 
+// Whether a model id currently reports prompt-cache support. Defaults to true when the id is
+// missing from the cached list (a stale pre-capability-flag cache, or not loaded yet): a control
+// should never hide itself over a data gap, only over a model that actively says it can't cache.
+export function modelSupportsCache(modelId) {
+  return models.value.find((m) => m.id === modelId)?.supports_cache ?? true
+}
+
 export const conversations = computed(() =>
   state.conversations.filter((c) => !c.isTemplate),
 )

@@ -33,7 +33,7 @@ Browser (Vue SPA, IndexedDB)  --HTTPS-->  FastAPI  --streaming-->  Model APIs
 - `POST /api/refresh`: trades a still-valid token for a fresh full-TTL one.
   The client calls it opportunistically once a token is past half-life (sliding session).
 - `GET  /api/settings`: global setting defaults from env vars, plus `config_errors` (see Providers below).
-- `GET  /api/models`: selectable models as `{id, label, provider}`, filtered to configured providers.
+- `GET  /api/models`: selectable models as `{id, label, provider, supports_cache}`, filtered to configured providers. `supports_cache` is a dialect property (Anthropic only), not a per-model one; `SettingsPanel.vue`/`GlobalSettings.vue` disable the cache checkbox and explain why when the effective model can't use it. Effort has the same gap (`takes_reasoning()`'s `reasoning_prefixes` check) and is not flagged yet.
 - `POST /api/chat`: streams a completion as SSE from the provider that owns the requested model.
   The server environment supplies API keys. The provider layer translates `effort`, attaches configured hosted tools, and emits text, thinking, and tool-trace events (`search`, `fetch`, `results`), plus one `usage` frame (`{model, input, output, cache_read, cache_write, usd, unpriced}`, priced server-side) before `done`.
   `main.py` JSON-encodes each event so newlines and special characters remain inside one SSE frame.
