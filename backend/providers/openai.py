@@ -9,11 +9,18 @@ SEARCH_TOOL = os.environ.get("OPENAI_WEB_SEARCH_TOOL", "web_search")
 # Keep this prefix list aligned with the models exposed above.
 REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 
+# USD per million tokens, input then output. Update when published rates change.
+PRICES = {
+    "gpt-5.6-sol": (5, 30), "gpt-5.6-terra": (2, 12), "gpt-5.6-luna": (0.20, 1.20),
+    "gpt-5.5": (5, 30),
+}
+
 PROVIDER = {
     "dialect": "responses",
     "key_env": "OPENAI_API_KEY",
     "search_tool": SEARCH_TOOL,
     "reasoning_prefixes": REASONING_PREFIXES,
+    "prices": PRICES,
     "models": (
         "openai/gpt-5.6-sol:GPT-5.6 Sol,openai/gpt-5.6-terra:GPT-5.6 Terra,"
         "openai/gpt-5.6-luna:GPT-5.6 Luna,openai/gpt-5.5:GPT-5.5,"

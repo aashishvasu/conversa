@@ -7,6 +7,8 @@ from .registry import (
     CLIENTS,
     DEFAULT_MAX_TOKENS,
     PROVIDERS,
+    cost,
+    join_model,
     resolve_model,
 )
 
@@ -92,6 +94,24 @@ def anthropic_frame(event: object) -> dict | None:
     return None
 
 
+def anthropic_usage(usage: object) -> dict:
+    """Token, cache, and hosted-search counts from an Anthropic Usage object."""
+    tool = field(usage, "server_tool_use")
+    return {
+        "input": usage.input_tokens,
+        "output": usage.output_tokens,
+        "cache_read": usage.cache_read_input_tokens or 0,
+        "cache_write": usage.cache_creation_input_tokens or 0,
+        "search_requests": (field(tool, "web_search_requests") or 0) if tool else 0,
+    }
+
+
+def _cache_fields(details: object | None) -> tuple[int, int]:
+    if not details:
+        return 0, 0
+    return field(details, "cached_tokens") or 0, field(details, "cache_write_tokens") or 0
+
+
 def response_frame(event: object) -> dict | None:
     event_type = field(event, "type") or ""
     if event_type == "response.output_text.delta":
@@ -115,6 +135,26 @@ def response_frame(event: object) -> dict | None:
     return None
 
 
+def responses_usage_from(usage: object) -> dict:
+    """Token and cache counts from a Responses Usage object, streamed or from complete()."""
+    cache_read, cache_write = _cache_fields(field(usage, "input_tokens_details"))
+    return {
+        "input": field(usage, "input_tokens") or 0,
+        "output": field(usage, "output_tokens") or 0,
+        "cache_read": cache_read,
+        "cache_write": cache_write,
+        "search_requests": 0,  # the Responses dialect reports no hosted-search use count
+    }
+
+
+def responses_usage(event: object) -> dict | None:
+    """Usage from a streamed response.completed event, or None for any other event type."""
+    if field(event, "type") != "response.completed":
+        return None
+    usage = field(field(event, "response"), "usage")
+    return responses_usage_from(usage) if usage else None
+
+
 def chat_completion_frames(chunk: object) -> list[dict]:
     if not chunk.choices:
         return []
@@ -125,6 +165,24 @@ def chat_completion_frames(chunk: object) -> list[dict]:
     if field(delta, "content"):
         frames.append({"text": field(delta, "content")})
     return frames
+
+
+def chat_completion_usage_from(usage: object) -> dict:
+    """Token and cache counts from a chat.completions Usage object."""
+    cache_read, cache_write = _cache_fields(field(usage, "prompt_tokens_details"))
+    return {
+        "input": field(usage, "prompt_tokens") or 0,
+        "output": field(usage, "completion_tokens") or 0,
+        "cache_read": cache_read,
+        "cache_write": cache_write,
+        "search_requests": 0,
+    }
+
+
+def chat_completion_usage(chunk: object) -> dict | None:
+    """Usage from the chunk stream_options={"include_usage": True} attaches, or None otherwise."""
+    usage = field(chunk, "usage")
+    return chat_completion_usage_from(usage) if usage else None
 
 
 async def _anthropic_stream(
@@ -153,6 +211,7 @@ async def _anthropic_stream(
         async for event in stream:
             if frame := anthropic_frame(event):
                 yield frame
+        yield {"_usage": anthropic_usage((await stream.get_final_message()).usage)}
 
 
 async def _responses_stream(
@@ -178,6 +237,8 @@ async def _responses_stream(
     async for event in stream:
         if frame := response_frame(event):
             yield frame
+        if usage := responses_usage(event):
+            yield {"_usage": usage}
 
 
 async def _chat_completions_stream(
@@ -190,10 +251,16 @@ async def _chat_completions_stream(
     temperature: float,
 ) -> AsyncIterator[dict]:
     kwargs = chat_completions_kwargs(model, messages, system, max_tokens, temperature)
+    # WHY: opt into the OpenAI-standard usage-on-final-chunk flag, otherwise chat.completions
+    # pricing is permanently blind. A strict OpenAI-compatible endpoint that rejects the param
+    # would 400 the whole stream; no key is available to verify one that does.
+    kwargs["stream_options"] = {"include_usage": True}
     stream = await CLIENTS[provider].chat.completions.create(stream=True, **kwargs)
     async for chunk in stream:
         for frame in chat_completion_frames(chunk):
             yield frame
+        if usage := chat_completion_usage(chunk):
+            yield {"_usage": usage}
 
 
 DIALECT_STREAMS = {
@@ -213,10 +280,25 @@ async def stream_chat(
     temperature: float,
 ) -> AsyncIterator[dict]:
     try:
+        usage = None
         async for frame in DIALECT_STREAMS[PROVIDERS[provider]["dialect"]](
             provider, model, messages, system, max_tokens, effort, temperature
         ):
+            if "_usage" in frame:
+                usage = frame["_usage"]  # internal signal from the adapter, not forwarded to the client
+                continue
             yield frame
+        if usage:
+            usd, priced = cost(
+                provider, model, usage["input"], usage["output"],
+                usage["cache_read"], usage["cache_write"], usage["search_requests"],
+            )
+            yield {"usage": {
+                "model": join_model(provider, model),
+                "input": usage["input"], "output": usage["output"],
+                "cache_read": usage["cache_read"], "cache_write": usage["cache_write"],
+                "usd": round(usd, 6), "unpriced": not priced,
+            }}
         yield {"done": True}
     except Exception as error:
         yield {"error": str(error)}
@@ -241,7 +323,9 @@ async def complete(
         async with api.messages.stream(**kwargs) as stream:
             message = await stream.get_final_message()
         if spend:
-            spend.add(model_id, message.usage.input_tokens, message.usage.output_tokens)
+            usage = anthropic_usage(message.usage)
+            spend.add(model_id, usage["input"], usage["output"], usage["cache_read"],
+                      usage["cache_write"], usage["search_requests"])
         return "".join(block.text for block in message.content if block.type == "text").strip()
     if entry["dialect"] == "responses":
         kwargs = {"model": model, "input": prompt, "max_output_tokens": max_tokens}
@@ -251,10 +335,12 @@ async def complete(
             kwargs["reasoning"] = {"effort": effort}
         response = await api.responses.create(**kwargs)
         if spend and response.usage:
-            spend.add(model_id, response.usage.input_tokens, response.usage.output_tokens)
+            usage = responses_usage_from(response.usage)
+            spend.add(model_id, usage["input"], usage["output"], usage["cache_read"], usage["cache_write"])
         return (response.output_text or "").strip()
     kwargs = chat_completions_kwargs(model, [{"role": "user", "content": prompt}], system, max_tokens)
     response = await api.chat.completions.create(**kwargs)
     if spend and response.usage:
-        spend.add(model_id, response.usage.prompt_tokens, response.usage.completion_tokens)
+        usage = chat_completion_usage_from(response.usage)
+        spend.add(model_id, usage["input"], usage["output"], usage["cache_read"], usage["cache_write"])
     return (response.choices[0].message.content or "").strip()

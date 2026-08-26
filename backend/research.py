@@ -86,46 +86,6 @@ NOTE_MAX_TOKENS = 1500
 NOTHING = "NOTHING RELEVANT"
 
 
-# UI estimate in US dollars per million tokens, input then output. Update when published rates change.
-PRICES = {
-    "claude-fable-5": (10, 50), "claude-mythos-5": (10, 50),
-    "claude-opus-5": (5, 25), "claude-opus-4-8": (5, 25), "claude-opus-4-7": (5, 25),
-    "claude-opus-4-6": (5, 25), "claude-sonnet-5": (3, 15), "claude-sonnet-4-6": (3, 15),
-    "claude-haiku-4-5": (1, 5),
-    "gpt-5.6-sol": (5, 30), "gpt-5.6-terra": (2, 12), "gpt-5.6-luna": (0.20, 1.20),
-    "gpt-5.5": (5, 30),
-}
-# Unpriced models use the top-tier estimate and increment Spend.unpriced.
-UNKNOWN_PRICE = (5, 25)
-
-
-class Spend:
-    """Running token and cost total for one run."""
-
-    def __init__(self):
-        self.calls = self.input = self.output = self.unpriced = 0
-        self.usd = 0.0
-
-    def add(self, model_id, input_tokens, output_tokens):
-        model = providers.split_model(model_id)[1]
-        rate_in, rate_out = PRICES.get(model, UNKNOWN_PRICE)
-        if model not in PRICES:
-            self.unpriced += 1
-        self.calls += 1
-        self.input += input_tokens
-        self.output += output_tokens
-        self.usd += (input_tokens * rate_in + output_tokens * rate_out) / 1_000_000
-
-    def as_dict(self):
-        return {
-            "calls": self.calls,
-            "input": self.input,
-            "output": self.output,
-            "usd": round(self.usd, 4),
-            "unpriced": self.unpriced,
-        }
-
-
 def lines(text, limit):
     """Model output that should be a list, one item per line.
 
@@ -415,17 +375,6 @@ if __name__ == "__main__":  # self-check: python research.py
     parsed = lines("Here you go:\n1. What is the cost?\n- How does it scale over time?\n\n* Why now, though?\nok", 5)
     assert parsed == ["What is the cost?", "How does it scale over time?", "Why now, though?"], parsed
     assert len(lines("\n".join(f"subquestion number {i} here" for i in range(9)), 4)) == 4
-
-    # Spend applies the top-tier estimate to unpriced models.
-    s = Spend()
-    s.add("claude-haiku-4-5", 1_000_000, 0)
-    assert s.usd == 1.0, s.usd
-    s.add("openai/gpt-5.6-luna", 1_000_000, 0)
-    assert round(s.usd, 2) == 1.20, s.usd
-    assert s.unpriced == 0, "a priced OpenAI model is not a guess"
-    s.add("openai/some-unknown-model", 0, 1_000_000)
-    assert s.usd == 26.2 and s.calls == 3, s.as_dict()
-    assert s.unpriced == 1, "an unpriced model is counted, so the UI can say the figure is a guess"
 
     # PageCache: one download per URL however many subquestions want it, even when they race.
     # Each caller still gets an extract selected against its own topic.

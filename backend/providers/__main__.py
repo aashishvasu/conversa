@@ -6,16 +6,22 @@ from . import (
     DIALECTS,
     EFFORT_VALUES,
     PROVIDERS,
+    Spend,
     anthropic_frame,
     anthropic_system,
+    anthropic_usage,
     apply_thinking,
     chat_completion_frames,
+    chat_completion_usage,
     chat_completions_kwargs,
+    cost,
     field,
+    join_model,
     join_system,
     parse_models,
     resolve_model,
     response_frame,
+    responses_usage,
     split_model,
     takes_reasoning,
 )
@@ -105,5 +111,60 @@ try:
     raise AssertionError("unknown provider accepted")
 except LookupError:
     pass
+
+# join_model is split_model's inverse.
+assert join_model(*split_model("claude-opus-5")) == "claude-opus-5"
+assert join_model(*split_model("openai/gpt-5.6")) == "openai/gpt-5.6"
+assert join_model("anthropic", "claude-x") == "claude-x"
+assert join_model("openai", "gpt-x") == "openai/gpt-x"
+
+# cost(): base rate, then each of cache write, cache read, and hosted search priced independently.
+usd, priced = cost("anthropic", "claude-sonnet-5", 1_000_000, 0)
+assert priced and usd == 3.0, usd
+usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, cache_write=1_000_000)
+assert usd == 3.75, usd  # 3 * 1.25
+usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, cache_read=1_000_000)
+assert usd == 0.3, usd  # 3 * 0.1
+usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, search_requests=1000)
+assert usd == 10.0, usd
+usd, priced = cost("anthropic", "unknown-model-xyz", 1_000_000, 1_000_000)
+assert not priced and usd == 30.0, usd  # UNKNOWN_PRICE (5, 25)
+
+# Spend: totals plus a per-model breakdown, so as_dict() answers both the sidebar's total and a future per-model view.
+spend = Spend()
+spend.add("claude-haiku-4-5", 100, 50)
+spend.add("claude-haiku-4-5", 200, 0, cache_read=500)
+spend.add("openai/gpt-5.6-luna", 10, 10)
+d = spend.as_dict()
+assert d["calls"] == 3 and d["input"] == 310 and d["output"] == 60, d
+assert d["cache_read"] == 500, d
+assert set(d["models"]) == {"claude-haiku-4-5", "openai/gpt-5.6-luna"}, d
+assert d["models"]["claude-haiku-4-5"]["calls"] == 2, d
+
+# anthropic_usage: cache and hosted-search counts alongside tokens, from message.usage.
+assert anthropic_usage(Obj(
+    input_tokens=10, output_tokens=5, cache_read_input_tokens=3, cache_creation_input_tokens=2,
+    server_tool_use=Obj(web_search_requests=1),
+)) == {"input": 10, "output": 5, "cache_read": 3, "cache_write": 2, "search_requests": 1}
+assert anthropic_usage(Obj(
+    input_tokens=10, output_tokens=5, cache_read_input_tokens=0, cache_creation_input_tokens=0,
+    server_tool_use=None,
+))["search_requests"] == 0
+
+# responses_usage: only the response.completed event carries usage; every other event is None.
+assert responses_usage(Obj(type="response.output_text.delta", delta="x")) is None
+usage = responses_usage(Obj(type="response.completed", response={"usage": {
+    "input_tokens": 8, "output_tokens": 4,
+    "input_tokens_details": {"cached_tokens": 6, "cache_write_tokens": 1},
+}}))
+assert usage == {"input": 8, "output": 4, "cache_read": 6, "cache_write": 1, "search_requests": 0}, usage
+
+# chat_completion_usage: only the final chunk (stream_options include_usage) carries usage.
+assert chat_completion_usage(Obj(choices=[], usage=None)) is None
+usage = chat_completion_usage(Obj(choices=[], usage={
+    "prompt_tokens": 8, "completion_tokens": 4,
+    "prompt_tokens_details": {"cached_tokens": 6, "cache_write_tokens": 1},
+}))
+assert usage == {"input": 8, "output": 4, "cache_read": 6, "cache_write": 1, "search_requests": 0}, usage
 
 print("providers selfcheck OK")

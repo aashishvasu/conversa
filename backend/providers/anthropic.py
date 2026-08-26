@@ -23,12 +23,21 @@ LEGACY_MODELS = {
 # Legacy effort levels map to fixed budgets. Adaptive models size thinking from the qualitative effort value.
 LEGACY_EFFORT_BUDGETS = {"low": 4000, "medium": 10000, "high": 24000}
 
+# USD per million tokens, input then output, bare model id -> rate. Update when published rates change.
+PRICES = {
+    "claude-fable-5": (10, 50), "claude-mythos-5": (10, 50),
+    "claude-opus-5": (5, 25), "claude-opus-4-8": (5, 25), "claude-opus-4-7": (5, 25),
+    "claude-opus-4-6": (5, 25), "claude-sonnet-5": (3, 15), "claude-sonnet-4-6": (3, 15),
+    "claude-haiku-4-5": (1, 5),
+}
+
 PROVIDER = {
     "dialect": "anthropic",
     "key_env": "ANTHROPIC_API_KEY",
     "search_tool": SEARCH_TOOL,
     "fetch_tool": FETCH_TOOL,
     "fetch_beta": FETCH_BETA,
+    "prices": PRICES,
     # Bare model ids belong to Anthropic (see split_model).
     "models": (
         "claude-fable-5:Fable 5,"

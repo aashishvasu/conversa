@@ -11,8 +11,8 @@ import asyncio
 import time
 import uuid
 
-from providers import complete
-from research import PROMPTS, PageCache, Spend, gather, lines
+from providers import Spend, complete
+from research import PROMPTS, PageCache, gather, lines
 
 RUNS = {}
 FINISHED_TTL = 3600  # a finished run is evicted this long after the client could have collected it
