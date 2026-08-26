@@ -174,7 +174,7 @@ A workspace is `{ id, name, systemPrompt, cards, docs }` in its own IndexedDB ke
 A conversation joins by setting `convo.workspaceId`; `workspaceOf(convo)` resolves it (null for a missing or deleted workspace, which degrades to plain-convo behavior everywhere).
 The merge into the request happens at read time in `buildPayload`, so joining, leaving, and deleting a workspace touch only that pointer.
 Docs are plain text, stored inline and sent whole per request; chunked retrieval (the recall scorer fits) is the upgrade path if docs outgrow the context window.
-Full export carries workspaces (`{ conversations, workspaces }`); import also accepts the older bare-array format, and on a workspace id collision keeps the local copy so existing links stay resolvable.
+Full export is a versioned snapshot carrying conversations, workspaces, runs, saved settings, and UI prefs. Merge import also accepts the older bare-array format, keeps local workspaces on id collision so existing links stay resolvable, and ignores snapshot-only settings and prefs. Restore replaces every collection after an explicit confirmation.
 
 ### Memory / compression (`frontend/src/memory.js`)
 
@@ -189,7 +189,7 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 
 | File | Responsibility |
 |------|----------------|
-| `store.js` | Reactive conversation, workspace and research-run state, IndexedDB persistence (debounced, with `persistNow()`). Also `applyResearch()`, which lands a finished run in a workspace, and `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write sets `storageError`, which App.vue surfaces with an export offer while the data is still intact in memory. |
+| `store.js` | Reactive conversation, workspace and research-run state, IndexedDB persistence, versioned export/import, and replace-all snapshot restore. Also `applyResearch()`, which lands a finished run in a workspace, and `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write raises a notification with an export offer while the data is still intact in memory. |
 | `settings.js` | The settings surface: `SETTING_KEYS` (what a conversation may override), `RESEARCH_KEYS` (what a run may override), and `EFFORT_LEVELS`, the single definition of the thinking-effort lever. `effectiveSettings(owner, keys)` resolves either list against the global defaults. |
 | `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `discardResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
 | `cards.js` | Pure card concerns: trigger matching, force overrides, `effectiveCards`, and the card builder's parsing half: `CARDGEN_SYSTEM` (the prompt that teaches the trigger syntax) and `parseGeneratedCards()` (fence- and prose-tolerant JSON parsing, strict on shape). Vue-free, so it runs in Node. |
