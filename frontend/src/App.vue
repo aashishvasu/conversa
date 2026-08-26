@@ -11,28 +11,39 @@ import Login from './views/Login.vue'
 import ResearchPane from './views/ResearchPane.vue'
 import Sidebar from './views/Sidebar.vue'
 
-const ready = ref(false)
+// One state for the boot pipeline, not the three independent flags (ready/bootError/serverError)
+// this used to be: they only ever combined into one of four sequential stages, so nothing prevented
+// a future edit from setting two of them at once. `authed` (from api.js) stays separate: unlike this
+// pipeline, it flips at any point in the session (a 401 logs it out again), not just once at boot.
+const bootState = ref('loading') // 'loading' | 'bootError' | 'serverError' | 'ready'
 // initStore() failing means IndexedDB could not be read (blocked, corrupt), so there is nothing to show and nothing to export. The raw error is the page.
-const bootError = ref(null)
-const serverError = ref('')
+const bootErrorMessage = ref('')
+const serverErrorMessage = ref('')
 
 onMounted(async () => {
   try {
     await Promise.all([initStore(), initUsage()])
   } catch (e) {
-    bootError.value = String(e?.stack || e)
+    bootErrorMessage.value = String(e?.stack || e)
+    bootState.value = 'bootError'
     return
   }
   if (getToken()) await loadSettings()
-  ready.value = true
+  else bootState.value = 'ready'
 })
 
 async function loadSettings() {
-  serverError.value = ''
   try {
     await onAuthed(await fetchSettings())
+    bootState.value = 'ready'
   } catch (e) {
-    if (getToken()) serverError.value = e.message
+    // No token means a 401 already logged us out mid-request: that is Login's job, not an error page.
+    if (getToken()) {
+      serverErrorMessage.value = e.message
+      bootState.value = 'serverError'
+    } else {
+      bootState.value = 'ready'
+    }
   }
 }
 
@@ -52,17 +63,17 @@ async function onAuthed({ config_errors: errors, ...settings }) {
 </script>
 
 <template>
-  <div v-if="bootError" class="flex h-dvh flex-col items-center justify-center gap-3 bg-app p-6 text-base">
+  <div v-if="bootState === 'bootError'" class="flex h-dvh flex-col items-center justify-center gap-3 bg-app p-6 text-base">
     <p class="text-sm">Stored conversations could not be read from this browser.</p>
-    <pre class="max-h-[50vh] w-full max-w-2xl overflow-auto rounded-lg border border-edge bg-surface p-3 text-xs">{{ bootError }}</pre>
+    <pre class="max-h-[50vh] w-full max-w-2xl overflow-auto rounded-lg border border-edge bg-surface p-3 text-xs">{{ bootErrorMessage }}</pre>
     <button class="rounded bg-surface2 px-3 py-1.5 text-sm hover:opacity-80" @click="reload">Retry</button>
   </div>
-  <div v-else-if="serverError" class="flex h-dvh flex-col items-center justify-center gap-3 bg-app p-6 text-base">
+  <div v-else-if="bootState === 'serverError'" class="flex h-dvh flex-col items-center justify-center gap-3 bg-app p-6 text-base">
     <p class="text-sm">Could not reach the server.</p>
-    <pre class="max-h-[50vh] w-full max-w-2xl overflow-auto rounded-lg border border-edge bg-surface p-3 text-xs">{{ serverError }}</pre>
+    <pre class="max-h-[50vh] w-full max-w-2xl overflow-auto rounded-lg border border-edge bg-surface p-3 text-xs">{{ serverErrorMessage }}</pre>
     <button class="rounded bg-surface2 px-3 py-1.5 text-sm hover:opacity-80" @click="loadSettings">Retry</button>
   </div>
-  <div v-else-if="!ready" class="flex h-dvh items-center justify-center bg-app text-muted">
+  <div v-else-if="bootState === 'loading'" class="flex h-dvh items-center justify-center bg-app text-muted">
     Loading…
   </div>
   <Login v-else-if="!authed" @authenticated="onAuthed" />
