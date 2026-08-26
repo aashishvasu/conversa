@@ -11,6 +11,7 @@ import ChatPane from './views/ChatPane.vue'
 import Login from './views/Login.vue'
 import ResearchPane from './views/ResearchPane.vue'
 import Sidebar from './views/Sidebar.vue'
+import UsagePane from './views/UsagePane.vue'
 
 // One state for the boot pipeline, not the three independent flags (ready/bootError/serverError)
 // this used to be: they only ever combined into one of four sequential stages, so nothing prevented
@@ -89,6 +90,9 @@ async function onAuthed({ config_errors: errors, ...settings }) {
       </TabsContent>
       <TabsContent value="research" class="min-w-0 flex-1 data-[state=inactive]:hidden data-[state=active]:flex">
         <ResearchPane />
+      </TabsContent>
+      <TabsContent force-mount value="usage" class="min-w-0 flex-1 data-[state=inactive]:hidden data-[state=active]:flex">
+        <UsagePane />
       </TabsContent>
     </TabsRoot>
   </div>

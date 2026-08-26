@@ -1,5 +1,5 @@
 <script setup>
-// One rendering of a spend summary, shared by the research pane, the chat footer, and (later) the Usage pane.
+// One rendering of a spend summary, shared by the research pane, chat footer, and Usage rows.
 defineProps({ spend: { type: Object, required: true } })
 </script>
 

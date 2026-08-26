@@ -126,7 +126,7 @@ Three pure functions extract token and cache counts from each dialect's usage sh
 `_chat_completions_stream` always sends `stream_options: {"include_usage": true}`; an OpenAI-compatible endpoint that rejects the parameter would 400 the whole stream, unverified without a key.
 
 On the frontend, `usage.js` is the client-side ledger: day buckets, one row per model per kind (`chat`, `utility`, `research`), persisted to IndexedDB like `store.js`. `streamChat`'s `onUsage` callback feeds it from all four call sites (`ChatPane.vue`, `memory.js`, `titles.js`, `CardsPanel.vue`'s card builder); each also folds the same frame into `convo.usage`, a flat running total for that conversation. A finished research run folds its `Spend.as_dict().models` breakdown into the ledger once, guarded by `spendLedgered` on the persisted run record so a reconnect or reopen replaying the same `final` frame does not double it.
-The ledger joins the full snapshot export/restore (see Workspaces above). `components/SpendBadge.vue` renders `{calls, input, output, usd, unpriced}` (research pane, chat footer via `convo.usage`); the Usage pane itself is not built (see Sidebar.vue/PaneTabs.vue below for the Reka Tabs plumbing it will use).
+The ledger joins the full snapshot export/restore (see Workspaces above). `components/SpendBadge.vue` renders `{calls, input, output, usd, unpriced}` in the research pane, chat footer via `convo.usage`, and each Usage-pane table row. `views/UsagePane.vue` reads the ledger by model and kind over an optional native date range.
 
 ### chat.completions specifics (`_chat_completions_stream` in `backend/providers/dialects.py`)
 
@@ -221,10 +221,11 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `components/Notifications.vue` | App-root renderer for sticky banners and transient Reka toasts. |
 | `views/Sidebar.vue` | `PaneTabs`, then new-chat and new-research buttons, then template, research-run and conversation lists. Workspace rows head their member conversations (click to edit, RowActionsMenu to delete) and double as the management surface; unassigned conversations sit under a "Conversations" label. |
 | `components/RowActionsMenu.vue` | Reka `DropdownMenu` behind one "..." trigger per sidebar row, replacing the hover icon strips run/template/workspace/convo rows each had. |
-| `components/shell/PaneTabs.vue` | The Chat/Research `TabsList`, mounted in `Sidebar.vue` inside the `TabsRoot` App.vue wraps around Sidebar and the panes. Its `TabsTrigger`s and the panes' `TabsContent` share that one Reka Tabs vocabulary; a third pane is one more trigger, not another branch. |
+| `components/shell/PaneTabs.vue` | The Chat/Research/Usage `TabsList`, mounted in `Sidebar.vue` inside the `TabsRoot` App.vue wraps around Sidebar and the panes. Its `TabsTrigger`s and the panes' `TabsContent` share one Reka Tabs vocabulary. |
 | `views/ResearchPane.vue` | Research view for `currentRun`, shown when `store.js`'s `activePane` is `'research'` (`selectRun` sets both it and `currentRunId`). Brief, clarifying questions, per-run model overrides, live progress and spend, then `applyResearch()` into a workspace. Reconnects from the last stored sequence after a dropped stream. No run selected renders an empty state with a "Start one" action. |
+| `views/UsagePane.vue` | Usage ledger table by model and kind, optionally scoped by native From/To date inputs. The pane keeps its range while hidden, so returning from Chat or Research preserves it. |
 | `components/Modal.vue` / `ConfirmModal.vue` | Reka `Dialog` shell (focus trap, aria wiring) / Reka `AlertDialog` shared delete-confirmation dialog. |
-| `components/SpendBadge.vue` | One spend summary (calls, k tokens, `>$X.XX` with the unpriced tooltip), mounted in the research pane and the chat footer (`convo.usage`). |
+| `components/SpendBadge.vue` | One spend summary (calls, k tokens, `>$X.XX` with the unpriced tooltip), mounted in research, chat (`convo.usage`), and each Usage-pane row. |
 
 ## Local development
 

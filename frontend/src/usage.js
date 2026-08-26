@@ -18,8 +18,8 @@ function addFields(row, calls, fields) {
   row.calls += calls
   row.input += fields.input || 0
   row.output += fields.output || 0
-  row.cacheRead += fields.cache_read || 0
-  row.cacheWrite += fields.cache_write || 0
+  row.cacheRead += fields.cache_read ?? fields.cacheRead ?? 0
+  row.cacheWrite += fields.cache_write ?? fields.cacheWrite ?? 0
   row.usd += fields.usd || 0
   row.unpriced += Number(fields.unpriced) || 0
   return row
@@ -39,6 +39,26 @@ export function foldUsage(days, kind, model, row, day = new Date().toISOString()
   const models = (days[day] ??= {})
   const kinds = (models[model] ??= {})
   return addFields((kinds[kind] ??= blankRow()), row.calls || 0, row)
+}
+
+// Pure: totals ledger rows by model and kind inside an inclusive ISO-date range. Empty bounds mean all time.
+export function usageRows(days, start = '', end = '') {
+  const rows = new Map()
+  for (const [day, models] of Object.entries(days)) {
+    if ((start && day < start) || (end && day > end) || !models || typeof models !== 'object' || Array.isArray(models)) continue
+    for (const [model, kinds] of Object.entries(models)) {
+      if (!kinds || typeof kinds !== 'object' || Array.isArray(kinds)) continue
+      for (const [kind, fields] of Object.entries(kinds)) {
+        if (!fields || typeof fields !== 'object' || Array.isArray(fields)) continue
+        const key = `${model}\0${kind}`
+        const row = rows.get(key) || { model, kind, ...blankRow() }
+        addFields(row, fields.calls ?? 0, fields)
+        rows.set(key, row)
+      }
+    }
+  }
+  const kindOrder = ['chat', 'utility', 'research']
+  return [...rows.values()].sort((a, b) => a.model.localeCompare(b.model) || kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind))
 }
 
 // Running total for one conversation, updated by every caller that streams against it (chat and the

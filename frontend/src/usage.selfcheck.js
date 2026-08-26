@@ -1,6 +1,6 @@
 // Run: node src/usage.selfcheck.js.
 import assert from 'node:assert'
-import { addConvoUsage, addUsage, foldUsage, replaceUsage, usageDays } from './usage.js'
+import { addConvoUsage, addUsage, foldUsage, replaceUsage, usageDays, usageRows } from './usage.js'
 
 const days = {}
 addUsage(days, 'chat', 'claude-sonnet-5', { input: 100, output: 50, cache_read: 0, cache_write: 0, usd: 0.001 }, '2026-08-24')
@@ -33,6 +33,18 @@ assert.equal(days['2026-08-27']['claude-sonnet-5'].research.calls, 7, 'the fold 
 assert.equal(days['2026-08-27']['claude-sonnet-5'].research.unpriced, 2, 'the fold carries the row\'s own unpriced count, not a boolean')
 foldUsage(days, 'research', 'claude-sonnet-5', { calls: 3, input: 100, output: 100, usd: 0.001 }, '2026-08-27')
 assert.equal(days['2026-08-27']['claude-sonnet-5'].research.calls, 10, 'a second fold adds to the first')
+
+const rangeRows = usageRows(days, '2026-08-24', '2026-08-25')
+assert.deepEqual(rangeRows.map(({ model, kind, calls }) => [model, kind, calls]), [
+  ['claude-haiku-4-5', 'utility', 1],
+  ['claude-sonnet-5', 'chat', 2],
+  ['claude-sonnet-5', 'research', 1],
+], 'range rows combine matching days and sort model then kind')
+assert.equal(rangeRows.find((row) => row.kind === 'chat').cacheRead, 500, 'stored camel-case cache fields survive row aggregation')
+const allRows = usageRows(days)
+assert.equal(allRows.length, 4, 'empty bounds include every day while combining matching model/kind rows')
+assert.equal(allRows.find((row) => row.model === 'claude-sonnet-5' && row.kind === 'research').calls, 11, 'all-time rows combine the same model and kind across days')
+assert.deepEqual(usageRows({ bad: null, nested: { model: null } }), [], 'malformed restored buckets are ignored')
 
 // addConvoUsage: a flat running total on the object itself, lazily created
 const convo = {}
