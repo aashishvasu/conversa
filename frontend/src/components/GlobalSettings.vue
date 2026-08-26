@@ -1,8 +1,10 @@
 <script setup>
 import { ref } from 'vue'
 import { EFFORT_LEVELS } from '../settings.js'
-import { downloadExport, globalSettings, importData, persistGlobal } from '../store.js'
-import { enterToSend, fontScale } from '../utils/prefs.js'
+import { downloadExport, globalSettings, importData, persistGlobal, restoreData, snapshotInfo } from '../store.js'
+import { enterToSend, fontScale, restorePrefs } from '../utils/prefs.js'
+import { restoreTheme } from '../utils/theme.js'
+import { confirmDelete } from '../utils/confirm.js'
 import ModelSelect from './ModelSelect.vue'
 
 // Edits the global defaults (absolute values, no inherit).
@@ -27,6 +29,25 @@ async function onImportFile(e) {
     importMsg.value = n ? `Imported ${n} conversation${n === 1 ? '' : 's'}` : 'Nothing new to import'
   } catch (err) {
     importMsg.value = `Import failed: ${err.message}`
+  }
+}
+
+async function onRestoreFile(e) {
+  const file = e.target.files[0]
+  e.target.value = ''
+  if (!file) return
+  try {
+    const data = JSON.parse(await file.text())
+    const info = snapshotInfo(data)
+    if (!info) throw new Error('Choose a full conversa snapshot')
+    const date = info.exportedAt ? new Date(info.exportedAt).toLocaleString() : 'an unknown date'
+    if (!await confirmDelete(`Restore ${info.conversations} conversations, ${info.workspaces} workspaces, and ${info.runs} research runs from ${date}? This replaces this browser's data.`, 'Restore')) return
+    const prefs = await restoreData(data)
+    restorePrefs(prefs)
+    restoreTheme(prefs.theme)
+    importMsg.value = 'Snapshot restored'
+  } catch (err) {
+    importMsg.value = `Restore failed: ${err.message}`
   }
 }
 </script>
@@ -140,13 +161,17 @@ async function onImportFile(e) {
     </label>
 
     <div>
-      <label class="mb-1 block text-muted">Backup (conversations, templates &amp; cards)</label>
+      <label class="mb-1 block text-muted">Backup (full app snapshot)</label>
       <div class="flex gap-2">
         <button class="flex-1 rounded bg-surface2 py-2 hover:opacity-80" @click="downloadExport()">Export</button>
         <!-- native file input, hidden inside the label so the button triggers the picker -->
         <label class="flex-1 cursor-pointer rounded bg-surface2 py-2 text-center hover:opacity-80">
           Import
           <input type="file" accept=".json,application/json" class="hidden" @change="onImportFile" />
+        </label>
+        <label class="flex-1 cursor-pointer rounded bg-surface2 py-2 text-center hover:opacity-80">
+          Restore
+          <input type="file" accept=".json,application/json" class="hidden" @change="onRestoreFile" />
         </label>
       </div>
       <p v-if="importMsg" class="mt-1 text-xs text-muted">{{ importMsg }}</p>

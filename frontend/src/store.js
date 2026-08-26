@@ -1,6 +1,8 @@
 import { get, set } from 'idb-keyval'
 import { computed, reactive, ref, watch } from 'vue'
 import { dismiss, notify } from './utils/notify.js'
+import { enterToSend, fontScale } from './utils/prefs.js'
+import { isDark } from './utils/theme.js'
 
 // All conversation state lives client-side in IndexedDB (via idb-keyval).
 
@@ -249,11 +251,34 @@ export function persistGlobal() {
   set(GLOBAL_KEY, savedGlobal)
 }
 
-// Backup.
-// Full export = { conversations, workspaces }; single-conversation export stays a bare array (a workspaceId the importing browser can't resolve degrades to a plain convo).
+const SNAPSHOT_VERSION = 1
+
+function wire(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+function snapshotPrefs() {
+  return { theme: isDark.value ? 'dark' : 'light', fontScale: fontScale.value, enterToSend: enterToSend.value }
+}
+
 export function exportData(id) {
-  if (id) return JSON.parse(JSON.stringify(state.conversations.filter((c) => c.id === id)))
-  return JSON.parse(JSON.stringify({ conversations: state.conversations, workspaces: state.workspaces }))
+  const conversations = state.conversations.filter((c) => !id || c.id === id)
+  return wire({
+    version: SNAPSHOT_VERSION,
+    exportedAt: new Date().toISOString(),
+    conversations,
+    ...(id ? {} : { workspaces: state.workspaces, runs: state.runs, settings: savedGlobal, prefs: snapshotPrefs() }),
+  })
+}
+
+export function snapshotInfo(data) {
+  if (!data || Array.isArray(data) || data.version !== SNAPSHOT_VERSION || !Array.isArray(data.conversations) || !Array.isArray(data.workspaces) || !Object.hasOwn(data, 'settings')) return null
+  return {
+    exportedAt: data.exportedAt || '',
+    conversations: data.conversations.length,
+    workspaces: data.workspaces.length,
+    runs: Array.isArray(data.runs) ? data.runs.length : 0,
+  }
 }
 
 // Save text to a file the browser downloads.
@@ -269,34 +294,57 @@ export function downloadText(name, text, type = 'text/markdown') {
 // Download an export file: everything, or one conversation when id is given.
 export function downloadExport(id) {
   const data = exportData(id)
-  const name = (id ? data[0]?.title || 'conversation' : 'export').replace(/[^\w-]+/g, '_').slice(0, 40)
+  const name = (id ? data.conversations[0]?.title || 'conversation' : 'export').replace(/[^\w-]+/g, '_').slice(0, 40)
   const stamp = new Date().toISOString().slice(0, 10)
   downloadText(`conversa-${name}-${stamp}.json`, JSON.stringify(data, null, 2), 'application/json')
 }
 
-// Import: accepts the object shape or a legacy/single-convo array.
-// Convos: new ids come in as-is; a colliding id becomes a copy with fresh ids (same clone path as template copies), so nothing local is ever overwritten.
-// Workspaces: colliding ids are skipped instead, keeping the local one so convo-to-workspace links stay resolvable (a clone would get a fresh id the convos don't point at).
-// Returns the convo count.
-// Note: re-importing the same file duplicates collided convos; diff-aware skip if it annoys.
+function validConversation(c) {
+  return c?.id && Array.isArray(c.messages)
+}
+
+function addMissing(target, values) {
+  const ids = new Set(target.map((item) => item.id))
+  let added = 0
+  for (const value of Array.isArray(values) ? values : []) {
+    if (value?.id && !ids.has(value.id)) {
+      target.push(value)
+      ids.add(value.id)
+      added++
+    }
+  }
+  return added
+}
+
+// Merge import accepts legacy arrays and ignores snapshot-only settings and prefs.
 export function importData(data) {
   const list = Array.isArray(data) ? data : data?.conversations
   if (!Array.isArray(list)) throw new Error('Not a conversa export')
-  const haveWs = new Set(state.workspaces.map((w) => w.id))
-  for (const w of (Array.isArray(data) ? [] : data.workspaces) || []) {
-    if (w?.id && !haveWs.has(w.id)) {
-      state.workspaces.push(w)
-      haveWs.add(w.id)
-    }
-  }
+  let changed = addMissing(state.workspaces, Array.isArray(data) ? [] : data.workspaces)
+  changed += addMissing(state.runs, Array.isArray(data) ? [] : data.runs)
   const have = new Set(state.conversations.map((c) => c.id))
   let added = 0
   for (const c of list) {
-    if (!c?.id || !Array.isArray(c.messages)) continue
+    if (!validConversation(c)) continue
     state.conversations.unshift(have.has(c.id) ? cloneWithNewIds(c) : c)
     have.add(c.id)
     added++
   }
-  if (added) persistNow()
+  if (changed || added) persistNow()
   return added
+}
+
+// Restore accepts only full versioned snapshots. Merge import remains the path for a partial export.
+export async function restoreData(data) {
+  if (!snapshotInfo(data)) throw new Error('Not a conversa snapshot')
+  const restored = structuredClone(data)
+  state.conversations = restored.conversations.filter(validConversation)
+  state.workspaces = restored.workspaces.filter((w) => w?.id)
+  state.runs = (Array.isArray(restored.runs) ? restored.runs : []).filter((r) => r?.id)
+  savedGlobal = restored.settings && typeof restored.settings === 'object' ? restored.settings : null
+  if (globalSettings.value) globalSettings.value = { ...globalSettings.value, ...(savedGlobal || {}) }
+  currentId.value = conversations.value[0]?.id || null
+  currentRunId.value = null
+  if (loaded) await Promise.all([persistNow(), set(GLOBAL_KEY, savedGlobal)])
+  return restored.prefs && typeof restored.prefs === 'object' ? restored.prefs : {}
 }

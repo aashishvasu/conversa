@@ -16,8 +16,13 @@ export function initTheme() {
   apply()
 }
 
-export function toggleTheme() {
-  isDark.value = !isDark.value
-  localStorage.setItem(KEY, isDark.value ? 'dark' : 'light')
+export function restoreTheme(theme) {
+  if (theme !== 'dark' && theme !== 'light') return
+  isDark.value = theme === 'dark'
+  localStorage.setItem(KEY, theme)
   apply()
+}
+
+export function toggleTheme() {
+  restoreTheme(isDark.value ? 'light' : 'dark')
 }

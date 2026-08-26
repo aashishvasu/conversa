@@ -15,6 +15,11 @@ function applyFontScale() {
 
 // Load saved prefs and start persisting changes.
 // Call before mount to avoid a flash.
+export function restorePrefs(prefs) {
+  if (typeof prefs.fontScale === 'number' && prefs.fontScale >= 0.8 && prefs.fontScale <= 1.4) fontScale.value = prefs.fontScale
+  if (typeof prefs.enterToSend === 'boolean') enterToSend.value = prefs.enterToSend
+}
+
 export function initPrefs() {
   const f = parseFloat(localStorage.getItem(FONT_KEY))
   if (f) fontScale.value = f
