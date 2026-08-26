@@ -8,6 +8,8 @@ A local-first chat client for Claude, GPT, and DeepSeek. Conversation data lives
 
 The FastAPI server holds provider keys and the app password, relays model streams, fetches pages, and runs research jobs after the browser closes.
 
+The production build includes a PWA manifest and service worker.
+
 Storage locations:
 
 | What | In your browser | On the server |

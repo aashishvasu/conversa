@@ -227,6 +227,10 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `components/Modal.vue` / `ConfirmModal.vue` | Reka `Dialog` shell (focus trap, aria wiring) / Reka `AlertDialog` shared delete-confirmation dialog. |
 | `components/SpendBadge.vue` | One spend summary (calls, k tokens, `>$X.XX` with the unpriced tooltip), mounted in research, chat (`convo.usage`), and each Usage-pane row. |
 
+### PWA (`frontend/vite.config.js`)
+
+`vite-plugin-pwa` precaches the generated app shell and emits `manifest.json`; registration uses `registerType: 'prompt'`. It has no runtime cache and denies `/api` navigation fallback, because caching an unending chat or research SSE response would buffer it forever.
+
 ## Local development
 
 Run the two halves separately with hot reload.
