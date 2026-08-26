@@ -1,7 +1,8 @@
 <script setup>
 import { onMounted, ref } from 'vue'
+import { TabsContent, TabsRoot } from 'reka-ui'
 import { authed, fetchModels, fetchSettings, getToken, logout } from './api.js'
-import { cacheModels, currentRunId, initStore, setGlobalSettings } from './store.js'
+import { activePane, cacheModels, initStore, setGlobalSettings } from './store.js'
 import { initUsage } from './usage.js'
 import { dismiss, notify } from './utils/notify.js'
 import ConfirmModal from './components/ConfirmModal.vue'
@@ -79,12 +80,17 @@ async function onAuthed({ config_errors: errors, ...settings }) {
   <Login v-else-if="!authed" @authenticated="onAuthed" />
   <div v-else class="flex h-dvh flex-col">
     <Notifications />
-    <div class="flex min-h-0 flex-1">
+    <!-- TabsRoot is the shared ancestor for Sidebar's PaneTabs triggers and the TabsContent panes below;
+         manual activation keeps arrow-key nav from switching away from a streaming chat. -->
+    <TabsRoot v-model="activePane" activation-mode="manual" class="flex min-h-0 flex-1">
       <Sidebar />
-      <!-- A run and a conversation are siblings, so selecting one is what swaps the pane. -->
-      <ResearchPane v-if="currentRunId" />
-      <ChatPane v-else />
-    </div>
+      <TabsContent value="chat" class="min-w-0 flex-1 data-[state=inactive]:hidden data-[state=active]:flex">
+        <ChatPane />
+      </TabsContent>
+      <TabsContent value="research" class="min-w-0 flex-1 data-[state=inactive]:hidden data-[state=active]:flex">
+        <ResearchPane />
+      </TabsContent>
+    </TabsRoot>
   </div>
   <ConfirmModal />
 </template>

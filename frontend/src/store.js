@@ -17,6 +17,10 @@ const state = reactive({ conversations: [], workspaces: [], runs: [] })
 export const currentId = ref(null)
 // A selected run displays the research pane.
 export const currentRunId = ref(null)
+// Which main pane is showing: 'chat' | 'research'. Independent of currentRunId/currentId so a
+// pane can be a Reka Tabs value (the tab strip in Sidebar shares this ref through the TabsRoot
+// App.vue wraps around Sidebar and the panes).
+export const activePane = ref('chat')
 export const globalSettings = ref(null)
 export const models = ref([]) // [{id, label}], cached from backend
 export const sidebarOpen = ref(false) // mobile drawer toggle; desktop ignores it
@@ -163,6 +167,7 @@ export function deleteConversation(id) {
 export function selectConversation(id) {
   currentId.value = id
   currentRunId.value = null
+  activePane.value = 'chat'
 }
 
 // --- Runs ---------------------------------------------------------------------
@@ -199,11 +204,17 @@ export function createRun() {
 
 export function deleteRun(id) {
   state.runs = state.runs.filter((r) => r.id !== id)
-  if (currentRunId.value === id) currentRunId.value = state.runs[0]?.id || null
+  if (currentRunId.value === id) {
+    currentRunId.value = state.runs[0]?.id || null
+    // Only the zero-runs-left case needs to move the tab: another run staying selected means
+    // the research tab still has something to show.
+    if (!currentRunId.value) activePane.value = 'chat'
+  }
 }
 
 export function selectRun(id) {
   currentRunId.value = id
+  activePane.value = 'research'
 }
 
 // --- Workspaces ---------------------------------------------------------------
@@ -366,6 +377,7 @@ export async function restoreData(data) {
   if (globalSettings.value) globalSettings.value = { ...globalSettings.value, ...(savedGlobal || {}) }
   currentId.value = conversations.value[0]?.id || null
   currentRunId.value = null
+  activePane.value = 'chat'
   // A v1 snapshot (before usage.md) has no usage field at all; leave the current ledger alone rather
   // than wipe it, since replace-all only applies to what the snapshot actually says it is replacing.
   if (Object.hasOwn(restored, 'usage')) replaceUsage(restored.usage)

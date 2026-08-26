@@ -1,6 +1,6 @@
 // Run: node src/store.selfcheck.js.
 import assert from 'node:assert'
-import { createFromTemplate, createRun, createWorkspace, deleteWorkspace, exportData, globalSettings, importData, modelSupportsCache, models, restoreData, saveAsTemplate, setGlobalSettings, snapshotInfo, workspaceOf } from './store.js'
+import { activePane, createFromTemplate, createRun, createWorkspace, deleteRun, deleteWorkspace, exportData, globalSettings, importData, modelSupportsCache, models, restoreData, saveAsTemplate, selectConversation, selectRun, setGlobalSettings, snapshotInfo, workspaceOf } from './store.js'
 // recordUsage/usageDays operate on in-memory state; initUsage() itself needs a real IndexedDB
 // and is not called here, the same reason this file never calls initStore() either.
 import { recordUsage, usageDays } from './usage.js'
@@ -82,5 +82,18 @@ models.value = [{ id: 'claude-opus-5', supports_cache: true }, { id: 'openai/gpt
 assert.equal(modelSupportsCache('claude-opus-5'), true)
 assert.equal(modelSupportsCache('openai/gpt-5.6'), false)
 assert.equal(modelSupportsCache('unknown/model'), true, 'a model missing from the cached list defaults to supported, not hidden')
+
+// activePane: which of Chat/Research shows, driven by selection, independent of currentId/currentRunId.
+const r1 = createRun()
+assert.equal(activePane.value, 'research', 'creating a run switches to the research pane')
+selectConversation('a')
+assert.equal(activePane.value, 'chat', 'selecting a conversation switches to the chat pane')
+selectRun(r1.id)
+assert.equal(activePane.value, 'research', 'selecting a run switches to the research pane')
+const r2 = createRun()
+deleteRun(r2.id)
+assert.equal(activePane.value, 'research', 'deleting a run while another remains selected stays on the research pane')
+deleteRun(r1.id)
+assert.equal(activePane.value, 'chat', 'deleting the last run falls back to the chat pane')
 
 console.log('store selfcheck OK')

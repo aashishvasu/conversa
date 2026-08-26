@@ -5,6 +5,7 @@ import { clarifyResearch, discardResearch, startResearch, streamResearch } from 
 import { effectiveSettings, RESEARCH_KEYS } from '../settings.js'
 import {
   applyResearch,
+  createRun,
   currentRun,
   persistNow,
   sidebarOpen,
@@ -311,4 +312,12 @@ onUnmounted(() => abort?.abort())
       </div>
     </div>
   </main>
+  <!-- Selecting the Research tab with no run picked lands here directly, so nothing selected reads as an action, not a blank pane. -->
+  <div v-else class="relative flex flex-1 flex-col items-center justify-center gap-3 bg-app p-6 text-center text-muted">
+    <button class="absolute left-3 top-3 rounded p-1.5 hover:bg-surface2 md:hidden" title="Menu" @click="sidebarOpen = true"><Menu :size="16" /></button>
+    <p class="text-sm">No research run selected.</p>
+    <button class="flex items-center gap-1.5 rounded bg-surface2 px-3 py-1.5 text-sm text-base hover:opacity-80" @click="createRun">
+      <Play :size="14" /> Start one
+    </button>
+  </div>
 </template>

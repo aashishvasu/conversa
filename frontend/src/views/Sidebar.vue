@@ -29,6 +29,7 @@ import { isDark, toggleTheme } from '../utils/theme.js'
 import GlobalSettings from '../components/GlobalSettings.vue'
 import Modal from '../components/Modal.vue'
 import RowActionsMenu from '../components/RowActionsMenu.vue'
+import PaneTabs from '../components/shell/PaneTabs.vue'
 import WorkspacePanel from '../components/WorkspacePanel.vue'
 
 const showGlobal = ref(false)
@@ -97,6 +98,8 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
     class="fixed inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-edge bg-surface text-base transition-transform md:static md:translate-x-0"
     :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
   >
+    <PaneTabs class="mx-3 mt-3" />
+
     <!-- A conversation and a research run are the two things you can start, so they sit side by side. -->
     <div class="flex gap-2 p-3">
       <button class="flex flex-1 items-center justify-center gap-1.5 rounded bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-500" title="New conversation" @click="createConversation()">
