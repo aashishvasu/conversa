@@ -119,13 +119,14 @@ Effort remains a hint: at `low` with a short system prompt these models often re
 
 ### Usage and pricing (`backend/providers/registry.py`, `backend/providers/dialects.py`)
 
-`cost()` in `registry.py` is the one pricing function: base input/output rate from the provider entry's `prices` dict, a cache write at 1.25x and a cache read at 0.1x that same input rate, and Anthropic's hosted `web_search` tool at $10 per 1,000 uses. An unpriced model falls back to `UNKNOWN_PRICE`, the top tier, and reports `unpriced: true`.
-`Spend` (also in `registry.py`) accumulates calls through `cost()` and keeps a per-model breakdown in `as_dict()["models"]`; research owns one `Spend` per run, and it is what backs the research pane and sidebar spend display.
+`cost()` in `registry.py` is the one pricing function: base input/output rate from the provider entry's `prices` dict, a cache write at 1.25x and a cache read at 0.1x that same input rate, and Anthropic's hosted `web_search` tool at $10 per 1,000 uses. An unpriced model falls back to `UNKNOWN_PRICE`, the top tier, and reports `unpriced: true`. Every first-class provider has a `prices` entry except `compatible`, which stays unpriced: it is an operator-configured endpoint this codebase has no rate for.
+`Spend` (also in `registry.py`) accumulates calls through `cost()` and keeps a per-model breakdown in `as_dict()["models"]`, including that row's own `unpriced` count; research owns one `Spend` per run, and it is what backs the research pane and sidebar spend display and what the research fold hands to the client-side ledger.
+DeepSeek's `PRICES` in `providers/deepseek.py` is the peak-hours cache-miss rate; `cost()` has no per-provider cache multiplier or time-of-day rate yet, so DeepSeek's cheaper cache-hit and off-peak pricing both currently read as full-rate spend.
 Three pure functions extract token and cache counts from each dialect's usage shape, shared by the streaming adapters and by `complete()`'s utility-call path: `anthropic_usage()` reads `message.usage` directly; `responses_usage()`/`responses_usage_from()` split the streamed `response.completed` event from the usage object inside it; `chat_completion_usage()`/`chat_completion_usage_from()` do the same for the chunk `stream_options.include_usage` attaches.
 `_chat_completions_stream` always sends `stream_options: {"include_usage": true}`; an OpenAI-compatible endpoint that rejects the parameter would 400 the whole stream, unverified without a key.
 
 On the frontend, `usage.js` is the client-side ledger: day buckets, one row per model per kind (`chat`, `utility`, `research`), persisted to IndexedDB like `store.js`. `streamChat`'s `onUsage` callback feeds it from all four call sites (`ChatPane.vue`, `memory.js`, `titles.js`, `CardsPanel.vue`'s card builder); each also folds the same frame into `convo.usage`, a flat running total for that conversation. A finished research run folds its `Spend.as_dict().models` breakdown into the ledger once, guarded by `spendLedgered` on the persisted run record so a reconnect or reopen replaying the same `final` frame does not double it.
-The ledger is not yet in `exportData`/snapshot restore; a usage-carrying backup is a later step.
+The ledger joins the full snapshot export/restore (see Workspaces above). `components/SpendBadge.vue` renders `{calls, input, output, usd, unpriced}` (research pane, chat footer via `convo.usage`); the Usage pane itself is not built, gated on the Reka Tabs migration.
 
 ### chat.completions specifics (`_chat_completions_stream` in `backend/providers/dialects.py`)
 
@@ -178,7 +179,7 @@ A workspace is `{ id, name, systemPrompt, cards, docs }` in its own IndexedDB ke
 A conversation joins by setting `convo.workspaceId`; `workspaceOf(convo)` resolves it (null for a missing or deleted workspace, which degrades to plain-convo behavior everywhere).
 The merge into the request happens at read time in `buildPayload`, so joining, leaving, and deleting a workspace touch only that pointer.
 Docs are plain text, stored inline and sent whole per request; chunked retrieval (the recall scorer fits) is the upgrade path if docs outgrow the context window.
-Full export is a versioned snapshot carrying conversations, workspaces, runs, saved settings, and UI prefs. Merge import also accepts the older bare-array format, keeps local workspaces on id collision so existing links stay resolvable, and ignores snapshot-only settings and prefs. Restore replaces every collection after an explicit confirmation.
+Full export is a versioned snapshot (`SNAPSHOT_VERSION` in `store.js`) carrying everything IndexedDB holds that is the user's rather than the deployment's: conversations, workspaces, runs, saved settings, the usage ledger, and UI prefs. The models cache is excluded on purpose (server-owned, refetched after login) and the auth token never enters a snapshot at all. A snapshot from an older version still restores; a field that version never had (the usage ledger, before usage.md) is left untouched rather than wiped, since replace-all only replaces what the snapshot actually claims to hold. Merge import also accepts the older bare-array format, keeps local workspaces on id collision so existing links stay resolvable, and ignores snapshot-only settings, usage, and prefs. Restore replaces every collection after an explicit confirmation.
 
 ### Memory / compression (`frontend/src/memory.js`)
 
@@ -200,7 +201,7 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `payload.js` | Request assembly: `buildPayload`, the send window, and lexical recall. With `use_cache` on, `buildPayload` returns `system` as `[stable, volatile]`. Dependency direction is payload.js -> cards.js; both are Vue-free. |
 | `memory.js` | Background sliding-window summarization. |
 | `titles.js` | Auto-titling from recent turns via the utility model. |
-| `usage.js` | Client-side usage ledger: day/model/kind buckets, `convo.usage`, IndexedDB-persisted. No display component yet. |
+| `usage.js` | Client-side usage ledger: day/model/kind buckets, `convo.usage`, IndexedDB-persisted; joins the full snapshot export/restore. |
 | `composables/useStreamGuard.js` | Holds a screen wake lock while streaming and aborts a stream after `STALL_MS` (60s) of silence when the tab returns to the foreground. The abort uses the normal stop path. |
 | `utils/md.js` | Markdown in, sanitized and highlighted HTML out. |
 | `utils/format.js` | Timestamp formatting (native `Intl`). |
@@ -222,6 +223,7 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `components/RowActionsMenu.vue` | Reka `DropdownMenu` behind one "..." trigger per sidebar row, replacing the hover icon strips run/template/workspace/convo rows each had. |
 | `views/ResearchPane.vue` | Research view selected by `currentRunId`: brief, clarifying questions, per-run model overrides, live progress and spend, then `applyResearch()` into a workspace. Reconnects from the last stored sequence after a dropped stream. |
 | `components/Modal.vue` / `ConfirmModal.vue` | Reka `Dialog` shell (focus trap, aria wiring) / Reka `AlertDialog` shared delete-confirmation dialog. |
+| `components/SpendBadge.vue` | One spend summary (calls, k tokens, `>$X.XX` with the unpriced tooltip), mounted in the research pane and the chat footer (`convo.usage`). |
 
 ## Local development
 
