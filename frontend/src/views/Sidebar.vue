@@ -1,6 +1,6 @@
 <script setup>
 import { Boxes, CopyPlus, Download, LogOut, Moon, Plus, SlidersHorizontal, Sun, X } from '@lucide/vue'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { logout } from '../api.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { formatShort } from '../utils/format.js'
@@ -18,6 +18,7 @@ import {
   selectConversation,
   sidebarOpen,
   templates,
+  workspaceOf,
   workspaces,
 } from '../store.js'
 import { isDark, toggleTheme } from '../utils/theme.js'
@@ -41,8 +42,18 @@ async function removeWorkspace(w) {
 
 const version = __APP_VERSION__ // injected by Vite at build time (package.json version)
 
+// Chat lists convos outside any workspace; each workspace lists its members on the Workspaces tab.
+// A workspaceId pointing at a deleted or unimported workspace resolves to null, so that convo lands back under Chat.
+const unassigned = computed(() => conversations.value.filter((c) => !workspaceOf(c)))
+const membersOf = (w) => conversations.value.filter((c) => c.workspaceId === w.id)
+
 function pick(id) {
   selectConversation(id)
+  sidebarOpen.value = false
+}
+// Selecting a member convo keeps the Workspaces tab active; the main pane shows the conversation either way.
+function pickMember(id) {
+  currentId.value = id
   sidebarOpen.value = false
 }
 function newConversation() {
@@ -92,7 +103,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" title="New conversation" @click="newConversation"><Plus :size="14" /></button>
       </p>
       <div
-        v-for="c in conversations"
+        v-for="c in unassigned"
         :key="c.id"
         class="group relative rounded hover:bg-surface2"
         :class="c.id === currentId && 'bg-surface2'"
@@ -120,14 +131,36 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         Workspaces
         <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" title="New workspace" @click="addWorkspace"><Plus :size="14" /></button>
       </p>
-      <div v-for="w in workspaces" :key="w.id" class="group relative rounded hover:bg-surface2">
-        <button class="flex w-full items-center gap-1.5 truncate px-2 py-1.5 pr-8 text-left text-sm font-medium" title="Edit workspace" @click="editingWs = w">
-          <Boxes :size="14" class="shrink-0 text-muted" />{{ w.name }}
-        </button>
-        <div class="absolute right-1 top-1.5">
-          <RowActionsMenu :actions="[{ label: 'Delete workspace', icon: X, danger: true, onSelect: () => removeWorkspace(w) }]" />
+      <template v-for="w in workspaces" :key="w.id">
+        <div class="group relative rounded hover:bg-surface2">
+          <button class="flex w-full items-center gap-1.5 truncate px-2 py-1.5 pr-8 text-left text-sm font-medium" title="Edit workspace" @click="editingWs = w">
+            <Boxes :size="14" class="shrink-0 text-muted" />{{ w.name }}
+          </button>
+          <div class="absolute right-1 top-1.5">
+            <RowActionsMenu :actions="[{ label: 'Delete workspace', icon: X, danger: true, onSelect: () => removeWorkspace(w) }]" />
+          </div>
         </div>
-      </div>
+        <div
+          v-for="c in membersOf(w)"
+          :key="c.id"
+          class="group relative ml-2 rounded hover:bg-surface2"
+          :class="c.id === currentId && 'bg-surface2'"
+        >
+          <button class="w-full px-2 py-2 text-left" @click="pickMember(c.id)">
+            <div class="truncate pr-8 text-sm">{{ c.title }}</div>
+            <div class="mt-0.5 flex justify-between text-[10px] text-muted">
+              <span>{{ c.messages.length }} msgs</span>
+              <span>{{ formatShort(lastTs(c)) }}</span>
+            </div>
+          </button>
+          <div class="absolute right-1 top-1.5">
+            <RowActionsMenu :actions="[
+              { label: 'Export conversation', icon: Download, onSelect: () => downloadExport(c.id) },
+              { label: 'Delete', icon: X, danger: true, onSelect: () => remove(c.id, 'Delete this conversation? This cannot be undone.') },
+            ]" />
+          </div>
+        </div>
+      </template>
       <p v-if="!workspaces.length" class="px-1 text-xs italic text-muted">No workspaces yet.</p>
     </div>
 

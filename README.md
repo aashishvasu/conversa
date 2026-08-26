@@ -225,7 +225,7 @@ A **workspace** bundles a shared system prompt, shared cards, and plain-text doc
 Every reply in a member conversation carries the workspace's prompt, its documents in full, and whichever of its cards trigger, on top of the conversation's own system messages and cards.
 Where the same topic has a card in both, the workspace card is sent first and the conversation card after it, so a conversation can refine the shared note.
 
-The sidebar is a vertical tab rail: **Chat** lists templates and conversations, **Workspaces** lists workspaces, and **Usage** shows the spend table.
+The sidebar is a vertical tab rail: **Chat** lists templates and conversations outside any workspace, **Workspaces** lists each workspace with its member conversations beneath it, and **Usage** shows the spend table.
 The + in a list's header creates a conversation or workspace, and clicking a workspace row opens its editor (name, prompt, documents, cards).
 A conversation joins or leaves through **Conversation settings**; membership is a single link, so joining, leaving, or deleting the workspace leaves the conversation's own cards and messages exactly as they were.
 In a member conversation the card panel lists the workspace's cards read-only, with the same live "active" dots as its own; editing them happens in the workspace so a change to shared context is always a deliberate act.
