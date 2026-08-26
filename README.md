@@ -12,12 +12,12 @@ Who ends up holding what:
 
 | What | In your browser | On the server |
 |------|-----------------|---------------|
-| Every chat transcript | ✔️ | ❌ |
-| Cards, workspaces, templates | ✔️ | ❌ |
-| A finished research report | ✔️ | 🟡 (Until you keep it. Then deleted) |
-| Your provider API key | ❌ | ✔️ (This is the whole reason it exists) |
-| The pages a research run reads | ❌ | 🟡 (A minute or two, then forgotten) |
-| Your password | ❌ | ✔️ (As the env var you set it to) |
+| Every chat transcript | | |
+| Cards, workspaces, templates | | |
+| A finished research report | | (Until you keep it. Then deleted) |
+| Your provider API key | | (This is the whole reason it exists) |
+| The pages a research run reads | | (A minute or two, then forgotten) |
+| Your password | | (As the env var you set it to) |
 
 ## Run it
 
@@ -34,9 +34,12 @@ podman run -p 8000:8000 \
 
 Open **http://localhost:8000** and unlock with your password.
 
-Either provider key on its own is enough.
-Set both to pick between Claude and GPT models per conversation.
-Models belonging to a provider you have no key for are left out of the model picker, and the app says so in a banner on first load.
+Any one provider key is enough.
+Set several to pick between their models per conversation.
+Models belonging to a provider you have no key for are left out of the model picker; if a model you named yourself in `MODELS` is missing its key, the app says so in a banner on first load.
+
+Besides Anthropic and OpenAI, conversa ships DeepSeek and Moonshot (Kimi) entries, and any other OpenAI-compatible provider is a few lines in `backend/providers.py` (see [DEVELOPMENT.md](DEVELOPMENT.md)).
+Those providers have no hosted web search, so in chat their models answer from what they know; research runs are unaffected when an `EXA_API_KEY`, `BRAVE_API_KEY` or `SEARXNG_URL` is set.
 
 ### Run it as a systemd service (Podman Quadlet)
 
@@ -114,8 +117,10 @@ Set these as environment variables when you start the container.
 
 | Variable | Required | Default | What it does |
 |----------|----------|---------|--------------|
-| `ANTHROPIC_API_KEY` | one of the two | _(none)_ | Your Anthropic key. Stays on the server. |
-| `OPENAI_API_KEY` | one of the two | _(none)_ | Your OpenAI key. Stays on the server. |
+| `ANTHROPIC_API_KEY` | one key | _(none)_ | Your Anthropic key. Stays on the server. |
+| `OPENAI_API_KEY` | one key | _(none)_ | Your OpenAI key. Stays on the server. |
+| `DEEPSEEK_API_KEY` | one key | _(none)_ | Your DeepSeek key. DeepSeek models appear once it is set. No hosted web search in chat. |
+| `MOONSHOT_API_KEY` | one key | _(none)_ | Your Moonshot (Kimi) key, same. |
 | `APP_PASSWORD` | **yes** | _(none)_ | The password used to log in. |
 | `JWT_SECRET` | no | random | Signs login tokens. Leave unset and every restart logs everyone out; set it to keep sessions alive across restarts. |
 | `TOKEN_TTL_SECONDS` | no | `604800` | How long a login lasts (default 7 days). |
@@ -130,7 +135,7 @@ Set these as environment variables when you start the container.
 | `DEFAULT_SUMMARIZE_N` | no | `20` | How many turns just above the send window get summarized into memory. |
 | `DEFAULT_USE_RECALL` | no | `false` | Whether relevant dropped turns get resent verbatim. |
 | `DEFAULT_USE_CACHE` | no | `false` | Whether the stable part of the prompt is cached by the provider. Off by default because it only pays back in long conversations with a large shared context. |
-| `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; OpenAI ids need the `openai/` prefix. Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/providers.py`. |
+| `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; every other provider's ids need its prefix (`openai/`, `deepseek/`, `moonshot/`). Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/providers.py`. |
 | `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches on its own when a message needs it. Empty disables it. |
 | `WEB_FETCH_TOOL_VERSION` | no | `web_fetch_20250910` | Anthropic web-fetch tool version; lets the model open a URL you paste in chat. Empty disables it. |
 | `WEB_FETCH_BETA` | no | `web-fetch-2025-09-10` | Beta header the web-fetch tool requires. |
@@ -158,7 +163,7 @@ Two kinds of note live there:
 - **System messages**: standing instructions ("You are a terse Rust expert").
 - **Pinned messages**: any normal message you've pinned.
   Pinned messages skip the recent-messages limit and go every turn, so an important detail from 200 messages ago stays in context.
-  Pin a message with the 📌 button, or manage everything together in the context editor.
+  Pin a message with the button, or manage everything together in the context editor.
 
 Paste a URL into the context editor's fetch box and the page comes back as clean markdown, pinned to the board as a system message you can edit or delete.
 The server fetches it, because your browser is blocked from most pages by CORS.
@@ -219,7 +224,7 @@ Recall returns the original turns word for word, where memory summarizes.
 
 The model picker in the composer toolbar (also in **Conversation settings** and **Global settings**) groups models under their provider.
 Every feature works the same on either: cards, memory, recall, workspaces, templates, thinking effort, web search, research runs, and the utility model that writes titles and memory summaries.
-You can point the utility model at one provider while chatting with the other.
+You can point the utility model at one provider while chatting with another.
 
 ### Thinking effort
 

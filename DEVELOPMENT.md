@@ -57,7 +57,7 @@ In production the SPA is served from the same origin (`StaticFiles` mount), so C
 
 ### Provider layer (`backend/providers.py`)
 
-Clients, the model registry, `split_model`, `apply_thinking`, and `complete()`.
+The `PROVIDERS` registry, clients, `split_model`, `apply_thinking`, and `complete()`.
 Anything that knows an API key or a model id lives here.
 `main.py` owns the web app, `research.py` the gather stage, and `runs.py` the run loop; all three import this and nothing imports back up.
 
@@ -95,7 +95,19 @@ Ported from [magpi](https://github.com/grainologic/magpi) (MIT). trafilatura ext
 Redirects are followed by hand so the check runs on every hop.
 The known gap is DNS rebinding between the resolve and the connect; closing it needs a custom transport that dials a pinned IP.
 
-### Providers (`split_model`, `parse_models` in `backend/providers.py`)
+### The provider registry (`PROVIDERS` in `backend/providers.py`)
+
+Providers are data, dialects are code.
+Each entry names a `dialect` (`anthropic`, `responses`, or `chat_completions`), the env var holding its key, and its selectable models; the OpenAI-compatible dialects add a `base_url` and, if the provider has a thinking lever, the `effort_param` it travels under.
+Keys, clients, `CONFIGURED`, `BUILTIN_MODELS`, and the `/api/chat` dispatch are all derived from the table, so adding an OpenAI-compatible provider is one entry plus a key in `.env`.
+
+The dialect is the wire protocol, and there are three: Anthropic messages, OpenAI Responses, and OpenAI chat.completions.
+A provider that speaks one of them costs no code; a provider with its own protocol costs a fourth stream generator in `main.py`, a branch in `complete()`, and its effort translation.
+
+DeepSeek and Moonshot ship as `chat_completions` entries and are hidden until their key is set.
+That dialect has no server-side tools, so a chat with one of those models emits no `search`, `fetch` or `results` frames; research still works through the app finders (Exa, Brave, SearXNG), which need no help from the provider.
+
+### Model ids (`split_model`, `parse_models` in `backend/providers.py`)
 
 A model id carries its provider as a prefix: `openai/gpt-5.6-sol`.
 `split_model()` splits on the last `/` and treats a bare id as Anthropic, permanently: conversations persisted before OpenAI support hold bare ids in IndexedDB, and `.env` files still use them.
@@ -106,7 +118,8 @@ Everything downstream of the dropdown treats the id as opaque, so provider logic
 A provider with no key follows two rules:
 
 - `/api/models` returns only the providers that have a key, because an offered but unusable option surfaces as a bare 503 on send, and surfaces *silently* when it's the utility model (`refreshMemory` and `generateTitle` both swallow their errors).
-- What got dropped, and any `DEFAULT_MODEL` / `DEFAULT_UTILITY_MODEL` that isn't selectable, is logged and returned in `config_errors` on `/api/settings`.
+- Ids named in the `MODELS` env var that got dropped, and any `DEFAULT_MODEL` / `DEFAULT_UTILITY_MODEL` that isn't selectable, are logged and returned in `config_errors` on `/api/settings`.
+  A registry provider with no key is an offer nobody took up, so it is hidden without comment; only ids the operator asked for by name earn a banner.
   `App.vue` strips that key before merging the rest into `globalSettings` and shows it in a dismissible banner.
   Misconfiguration degrades the app and lets it start, so one missing key still leaves the other provider working.
 
@@ -127,6 +140,15 @@ The event mapping onto conversa's own SSE frames:
 `summary: "auto"` is what makes reasoning text stream.
 Effort remains a hint: at `low` with a short system prompt these models often return no reasoning item, which reaches the UI as an empty trace.
 `field()` reads SDK objects and plain dicts alike, so an annotation shape that changes between SDK versions costs one trace event and the stream continues.
+
+### chat.completions specifics (`chat_completions_stream` in `backend/main.py`)
+
+The dialect every OpenAI-compatible provider implements, and the reason `base_url` on the OpenAI SDK is not enough on its own: conversa's OpenAI path speaks Responses, which those providers do not serve.
+
+`text` comes from `delta.content` and `think` from `delta.reasoning_content`, which is where DeepSeek and Moonshot both put thinking.
+There are no tool events to map.
+The system param arrives as the leading `system` message via `join_system`, since the `[stable, volatile]` cache split is Anthropic-only.
+Effort travels under the provider's own parameter name (`effort_param`); a provider without one sends no lever rather than a parameter the API would reject.
 
 ### Thinking effort (`apply_thinking` in `backend/providers.py`)
 
@@ -259,7 +281,7 @@ The backend's live at the bottom of each module, behind `__main__`, so uvicorn (
 
 ```sh
 cd backend                          # .venv/Scripts on Windows, .venv/bin on *nix
-.venv/Scripts/python providers.py   # apply_thinking, split_model, parse_models, field
+.venv/Scripts/python providers.py   # apply_thinking, split_model, parse_models, field, registry shape, chat.completions kwargs
 .venv/Scripts/python main.py        # system_param, the [stable, volatile] cache split
 .venv/Scripts/python auth.py        # token mint/verify roundtrip, require_auth rejections
 .venv/Scripts/python fetcher.py     # SSRF guard, URL canonicalization
