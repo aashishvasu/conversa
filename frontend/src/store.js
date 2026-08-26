@@ -1,5 +1,6 @@
 import { get, set } from 'idb-keyval'
 import { computed, reactive, ref, watch } from 'vue'
+import { replaceUsage, usageDays } from './usage.js'
 import { dismiss, notify } from './utils/notify.js'
 import { enterToSend, fontScale } from './utils/prefs.js'
 import { isDark } from './utils/theme.js'
@@ -253,7 +254,7 @@ export function persistGlobal() {
   set(GLOBAL_KEY, savedGlobal)
 }
 
-const SNAPSHOT_VERSION = 1
+const SNAPSHOT_VERSION = 2
 
 function wire(value) {
   return JSON.parse(JSON.stringify(value))
@@ -263,18 +264,29 @@ function snapshotPrefs() {
   return { theme: isDark.value ? 'dark' : 'light', fontScale: fontScale.value, enterToSend: enterToSend.value }
 }
 
+// Everything IndexedDB holds that is the user's, not the deployment's: conversations, workspaces,
+// runs, edited settings, and the usage ledger. The models cache is excluded on purpose (server-owned,
+// refetched after login); the auth token never enters a snapshot at all.
 export function exportData(id) {
   const conversations = state.conversations.filter((c) => !id || c.id === id)
   return wire({
     version: SNAPSHOT_VERSION,
     exportedAt: new Date().toISOString(),
     conversations,
-    ...(id ? {} : { workspaces: state.workspaces, runs: state.runs, settings: savedGlobal, prefs: snapshotPrefs() }),
+    ...(id ? {} : {
+      workspaces: state.workspaces,
+      runs: state.runs,
+      settings: savedGlobal,
+      usage: usageDays(),
+      prefs: snapshotPrefs(),
+    }),
   })
 }
 
+// Accepts this version or any older one this build still knows how to restore (see restoreData).
 export function snapshotInfo(data) {
-  if (!data || Array.isArray(data) || data.version !== SNAPSHOT_VERSION || !Array.isArray(data.conversations) || !Array.isArray(data.workspaces) || !Object.hasOwn(data, 'settings')) return null
+  if (!data || Array.isArray(data) || typeof data.version !== 'number' || data.version > SNAPSHOT_VERSION) return null
+  if (!Array.isArray(data.conversations) || !Array.isArray(data.workspaces) || !Object.hasOwn(data, 'settings')) return null
   return {
     exportedAt: data.exportedAt || '',
     conversations: data.conversations.length,
@@ -347,6 +359,9 @@ export async function restoreData(data) {
   if (globalSettings.value) globalSettings.value = { ...globalSettings.value, ...(savedGlobal || {}) }
   currentId.value = conversations.value[0]?.id || null
   currentRunId.value = null
+  // A v1 snapshot (before usage.md) has no usage field at all; leave the current ledger alone rather
+  // than wipe it, since replace-all only applies to what the snapshot actually says it is replacing.
+  if (Object.hasOwn(restored, 'usage')) replaceUsage(restored.usage)
   if (loaded) await Promise.all([persistNow(), set(GLOBAL_KEY, savedGlobal)])
   return restored.prefs && typeof restored.prefs === 'object' ? restored.prefs : {}
 }

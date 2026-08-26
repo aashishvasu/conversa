@@ -7,11 +7,13 @@ import { reactive } from 'vue'
 const USAGE_KEY = 'conversa_usage'
 
 function blankRow() {
-  return { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, usd: 0 }
+  return { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, usd: 0, unpriced: 0 }
 }
 
 // Shared accumulation: row.calls takes an explicit count so a single generation (always 1) and an
 // already-aggregated fold (its own call count) use the same field summation.
+// fields.unpriced is a boolean on a single generation's frame and a count on an aggregated fold;
+// Number() normalizes both to how many of these calls had no published rate.
 function addFields(row, calls, fields) {
   row.calls += calls
   row.input += fields.input || 0
@@ -19,6 +21,7 @@ function addFields(row, calls, fields) {
   row.cacheRead += fields.cache_read || 0
   row.cacheWrite += fields.cache_write || 0
   row.usd += fields.usd || 0
+  row.unpriced += Number(fields.unpriced) || 0
   return row
 }
 
@@ -65,6 +68,12 @@ function persist() {
 
 export function usageDays() {
   return state.days
+}
+
+// Snapshot restore: replace the ledger wholesale, matching restoreData's replace-all semantics.
+export function replaceUsage(days) {
+  state.days = days && typeof days === 'object' && !Array.isArray(days) ? days : {}
+  persist()
 }
 
 // Record one generation's usage frame under a kind (chat, utility, research).
