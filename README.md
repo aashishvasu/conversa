@@ -34,12 +34,12 @@ podman run -p 8000:8000 \
 
 Open **http://localhost:8000** and unlock with your password.
 
-Any one provider key is enough.
+Any configured provider is enough.
 Set several to pick between their models per conversation.
 Models belonging to a provider you have no key for are left out of the model picker; if a model you named yourself in `MODELS` is missing its key, the app says so in a banner on first load.
 
-Besides Anthropic and OpenAI, conversa ships DeepSeek and Moonshot (Kimi). A provider on an existing wire protocol is one file in `backend/providers/` (see [DEVELOPMENT.md](DEVELOPMENT.md)).
-DeepSeek has hosted web search through its Responses endpoint. Moonshot has no hosted tool in conversa, so research with it needs `EXA_API_KEY`, `BRAVE_API_KEY`, or `SEARXNG_URL`.
+Besides Anthropic and OpenAI, conversa has first-class DeepSeek support through its Responses API.
+One generic `compatible` entry serves one chat.completions endpoint at a time. Set its key and base URL, then list models with the `compatible/` prefix. This path sends text messages and reads text plus `reasoning_content`; research needs `EXA_API_KEY`, `BRAVE_API_KEY`, or `SEARXNG_URL` because the compatibility entry claims no hosted tool.
 
 ### Run it as a systemd service (Podman Quadlet)
 
@@ -119,8 +119,9 @@ Set these as environment variables when you start the container.
 |----------|----------|---------|--------------|
 | `ANTHROPIC_API_KEY` | one key | _(none)_ | Your Anthropic key. Stays on the server. |
 | `OPENAI_API_KEY` | one key | _(none)_ | Your OpenAI key. Stays on the server. |
-| `DEEPSEEK_API_KEY` | one key | _(none)_ | Your DeepSeek key. DeepSeek models appear once it is set. No hosted web search in chat. |
-| `MOONSHOT_API_KEY` | one key | _(none)_ | Your Moonshot (Kimi) key, same. |
+| `DEEPSEEK_API_KEY` | one key | _(none)_ | Your DeepSeek key. DeepSeek models and hosted web search appear once it is set. |
+| `OPENAI_COMPATIBLE_API_KEY` | one key | _(none)_ | Key for one generic chat.completions endpoint. Requires `OPENAI_COMPATIBLE_BASE_URL`. |
+| `OPENAI_COMPATIBLE_BASE_URL` | with compatible key | _(none)_ | Base URL for that endpoint, for example `https://api.moonshot.ai/v1`. |
 | `APP_PASSWORD` | **yes** | _(none)_ | The password used to log in. |
 | `JWT_SECRET` | no | random | Signs login tokens. Leave unset and every restart logs everyone out; set it to keep sessions alive across restarts. |
 | `TOKEN_TTL_SECONDS` | no | `604800` | How long a login lasts (default 7 days). |
@@ -135,7 +136,7 @@ Set these as environment variables when you start the container.
 | `DEFAULT_SUMMARIZE_N` | no | `20` | How many turns just above the send window get summarized into memory. |
 | `DEFAULT_USE_RECALL` | no | `false` | Whether relevant dropped turns get resent verbatim. |
 | `DEFAULT_USE_CACHE` | no | `false` | Whether the stable part of the prompt is cached by the provider. Off by default because it only pays back in long conversations with a large shared context. |
-| `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; every other provider's ids need its prefix (`openai/`, `deepseek/`, `moonshot/`). Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/providers/anthropic.py`. |
+| `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; every other provider's ids need its prefix (`openai/`, `deepseek/`, `compatible/`). Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/providers/anthropic.py`. |
 | `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches on its own when a message needs it. Empty disables it. |
 | `WEB_FETCH_TOOL_VERSION` | no | `web_fetch_20250910` | Anthropic web-fetch tool version; lets the model open a URL you paste in chat. Empty disables it. |
 | `WEB_FETCH_BETA` | no | `web-fetch-2025-09-10` | Beta header the web-fetch tool requires. |

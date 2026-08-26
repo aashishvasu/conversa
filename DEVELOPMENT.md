@@ -41,7 +41,7 @@ Browser (Vue SPA, IndexedDB)  --HTTPS-->  FastAPI  -->  Anthropic API
   The API keys stay on the server.
   Assembled server-side: `effort` becomes thinking config via `apply_thinking()` or `reasoning.effort` (below), and the hosted search tools are attached when their env vars are non-empty.
   Text, thinking, and tool-trace events (`search`, `fetch`, `results`) are each JSON-encoded per SSE chunk so content can't break the framing.
-  A list-valued `system` is `[stable, volatile]`: `system_param()` caches the first block (`use_cache`, off by default) and OpenAI rejoins it, since it caches prefixes itself.
+  A list-valued `system` is `[stable, volatile]`: the Anthropic dialect marks the first block for prompt caching (`use_cache`, off by default); the other dialects rejoin it.
 - `POST /api/fetch`: a URL becomes readable markdown (`backend/fetcher.py`).
   Nothing is stored.
   With a `topic`, `backend/topic.py` returns the sections that answer it rather than the head of the page.
@@ -57,9 +57,8 @@ In production the SPA is served from the same origin (`StaticFiles` mount), so C
 
 ### Provider layer (`backend/providers/`)
 
-Each provider has one file exporting a `PROVIDER` dict. `providers/__init__.py` discovers those files and owns clients, `split_model`, `apply_thinking`, and `complete()`.
-Anything that knows an API key or a model id lives here.
-`main.py` owns the web app, `research.py` the gather stage, and `runs.py` the run loop; all three import this and nothing imports back up.
+Each first-class provider has one file exporting a `PROVIDER` dict. `providers/registry.py` combines them and owns keys, clients, model ids, and defaults; `providers/dialects.py` owns request construction, provider event parsing, streaming, and `complete()`.
+`providers/__init__.py` is the import facade. `main.py` owns the FastAPI boundary and SSE framing, `research.py` the gather stage, and `runs.py` the run loop; all three import the provider facade and nothing imports back up.
 
 ### Research runs (`backend/runs.py`, `backend/research.py`)
 
@@ -98,16 +97,16 @@ The known gap is DNS rebinding between the resolve and the connect; closing it n
 ### The provider registry (`backend/providers/`)
 
 Providers are data, dialects are code.
-Each provider file exports a dict naming its `dialect` (`anthropic`, `responses`, or `chat_completions`), key env var, selectable models, and any dialect-specific data such as `base_url`, `search_tool`, or `reasoning_prefixes`.
-`providers/__init__.py` discovers these files alphabetically. Keys, clients, `CONFIGURED`, `BUILTIN_MODELS`, and the `/api/chat` dispatch derive from the result, so adding a provider on an existing dialect is one file plus its key in `.env`.
+Each first-class provider file exports a dict naming its `dialect` (`anthropic`, `responses`, or `chat_completions`), key env var, selectable models, and any dialect-specific data such as `base_url`, `search_tool`, or `reasoning_prefixes`.
+`providers/registry.py` imports those modules explicitly. Keys, clients, `CONFIGURED`, and `BUILTIN_MODELS` derive from their entries.
 
-The dialect is the wire protocol, and there are three: Anthropic messages, OpenAI Responses, and OpenAI chat.completions.
-A provider that speaks one of them costs no shared-code edit; a provider with its own protocol costs a fourth stream generator in `main.py`, a branch in `complete()`, and its effort translation.
+The dialect is the wire protocol, and there are three: Anthropic messages, OpenAI Responses, and OpenAI chat.completions. `providers/dialects.py` contains one stream adapter per protocol and maps each provider's events onto conversa event dictionaries. `main.py` JSON-encodes those dictionaries as SSE.
+A provider with its own protocol needs another adapter plus its `complete()` branch. A provider that implements an existing dialect needs only its file and registry import.
 
-DeepSeek uses Responses because that endpoint carries its reasoning stream, hosted web search, and image input. Moonshot uses chat.completions, its only supported dialect, and is the only shipped provider without hosted tools.
-Both stay hidden until their key is set. Research with Moonshot needs an app finder (Exa, Brave, or SearXNG).
+DeepSeek uses Responses because that endpoint carries its reasoning stream, hosted web search, and image input.
+`compatible.py` is one configurable chat.completions endpoint, not a named provider. It has one key and base URL at a time, offers no built-in models, and receives models through `MODELS` under the `compatible/` prefix. It claims no hosted tool or effort parameter, so research needs an app finder (Exa, Brave, or SearXNG).
 
-### Model ids (`split_model`, `parse_models` in `backend/providers/__init__.py`)
+### Model ids (`split_model`, `parse_models` in `backend/providers/registry.py`)
 
 A model id carries its provider as a prefix: `openai/gpt-5.6-sol`.
 `split_model()` splits on the last `/` and treats a bare id as Anthropic, permanently: conversations persisted before OpenAI support hold bare ids in IndexedDB, and `.env` files still use them.
@@ -123,7 +122,7 @@ A provider with no key follows two rules:
   `App.vue` strips that key before merging the rest into `globalSettings` and shows it in a dismissible banner.
   Misconfiguration degrades the app and lets it start, so one missing key still leaves the other provider working.
 
-### Responses specifics (`responses_stream` in `backend/main.py`)
+### Responses specifics (`_responses_stream` in `backend/providers/dialects.py`)
 
 OpenAI and DeepSeek use the **Responses API**, the surface that carries hosted web search and reasoning.
 Chat Completions offers neither.
@@ -141,13 +140,12 @@ The event mapping onto conversa's own SSE frames:
 Effort remains a hint: at `low` with a short system prompt these models often return no reasoning item, which reaches the UI as an empty trace.
 `field()` reads SDK objects and plain dicts alike, so an annotation shape that changes between SDK versions costs one trace event and the stream continues.
 
-### chat.completions specifics (`chat_completions_stream` in `backend/main.py`)
+### chat.completions specifics (`_chat_completions_stream` in `backend/providers/dialects.py`)
 
-Moonshot uses this dialect. `text` comes from `delta.content` and `think` from `delta.reasoning_content`.
-There are no tool events to map, and thinking depth rides the model id rather than the effort setting.
-The system param arrives as the leading `system` message via `join_system`, since the `[stable, volatile]` cache split is Anthropic-only.
+The generic compatibility entry uses this dialect. `text` comes from `delta.content`; `reasoning_content` becomes `think` when a provider sends it.
+There are no tool events or assumed effort parameter. The system param arrives as the leading `system` message via `join_system`, since the `[stable, volatile]` cache split is Anthropic-only.
 
-### Thinking effort (`apply_thinking` in `backend/providers/__init__.py`)
+### Thinking effort (`apply_thinking` in `backend/providers/dialects.py`)
 
 The wire format for extended thinking split across model generations, so one branch translates the single `effort` lever (`""` / `low` / `medium` / `high`) per model:
 
@@ -161,7 +159,7 @@ The wire format for extended thinking split across model generations, so one bra
 `display: summarized` is deliberate: the API default is `omitted`, which streams empty thinking blocks and would blank ChatPane's live trace.
 Unknown model ids are treated as modern.
 `LEGACY_MODELS` in `providers/anthropic.py` is a hand-maintained set of older ids, so adding a pre-4.6 model to `MODELS` means adding its id there too.
-The three lever words (`low` / `medium` / `high`) are `EFFORT_VALUES`; Claude, OpenAI, and DeepSeek accept them verbatim. Moonshot ignores the setting because depth rides its model id.
+The three lever words (`low` / `medium` / `high`) are `EFFORT_VALUES`; Claude, OpenAI, and DeepSeek accept them verbatim. The generic compatibility path sends no effort parameter because chat.completions has no standard name for it.
 Covered by `python -m providers`.
 
 ### How a request is assembled (`frontend/src/cards.js`)
@@ -183,7 +181,7 @@ Pinned turns bypass the send-window limit; this does **not** enforce user/assist
 
 With `use_cache` on, `system` comes back as `[stable, volatile]` rather than a string.
 The stable half is everything above the memory summary: workspace prompt, system messages, workspace docs.
-`system_param()` in `main.py` marks the first block ephemeral, so a large workspace is billed once per cache window instead of per turn, and OpenAI rejoins the two since it caches prefixes itself.
+`anthropic_system()` in `providers/dialects.py` marks the first block ephemeral, so a large workspace is billed once per cache window instead of per turn. Responses and chat.completions rejoin the two because they have no equivalent marker here.
 The order is what makes this work: prompt caching is prefix-match, and cards are assembled last, so a card firing mid-conversation rewrites only the uncached tail.
 Messages stay uncached because the send window drops turns off the front as it slides, which changes the message prefix on most turns.
 
@@ -278,8 +276,8 @@ The backend's live at the bottom of each module, behind `__main__`, so uvicorn (
 
 ```sh
 cd backend                          # .venv/Scripts on Windows, .venv/bin on *nix
-.venv/Scripts/python -m providers  # discovery, apply_thinking, split_model, parse_models, field, registry shape, chat.completions kwargs
-.venv/Scripts/python main.py        # system_param, the [stable, volatile] cache split
+.venv/Scripts/python -m providers  # registry, request builders, cache split, and all three event mappings
+.venv/Scripts/python main.py        # SSE JSON framing
 .venv/Scripts/python auth.py        # token mint/verify roundtrip, require_auth rejections
 .venv/Scripts/python fetcher.py     # SSRF guard, URL canonicalization
 .venv/Scripts/python topic.py       # section ranking, headingless fallback
