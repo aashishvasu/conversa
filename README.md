@@ -4,20 +4,20 @@
 
 # conversa
 
-A chat client for Claude and GPT where **your data lives in your browser**, not on someone's server.
+A local-first chat client for Claude, GPT, and DeepSeek. Conversation data lives in browser IndexedDB.
 
-Conversations, settings, cards, workspaces, templates and research runs are all stored locally and stay there. A small server holds the provider API keys behind a password you set, relays chat, and does the two things a browser cannot: fetch pages that CORS puts out of reach, and run research jobs that keep going after you close the tab.
+The FastAPI server holds provider keys and the app password, relays model streams, fetches pages, and runs research jobs after the browser closes.
 
-Who ends up holding what:
+Storage locations:
 
 | What | In your browser | On the server |
 |------|-----------------|---------------|
-| Every chat transcript | | |
-| Cards, workspaces, templates | | |
-| A finished research report | | (Until you keep it. Then deleted) |
-| Your provider API key | | (This is the whole reason it exists) |
-| The pages a research run reads | | (A minute or two, then forgotten) |
-| Your password | | (As the env var you set it to) |
+| Chat transcripts | IndexedDB | |
+| Cards, workspaces, templates | IndexedDB | |
+| Finished research reports | IndexedDB after save | Run memory until save, eviction, or restart |
+| Provider API keys | | Environment variables |
+| Pages read during research | | Run memory while processed |
+| App password | | Environment variable |
 
 ## Run it
 
@@ -36,10 +36,10 @@ Open **http://localhost:8000** and unlock with your password.
 
 Any configured provider is enough.
 Set several to pick between their models per conversation.
-Models belonging to a provider you have no key for are left out of the model picker; if a model you named yourself in `MODELS` is missing its key, the app says so in a banner on first load.
+The model picker contains models from configured providers. A `MODELS` entry with incomplete provider configuration produces a banner on first load.
 
-Besides Anthropic and OpenAI, conversa has first-class DeepSeek support through its Responses API.
-One generic `compatible` entry serves one chat.completions endpoint at a time. Set its key and base URL, then list models with the `compatible/` prefix. This path sends text messages and reads text plus `reasoning_content`; research needs `EXA_API_KEY`, `BRAVE_API_KEY`, or `SEARXNG_URL` because the compatibility entry claims no hosted tool.
+Conversa supports Anthropic's Messages API, OpenAI's Responses API, and DeepSeek's Responses API.
+The `compatible` entry serves one chat.completions endpoint at a time. Set its key and base URL, then list models with the `compatible/` prefix. It sends text messages and reads text plus `reasoning_content`. Research through this entry uses Exa, Brave, or SearXNG.
 
 ### Run it as a systemd service (Podman Quadlet)
 
@@ -123,10 +123,10 @@ Set these as environment variables when you start the container.
 | `OPENAI_COMPATIBLE_API_KEY` | one key | _(none)_ | Key for one generic chat.completions endpoint. Requires `OPENAI_COMPATIBLE_BASE_URL`. |
 | `OPENAI_COMPATIBLE_BASE_URL` | with compatible key | _(none)_ | Base URL for that endpoint, for example `https://api.moonshot.ai/v1`. |
 | `APP_PASSWORD` | **yes** | _(none)_ | The password used to log in. |
-| `JWT_SECRET` | no | random | Signs login tokens. Leave unset and every restart logs everyone out; set it to keep sessions alive across restarts. |
+| `JWT_SECRET` | no | random | Signs login tokens. A fixed value keeps sessions valid across restarts; the random default gives each process a new signing key. |
 | `TOKEN_TTL_SECONDS` | no | `604800` | How long a login lasts (default 7 days). |
 | `DEFAULT_MODEL` | no | `claude-sonnet-5` | Model new conversations start with. |
-| `DEFAULT_TEMPERATURE` | no | `1.0` | Creativity, 0 to 1. Ignored by the Claude and GPT reasoning models, which reject it. |
+| `DEFAULT_TEMPERATURE` | no | `1.0` | Creativity, 0 to 1. Claude 4.6+ and Responses reasoning models receive no temperature; older Claude models receive it when thinking is off. |
 | `DEFAULT_NUM_MESSAGES` | no | `20` | How many recent messages are sent each turn. |
 | `DEFAULT_SEND_SYSTEM_PROMPT` | no | `true` | Whether system messages are sent. |
 | `DEFAULT_MAX_TOKENS` | no | `4096` | Cap on reply length. |
@@ -137,18 +137,18 @@ Set these as environment variables when you start the container.
 | `DEFAULT_USE_RECALL` | no | `false` | Whether relevant dropped turns get resent verbatim. |
 | `DEFAULT_USE_CACHE` | no | `false` | Whether the stable part of the prompt is cached by the provider. Off by default because it only pays back in long conversations with a large shared context. |
 | `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; every other provider's ids need its prefix (`openai/`, `deepseek/`, `compatible/`). Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/providers/anthropic.py`. |
-| `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches on its own when a message needs it. Empty disables it. |
-| `WEB_FETCH_TOOL_VERSION` | no | `web_fetch_20250910` | Anthropic web-fetch tool version; lets the model open a URL you paste in chat. Empty disables it. |
+| `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches when a message warrants it. Set empty to disable Anthropic hosted search. |
+| `WEB_FETCH_TOOL_VERSION` | no | `web_fetch_20250910` | Anthropic web-fetch tool version for opening URLs pasted in chat. Set empty to disable Anthropic page opening. |
 | `WEB_FETCH_BETA` | no | `web-fetch-2025-09-10` | Beta header the web-fetch tool requires. |
-| `EXA_API_KEY` | no | _(none)_ | [Exa](https://exa.ai) key. When set, research runs search via Exa instead of spending a model call on the hosted search tool; chat keeps the hosted tools. |
+| `EXA_API_KEY` | no | _(none)_ | [Exa](https://exa.ai) key. Research searches use Exa; chat keeps the hosted tools. |
 | `BRAVE_API_KEY` | no | _(none)_ | [Brave Search](https://brave.com/search/api/) key, same role. Used when Exa is not configured. |
 | `SEARXNG_URL` | no | _(none)_ | Base URL of a self-hosted SearXNG instance (`format=json` must be enabled in its settings.yml), same role. Last in precedence. |
 | `DEFAULT_RESEARCH_SEARCH_MODEL` | no | `DEFAULT_MODEL` | Model that runs the searches in a research run when no app search key above is set, and the fallback when one fails. |
 | `DEFAULT_RESEARCH_NOTE_MODEL` | no | `DEFAULT_UTILITY_MODEL` | Model that reads pages and takes notes. Around 78% of a run's input tokens, so a cheap model belongs here. |
 | `DEFAULT_RESEARCH_REPORT_MODEL` | no | `DEFAULT_MODEL` | Model that plans the subquestions and writes the report. |
 | `DEFAULT_RESEARCH_DEPTH` | no | `5` | Sources read per subquestion. |
-| `API_MAX_RETRIES` | no | `5` | Provider retries on 429, 5xx and connection errors. A run makes ~30 calls, so the SDK default of 2 is too few. |
-| `OPENAI_WEB_SEARCH_TOOL` | no | `web_search` | OpenAI's hosted search tool. One tool covers both searching and opening pages, so it does the job of the two Anthropic ones. Empty disables it. |
+| `API_MAX_RETRIES` | no | `5` | Provider retries on 429, 5xx and connection errors. A research run makes about 30 model calls. |
+| `OPENAI_WEB_SEARCH_TOOL` | no | `web_search` | OpenAI's hosted search and page-opening tool. Set empty to disable OpenAI hosted search. |
 
 Change any of them globally (in **Global settings**) or per conversation (in **Conversation settings**).
 
@@ -172,7 +172,7 @@ The server fetches it, because your browser is blocked from most pages by CORS.
 ### Research: a run that reads the web and writes you a report
 
 Press **Research** beside **New chat** in the sidebar.
-A run is its own thing, listed alongside your conversations rather than living inside one.
+Each run appears alongside conversations in the sidebar.
 
 Give it a brief.
 Before starting, you can have it ask you a few scoping questions: how deep to go, which time period, who is reading.
@@ -184,11 +184,11 @@ A counter shows tokens and estimated cost as it goes, and stop ends it immediate
 
 The result lands in a workspace: the report as a reference document, and each subquestion's underlying notes as a card you pull in by typing `q1`, `q2` and so on.
 Open the workspace to read the report, or download it as a markdown file.
-That way the report is always in context and the raw notes are one keystroke away without costing anything on the turns you do not ask for them.
+The report stays in workspace context. Raw notes remain `q1`..`qN` cards and enter context when triggered.
 
-With a search key configured (`EXA_API_KEY`, `BRAVE_API_KEY`, or `SEARXNG_URL` in the table above), the searching itself is a plain API request that costs no tokens; without one, the search model runs it through its provider's hosted search tool.
+Research tries configured app finders in Exa, Brave, SearXNG order. The search model's hosted tool runs after those finders fail or when all three are absent.
 
-Three models are set separately, because the stages differ: one searches (only when no search key is set), one reads pages and takes notes (this is most of the spend, so a cheap model belongs here), and one plans and writes the report.
+Research has separate search, note, and report models. The note model reads every page and accounts for most model input, so a cheap model belongs there.
 
 ### Cards: notes that appear only when relevant
 
@@ -209,8 +209,8 @@ A folder is a display heading; triggering runs off the phrases alone.
 
 ### Memory: so long chats don't get forgotten or expensive
 
-Turn on **Compress history into memory** and conversa keeps a summary of the messages just above the recent-messages window (written by the cheap utility model) instead of re-sending them verbatim.
-The summary refreshes in the background after each reply, so sending never waits on it.
+Turn on **Compress history into memory** and conversa replaces messages above the recent-message window with a summary written by the utility model.
+The summary refreshes in the background after each reply while sending remains available.
 Recent messages stay word-for-word; anything older than both windows drops out (recall below brings it back when relevant).
 You can read, edit, or clear the summary in **Conversation settings**.
 
@@ -256,9 +256,9 @@ Documents are sent whole with every request and count as input tokens, so keep t
 Click a document in the workspace editor to read it rendered, or use the download button to save it as a file.
 That is how a research report gets out of the browser.
 
-### Prompt caching: pay for a big workspace once
+### Prompt caching: reduce repeated workspace input
 
-Turn on **Cache the workspace prompt & docs** and the provider caches the stable part of your prompt: the workspace prompt, your system messages, and the workspace documents. A big shared context then gets billed once per cache window instead of on every turn.
+Turn on **Cache the workspace prompt & docs** and the provider caches the workspace prompt, system messages, and workspace documents. The initial request pays the cache-write rate; matching follow-ups pay the lower cache-read rate until expiry.
 
 It is off by default because it is a bet. A cache write costs 25% more than an ordinary one and expires after a few minutes, so it wants a lot of stable text and a steady back-and-forth.
 
@@ -268,11 +268,10 @@ Caching is prefix-match: change one byte and everything after it is re-billed. T
 > Cards cost you nothing here. They are assembled last, after the cache breakpoint, so a card firing on turn seven rewrites only the uncached tail while the workspace prompt and documents above it stay cached.
 
 > [!NOTE]
-> Memory and recall sit outside the cache on purpose.
-> The summary is rewritten after every reply and recall re-picks which old turns to resend each turn, so caching either would invalidate the block constantly. You re-pay for both every turn.
+> Memory and recall occupy the volatile prompt block. The summary changes after replies, and recall selects turns for each request, so both are billed each turn.
 
 > [!WARNING]
-> The messages array is never cached at all. The send window drops old turns off the front as it slides, so the message prefix changes on most turns. Only the system prompt benefits from this setting, which is why it needs workspace documents to be worth turning on.
+> The messages array is uncached because its sliding window changes the prefix. This setting applies to the system prompt and pays back when that block contains enough shared context.
 
 ### Templates
 

@@ -1,8 +1,4 @@
-"""DeepSeek, on the Responses dialect.
-
-It serves all three dialects (api-docs.deepseek.com, read 2026-08-26). Responses carries hosted web search and image input; its chat.completions endpoint takes function tools only.
-Every model it offers reasons, so there are no reasoning_prefixes to list.
-"""
+"""DeepSeek through its Responses API, with hosted web search, image input, and reasoning on every listed model."""
 
 PROVIDER = {
     "dialect": "responses",

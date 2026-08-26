@@ -2,11 +2,8 @@
 import { computed } from 'vue'
 import { models } from '../store.js'
 
-// The one model dropdown.
-// The composer toolbar, per-conversation settings, and global settings all render this (twice each in the settings panels: model + utility model).
-// Native <optgroup> gives real section headers on iOS and Android with no JS.
-// The provider is grouping only.
-// Picking a model is the user's choice; picking a provider is a consequence of it, so no provider control exists anywhere.
+// Shared model dropdown for the composer and settings panels.
+// Native <optgroup> supplies provider headings on desktop and mobile.
 
 const PROVIDER_LABELS = { anthropic: 'Anthropic', openai: 'OpenAI' }
 
@@ -16,7 +13,7 @@ defineEmits(['update:modelValue'])
 const groups = computed(() => {
   const by = new Map()
   for (const m of models.value) {
-    // Models cached before providers existed have no provider field.
+    // Bare cached model ids belong to Anthropic.
     const p = m.provider || 'anthropic'
     if (!by.has(p)) by.set(p, [])
     by.get(p).push(m)

@@ -36,8 +36,8 @@ PROVIDERS = {
 def split_model(mid: str) -> tuple[str, str]:
     """Split `openai/gpt-5.6` into (`openai`, `gpt-5.6`); a bare id belongs to Anthropic.
 
-    Persisted conversations from before multi-provider support hold bare ids, so that default is permanent.
-    Splitting at the last slash preserves the existing behavior for fine-tuned ids containing a slash.
+    Bare ids identify Anthropic models in saved conversations and environment settings.
+    The last slash separates providers from model ids that contain slashes.
     """
     provider, _, name = mid.rpartition("/")
     return (provider or "anthropic"), name

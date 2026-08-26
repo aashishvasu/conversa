@@ -26,8 +26,7 @@ class Run:
     def __init__(self, brief, models, depth, title=None):
         self.id = uuid.uuid4().hex
         self.brief = brief
-        # The brief carries the clarifying exchange, which belongs in the planner and nowhere else.
-        # The title is the question the user actually asked, and it is what names the workspace and heads its prompt.
+        # The planner receives clarifications in brief; the original question names the workspace.
         self.title = title or brief
         self.models = models  # {"search": id, "note": id, "report": id}
         self.depth = depth  # sources per subquestion
@@ -57,20 +56,12 @@ class Run:
 
 
 def answered(sections):
-    """Sections that actually gathered something.
-
-    The report and the cards are both numbered from this list, so `qN` in the report always has a card behind it.
-    Numbering the full plan instead leaves gaps wherever a subquestion found nothing, and the two disagree silently.
-    """
+    """Sections with notes, used for contiguous `qN` report and card numbering."""
     return [s for s in sections if s["notes"]]
 
 
 def workspace_payload(title, sections, report):
-    """What a finished run hands the browser: one workspace, ready to create.
-
-    The report is a doc, so it is in context every turn.
-    Per-subquestion notes are cards triggered by `q1`, `q2` and so on, so the detail is one keystroke away and stays out of the turns that do not ask for it.
-    """
+    """Build a workspace with the report doc and `qN` note cards."""
     cards = []
     for i, section in enumerate(sections, 1):
         body = "\n\n".join(f"{n['note']}\n\nSource: {n['url']}" for n in section["notes"])
@@ -91,9 +82,7 @@ def workspace_payload(title, sections, report):
 async def _run(run):
     try:
         run.emit("phase", phase="plan")
-        # Effort here and nowhere cheap: the plan is the one call with no recovery downstream.
-        # Wrong subquestions produce wrong searches and wrong notes, and no report model can synthesize its way out.
-        # It emits a few hundred tokens, so thinking on it costs almost nothing.
+        # Planning uses medium effort because its subquestions determine every downstream call.
         planned = lines(
             await complete(run.models["report"], PROMPTS["plan"], run.brief,
                            max_tokens=PLAN_MAX_TOKENS, effort="medium", spend=run.spend),
@@ -132,7 +121,7 @@ async def _run(run):
                 break
 
         run.phase = "report"
-        # Only sections with notes reach the report, so its qN headings and the qN cards are the same list.
+        # Report headings and cards share the filtered, contiguous qN list.
         found = answered(sections)
         run.emit("phase", phase="report", answered=len(found), planned=len(sections))
         try:
@@ -141,7 +130,7 @@ async def _run(run):
                 max_tokens=REPORT_MAX_TOKENS, effort="medium", spend=run.spend,
             )
         except Exception as err:
-            # Notes are the expensive part of a run, so a failed synthesis hands them over raw.
+            # Preserve gathered notes when report synthesis fails.
             run.error = f"report stage failed, notes returned unsynthesised: {err}"
             run.emit("warn", message=run.error)
             report = f"""(The report stage failed: {err})
@@ -171,7 +160,7 @@ def _notes_prompt(brief, sections):
     for i, section in enumerate(sections, 1):
         parts.append(f"\n## q{i}. {section['question']}\n")
         for n in section["notes"]:
-            # .get, because losing the whole report stage to one absent title would be an expensive way to fail.
+            # Source URLs are the fallback title.
             parts.append(f"\nSource: {n.get('title') or n['url']} ({n['url']})\n{n['note']}\n")
         if not section["notes"]:
             parts.append("\n(no sources could be read for this subquestion)\n")
@@ -187,29 +176,20 @@ def start(brief, models, depth=6, title=None):
 
 
 def forget(run_id):
-    """Drop a run whose payload the client has taken.
-
-    Collecting is the normal end of a run's life here, and evict() is the backstop for one nobody collects.
-    """
+    """Drop a run after the client stores its payload."""
     RUNS.pop(run_id, None)
     evict()
 
 
 def evict():
-    """Drop finished runs past their window.
-
-    Called from every research route, so any activity sweeps the ones before it.
-    A run still outlives its window when nothing else happens, and the process restarting is the outer bound on that.
-    """
+    """Drop finished runs older than FINISHED_TTL during research-route activity."""
     cutoff = time.time() - FINISHED_TTL
     for run_id in [i for i, r in RUNS.items() if r.finished_at and r.finished_at < cutoff]:
         del RUNS[run_id]
 
 
 if __name__ == "__main__":  # self-check: python runs.py
-    # The payload is a workspace: report as a doc, per-subquestion notes as qN cards.
-    # A subquestion that gathered nothing is dropped before numbering, so the report's qN and the cards' qN match.
-    # Numbering the full plan instead leaves the report citing a q5 that has no card behind it.
+    # The payload uses contiguous qN numbering across its report and note cards.
     plan_sections = [
         {"question": "one", "notes": [{"url": "https://a.example/1", "note": "NOTE_A"}]},
         {"question": "two", "notes": []},
@@ -224,7 +204,7 @@ if __name__ == "__main__":  # self-check: python runs.py
     assert "q1 through q2" in payload["systemPrompt"], payload["systemPrompt"]
     assert "https://a.example/1" in payload["cards"][0]["content"]
 
-    # A failed report must still hand back the notes, stubbed so the check costs nothing and stays runnable.
+    # Report failure preserves the gathered notes.
     async def _resilience_checks():
         real_gather, real_complete = gather, complete
 

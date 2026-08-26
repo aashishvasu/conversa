@@ -37,7 +37,7 @@ async function removeDoc(id) {
 
     <div>
       <label class="mb-1 block text-muted">Documents (plain text / markdown, sent whole with every request)</label>
-      <!-- A research report arrives here as a doc, so a doc has to be readable and savable, not just deletable. -->
+      <!-- Research reports use the document reader and download action. -->
       <details v-for="d in workspace.docs" :key="d.id" class="rounded border border-edge">
         <summary class="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 [&::-webkit-details-marker]:hidden">
           <span class="min-w-0 flex-1 truncate">{{ d.name }}</span>

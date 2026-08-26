@@ -41,8 +41,7 @@ const perQuestion = computed(() => {
   return counts
 })
 
-// The brief the run actually receives, with the clarifying exchange folded in.
-// The planner reads this, which is the whole point of asking: scope arrives as text rather than as a guess.
+// Append answered clarifying questions to the planner's brief.
 function fullBrief() {
   const r = run.value
   const answers = (r.answers || '').trim()
@@ -98,8 +97,7 @@ async function start() {
   }
 }
 
-// Reconnect from the last seq already stored, so reopening a run replays only what it missed.
-// The loop matters: a stream ending while the run is still going means the connection dropped, and an idle proxy will do exactly that during a long phase.
+// Reconnect from the last stored sequence while the run remains active.
 async function tail() {
   abort?.abort()
   const ctl = (abort = new AbortController())
@@ -149,8 +147,7 @@ async function save() {
   const w = applyResearch(run.value.payload, existing || null)
   run.value.workspaceId = w.id
   persistNow()
-  // The browser now holds the only copy that matters, so the server can drop its own.
-  // Best-effort: a failure here costs some server memory until the next run sweeps it, and nothing the user has.
+  // The workspace is persisted before best-effort server eviction.
   try {
     await discardResearch(run.value.serverId)
   } catch { /* the eviction sweep will get it */ }

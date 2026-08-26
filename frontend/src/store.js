@@ -14,7 +14,7 @@ const GLOBAL_KEY = 'conversa_global' // user edits to the global defaults, persi
 
 const state = reactive({ conversations: [], workspaces: [], runs: [] })
 export const currentId = ref(null)
-// A run is selected instead of a conversation, so this being set is what puts the research pane on screen.
+// A selected run displays the research pane.
 export const currentRunId = ref(null)
 export const globalSettings = ref(null)
 export const models = ref([]) // [{id, label}], cached from backend
@@ -33,7 +33,7 @@ export async function initStore() {
   state.runs = (await get(RUNS_KEY)) || []
   models.value = (await get(MODELS_KEY)) || []
   savedGlobal = (await get(GLOBAL_KEY)) || null
-  // Backfill stable message ids for conversations saved before ids existed.
+  // Backfill missing message ids in stored conversations.
   for (const c of state.conversations) {
     for (const m of c.messages) if (!m.id) m.id = crypto.randomUUID()
   }
@@ -157,7 +157,7 @@ export function selectConversation(id) {
 }
 
 // --- Runs ---------------------------------------------------------------------
-// A research run is a sibling of a conversation, not a property of one.
+// Research runs and conversations are sibling sidebar records.
 // It owns its brief, its clarifying exchange, its settings overrides and its result.
 // It reaches conversations only through the workspace its payload lands in.
 
@@ -282,7 +282,7 @@ export function snapshotInfo(data) {
 }
 
 // Save text to a file the browser downloads.
-// A workspace doc is the only copy of a research report, so it needs a way out of IndexedDB.
+// Export a workspace document from IndexedDB.
 export function downloadText(name, text, type = 'text/markdown') {
   const a = document.createElement('a')
   a.href = URL.createObjectURL(new Blob([text], { type }))

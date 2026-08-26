@@ -2,12 +2,11 @@
 
 import os
 
-# One tool covers both searching and opening pages, so it stands in for Anthropic's two.
-# Empty disables it, in chat and as a research finder both.
+# This tool covers search and page opening; an empty value disables OpenAI hosted search.
 SEARCH_TOOL = os.environ.get("OPENAI_WEB_SEARCH_TOOL", "web_search")
 
-# Reasoning models take reasoning.effort and reject temperature; older chat models are the inverse.
-# Prefix match, hand-maintained like anthropic.py's LEGACY_MODELS.
+# Matching models take reasoning.effort and reject temperature. Other ids receive temperature.
+# Keep this prefix list aligned with the models exposed above.
 REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 
 PROVIDER = {

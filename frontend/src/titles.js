@@ -1,6 +1,6 @@
 import { streamChat } from './api.js'
 
-// Generate/refresh a short title from the conversation's recent direction (not just its opening), seeding the existing title so a regen refines rather than starts over.
+// Generate a short title from recent turns, seeded with the existing title on refresh.
 export async function generateTitle(convo, model) {
   const recent = convo.messages
     .filter((m) => m.role !== 'system')

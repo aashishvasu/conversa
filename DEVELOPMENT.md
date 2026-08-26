@@ -7,11 +7,11 @@ For what the app does and how to run the released container, see the [README](RE
 
 | Layer | Choice | Why |
 |-------|--------|-----|
-| Frontend | **Vue 3 + Vite** | Small, reactive, no build ceremony. |
+| Frontend | **Vue 3 + Vite** | Reactive SPA with Vite development and production builds. |
 | Styling | **Tailwind CSS v4** | Semantic CSS-variable tokens that flip on `.dark`. |
 | Icons | **@lucide/vue** | Consistent outline set. |
 | Markdown | **marked** + **DOMPurify** + **highlight.js** | Render, sanitize, highlight. Sanitizing is the security boundary. |
-| Client storage | **IndexedDB** (via `idb-keyval`) | All conversation state; survives reloads, with no size cliff like localStorage. |
+| Client storage | **IndexedDB** (via `idb-keyval`) | Browser-local persistence for conversation state and documents. |
 | Backend | **FastAPI** + **uvicorn** | Async proxy to the model providers, plus the fetcher and the research run loop. |
 | Fetching | **httpx** + **trafilatura** + **pypdf** | Manual redirect control for the SSRF guard, readable-text extraction that keeps fenced code blocks, and PDF text. |
 | Auth | **PyJWT** (HS256) | Password is exchanged once for a signed, expiring token. |
@@ -19,15 +19,12 @@ For what the app does and how to run the released container, see the [README](RE
 
 ## Architecture
 
-Everything that *is* a conversation lives in the browser (IndexedDB): messages, settings, cards, templates, memory.
-The backend writes nothing to disk.
-It exists to keep the provider keys off the client and to gate access.
-The one thing it does hold is in-flight research runs, in memory, which die with the process.
+IndexedDB stores messages, settings, cards, templates, and memory.
+FastAPI authenticates requests, reads provider keys from its environment, relays model streams, and holds active research runs in process memory. A process restart ends those runs.
 
 ```
-Browser (Vue SPA, IndexedDB)  --HTTPS-->  FastAPI  -->  Anthropic API
-   all state here                     keys + password    OpenAI API
-                                                         streaming
+Browser (Vue SPA, IndexedDB)  --HTTPS-->  FastAPI  --streaming-->  Model APIs
+   conversation state                 keys + password
 ```
 
 ### Backend endpoints (`backend/main.py`)
@@ -36,63 +33,54 @@ Browser (Vue SPA, IndexedDB)  --HTTPS-->  FastAPI  -->  Anthropic API
 - `POST /api/refresh`: trades a still-valid token for a fresh full-TTL one.
   The client calls it opportunistically once a token is past half-life (sliding session).
 - `GET  /api/settings`: global setting defaults from env vars, plus `config_errors` (see Providers below).
-- `GET  /api/models`: selectable models as `{id, label, provider}`, filtered to the providers that have a key.
-- `POST /api/chat`: streams a completion as SSE, from whichever provider owns the requested model.
-  The API keys stay on the server.
-  Assembled server-side: `effort` becomes thinking config via `apply_thinking()` or `reasoning.effort` (below), and the hosted search tools are attached when their env vars are non-empty.
-  Text, thinking, and tool-trace events (`search`, `fetch`, `results`) are each JSON-encoded per SSE chunk so content can't break the framing.
+- `GET  /api/models`: selectable models as `{id, label, provider}`, filtered to configured providers.
+- `POST /api/chat`: streams a completion as SSE from the provider that owns the requested model.
+  The server environment supplies API keys. The provider layer translates `effort`, attaches configured hosted tools, and emits text, thinking, and tool-trace events (`search`, `fetch`, `results`).
+  `main.py` JSON-encodes each event so newlines and special characters remain inside one SSE frame.
   A list-valued `system` is `[stable, volatile]`: the Anthropic dialect marks the first block for prompt caching (`use_cache`, off by default); the other dialects rejoin it.
-- `POST /api/fetch`: a URL becomes readable markdown (`backend/fetcher.py`).
-  Nothing is stored.
-  With a `topic`, `backend/topic.py` returns the sections that answer it rather than the head of the page.
-- `POST /api/research/clarify`: 3 to 5 questions about a brief, asked before any run starts.
-  The answers go back in the brief, so the planner reads the scope rather than inferring it.
+- `POST /api/fetch`: returns readable markdown from a URL (`backend/fetcher.py`).
+  With a `topic`, `backend/topic.py` returns the sections matching that topic.
+- `POST /api/research/clarify`: returns 3 to 5 questions about a brief. Their answers become part of the brief read by the planner.
 - `POST /api/research`: starts a run and returns its id.
   `GET /api/research/{id}` reads its state, `GET /api/research/{id}/stream` replays from `?after=<seq>` then tails live as SSE, `DELETE /api/research/{id}` cancels it.
 
 All endpoints except `/api/login` require `Authorization: Bearer <token>`.
 `/api/login`, `/api/refresh`, and the `require_auth` dependency the other routes depend on live in `backend/auth.py`.
 A 401 logs the client out automatically.
-In production the SPA is served from the same origin (`StaticFiles` mount), so CORS is irrelevant; `CORS_ORIGINS` is dev-only.
+Production serves the SPA and API from one origin through the `StaticFiles` mount. `CORS_ORIGINS` configures the separate Vite origin used in development.
 
 ### Provider layer (`backend/providers/`)
 
 Each first-class provider has one file exporting a `PROVIDER` dict. `providers/registry.py` combines them and owns keys, clients, model ids, and defaults; `providers/dialects.py` owns request construction, provider event parsing, streaming, and `complete()`.
-`providers/__init__.py` is the import facade. `main.py` owns the FastAPI boundary and SSE framing, `research.py` the gather stage, and `runs.py` the run loop; all three import the provider facade and nothing imports back up.
+`providers/__init__.py` is the import facade. `main.py` owns the FastAPI boundary and SSE framing, `research.py` owns gathering, and `runs.py` owns the run loop. Dependency direction is `main.py`, `research.py`, and `runs.py` -> `providers`.
 
 ### Research runs (`backend/runs.py`, `backend/research.py`)
 
 `runs.py` owns the run lifecycle: a run is an `asyncio.Task` plus an event list held in the `RUNS` dict.
-That is enough to survive the client closing its tab, which is the only durability the feature needs: the brief lives in the browser, and a process restart means starting again.
-Nothing touches disk.
+Runs continue after the client closes its tab and end when the process restarts. The browser stores the brief.
 
 Phases are plan, gather, gap, report.
 Gather fans out one coroutine per subquestion under a semaphore; each searches, fetches, and writes notes, then drops the document.
 The search, fetch and note-taking stages live in `research.py`, with `PageCache`, `Spend`, and the prompts; `runs.py` imports them.
-Notes and source URLs are all that survive, so a run's memory is flat whether it reads 20 sources or 200.
+A run retains notes and source URLs. Page bodies are released after note-taking, keeping retained memory proportional to the notes.
 
-`search()` prefers an app finder (Exa, Brave, SearXNG; first configured wins) so the search step costs an HTTP request instead of a model call; the search model's hosted tool is the fallback, and the only finder when no key is set.
-The finder that served each query is logged to the uvicorn console, and a finder failing logs a warning naming the error before the next one runs.
-Search prompt wording does not move hosted-tool source quality, because the tool returns what its backend returns; `BLOCKED_DOMAINS` does, and blocking server-side makes the backend offer a replacement instead of a gap. Results from every other finder pass the same list post-hoc via `is_blocked`.
+`search()` tries configured app finders in Exa, Brave, SearXNG order, then the search model's hosted tool. Each query logs its finder to the uvicorn console; a failed finder logs its error before the next attempt.
+`BLOCKED_DOMAINS` controls hosted-tool source quality by asking Anthropic for replacements and filtering results from other finders through `is_blocked`.
 Subquestions overlap enough that one canonical source gets picked repeatedly, so `PageCache` downloads each URL once per run and topic-selects it per subquestion, which keeps the notes distinct while paying for one fetch.
 
-Failure handling is deliberate, because a run makes about 30 calls and a transient 429 or 529 during one of them should be expected.
-The SDK retries are raised to 5.
-One source failing costs that source.
-A failed search costs one subquestion.
-A failed report hands the notes back raw, since the notes are the expensive part.
-The SSE stream emits a 1-second `tick`, without which a phase running for a minute looks to an idle proxy like a dead connection, and a client cannot tell that from a finished run.
+A research run makes about 30 model calls. The SDK retries transient failures up to 5 times.
+A source failure drops that source; a search failure drops that subquestion; a report failure returns the collected notes.
+The SSE stream emits a 1-second `tick` to keep idle proxies open during long phases.
 
 `PROMPTS` is the tuning surface and a request may override any key.
-The finished payload is a workspace: the report as a doc, per-subquestion notes as `q1`..`qN` cards, so the detail is one keystroke away and stays out of turns that do not ask for it.
+The finished payload is a workspace containing the report as a doc and per-subquestion notes as `q1`..`qN` cards. Cards enter the prompt when their trigger is active.
 
 ### Fetching (`backend/fetcher.py`, `backend/topic.py`)
 
 Ported from [magpi](https://github.com/grainologic/magpi) (MIT). trafilatura extracts HTML and keeps fenced code blocks; a content-type branch handles JSON and plain text; a Wayback lookup retries 403/404/410/451.
 
-`assert_public_target()` is the security boundary: this endpoint opens a caller-supplied URL from inside the network, so it rejects non-http schemes, loopback names, literal private IPs, and names that resolve into a private range.
-Redirects are followed by hand so the check runs on every hop.
-The known gap is DNS rebinding between the resolve and the connect; closing it needs a custom transport that dials a pinned IP.
+`assert_public_target()` is the security boundary for caller-supplied URLs. It accepts HTTP(S) public targets and checks every redirect hop before following it.
+DNS resolution and connection remain separate, permitting rebinding between them. A pinned-IP transport would close that gap.
 
 ### The provider registry (`backend/providers/`)
 
@@ -104,28 +92,17 @@ The dialect is the wire protocol, and there are three: Anthropic messages, OpenA
 A provider with its own protocol needs another adapter plus its `complete()` branch. A provider that implements an existing dialect needs only its file and registry import.
 
 DeepSeek uses Responses because that endpoint carries its reasoning stream, hosted web search, and image input.
-`compatible.py` is one configurable chat.completions endpoint, not a named provider. It has one key and base URL at a time, offers no built-in models, and receives models through `MODELS` under the `compatible/` prefix. It claims no hosted tool or effort parameter, so research needs an app finder (Exa, Brave, or SearXNG).
+`compatible.py` configures one chat.completions endpoint from one key and base URL. `MODELS` supplies its `compatible/` model ids. It exchanges text plus optional `reasoning_content`; research uses Exa, Brave, or SearXNG.
 
 ### Model ids (`split_model`, `parse_models` in `backend/providers/registry.py`)
 
-A model id carries its provider as a prefix: `openai/gpt-5.6-sol`.
-`split_model()` splits on the last `/` and treats a bare id as Anthropic, permanently: conversations persisted before OpenAI support hold bare ids in IndexedDB, and `.env` files still use them.
-Bare keeps meaning Anthropic the way a bare Docker image name keeps meaning `docker.io`.
+A model id carries its provider as a prefix: `openai/gpt-5.6-sol`. `split_model()` splits on the last `/`; bare ids belong to Anthropic for saved-conversation and environment compatibility.
 
-Everything downstream of the dropdown treats the id as opaque, so provider logic lives entirely in `backend/providers/`.
-
-A provider with no key follows two rules:
-
-- `/api/models` returns only the providers that have a key, because an offered but unusable option surfaces as a bare 503 on send, and surfaces *silently* when it's the utility model (`refreshMemory` and `generateTitle` both swallow their errors).
-- Ids named in the `MODELS` env var that got dropped, and any `DEFAULT_MODEL` / `DEFAULT_UTILITY_MODEL` that isn't selectable, are logged and returned in `config_errors` on `/api/settings`.
-  A registry provider with no key is an offer nobody took up, so it is hidden without comment; only ids the operator asked for by name earn a banner.
-  `App.vue` strips that key before merging the rest into `globalSettings` and shows it in a dismissible banner.
-  Misconfiguration degrades the app and lets it start, so one missing key still leaves the other provider working.
+Everything downstream of the dropdown treats the id as opaque. `/api/models` contains models from configured providers. Operator-supplied `MODELS` entries with incomplete configuration, plus unselectable default models, produce `config_errors` in `/api/settings`; `App.vue` shows them in a dismissible banner.
 
 ### Responses specifics (`_responses_stream` in `backend/providers/dialects.py`)
 
-OpenAI and DeepSeek use the **Responses API**, the surface that carries hosted web search and reasoning.
-Chat Completions offers neither.
+OpenAI and DeepSeek use the **Responses API** for hosted web search, reasoning, and text output.
 The event mapping onto conversa's own SSE frames:
 
 | conversa frame | Responses event |
@@ -143,7 +120,7 @@ Effort remains a hint: at `low` with a short system prompt these models often re
 ### chat.completions specifics (`_chat_completions_stream` in `backend/providers/dialects.py`)
 
 The generic compatibility entry uses this dialect. `text` comes from `delta.content`; `reasoning_content` becomes `think` when a provider sends it.
-There are no tool events or assumed effort parameter. The system param arrives as the leading `system` message via `join_system`, since the `[stable, volatile]` cache split is Anthropic-only.
+The compatibility adapter maps text and optional `reasoning_content`. `join_system` places the system prompt first; research uses app finders.
 
 ### Thinking effort (`apply_thinking` in `backend/providers/dialects.py`)
 
@@ -156,7 +133,7 @@ The wire format for extended thinking split across model generations, so one bra
 | `temperature` | **never sent**, since Opus 4.7+ reject it outright | sent, unless thinking is on |
 | `max_tokens` | floored at 32000 (thinking spends from it) | floored at `budget + DEFAULT_MAX_TOKENS` |
 
-`display: summarized` is deliberate: the API default is `omitted`, which streams empty thinking blocks and would blank ChatPane's live trace.
+`display: summarized` supplies text for ChatPane's live thinking trace; Anthropic's `omitted` default yields empty thinking blocks.
 Unknown model ids are treated as modern.
 `LEGACY_MODELS` in `providers/anthropic.py` is a hand-maintained set of older ids, so adding a pre-4.6 model to `MODELS` means adding its id there too.
 The three lever words (`low` / `medium` / `high`) are `EFFORT_VALUES`; Claude, OpenAI, and DeepSeek accept them verbatim. The generic compatibility path sends no effort parameter because chat.completions has no standard name for it.
@@ -164,7 +141,7 @@ Covered by `python -m providers`.
 
 ### How a request is assembled (`frontend/src/cards.js`)
 
-`buildPayload(convo, settings, workspace)` turns a conversation into the Anthropic request:
+`buildPayload(convo, settings, workspace)` assembles the provider request:
 
 - **`system` param** gets the workspace's shared prompt (if `send_system_prompt`), then all system messages (same gate), the workspace's plain-text docs in full, the memory summary (if `use_memory`), and the content of any triggered cards.
   The card scan runs over workspace cards and convo cards together, workspace first (`effectiveCards`).
@@ -172,16 +149,16 @@ Covered by `python -m providers`.
   Card triggers are comma-separated clauses (comma = OR, `&` inside a clause = AND).
   Each card is prefixed with the clause that triggered it (`phrase: content`); force-include cards with no matching clause send bare content.
 - **`messages` array** gets pinned turns first (deduped), then the *send window* (the last `num_messages_to_send` turns; with memory on, everything past the summary's coverage, floored at `num_messages_to_send`).
-  Only user/assistant turns go here, since both providers keep the system prompt in a separate field.
+  This array contains user and assistant turns; system content uses the separate `system` field.
 - **recall** (if `use_recall`) also rides in `system`: the top `RECALL_COUNT` (3) *dropped* turns (neither pinned nor in the window), scored by stopword-filtered token overlap with the latest user message, normalized by sqrt(length), returned chronologically.
-  It reads the history without rewriting it, so unlike memory it survives edits and deletes.
+  Recall selects original turns on each request, so later edits and deletions affect its results.
 - **model / temperature / max_tokens / effort** are passed through from the effective settings.
 
 Pinned turns bypass the send-window limit; this does **not** enforce user/assistant alternation, so wildly mixed pins could be rejected by the API.
 
-With `use_cache` on, `system` comes back as `[stable, volatile]` rather than a string.
+With `use_cache` on, `system` has `[stable, volatile]` form.
 The stable half is everything above the memory summary: workspace prompt, system messages, workspace docs.
-`anthropic_system()` in `providers/dialects.py` marks the first block ephemeral, so a large workspace is billed once per cache window instead of per turn. Responses and chat.completions rejoin the two because they have no equivalent marker here.
+`anthropic_system()` in `providers/dialects.py` marks the first block ephemeral, billing a large workspace once per cache window. Responses and chat.completions receive the halves joined as one string.
 The order is what makes this work: prompt caching is prefix-match, and cards are assembled last, so a card firing mid-conversation rewrites only the uncached tail.
 Messages stay uncached because the send window drops turns off the front as it slides, which changes the message prefix on most turns.
 
@@ -210,10 +187,10 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `settings.js` | The settings surface: `SETTING_KEYS` (what a conversation may override), `RESEARCH_KEYS` (what a run may override), and `EFFORT_LEVELS`, the single definition of the thinking-effort lever. `effectiveSettings(owner, keys)` resolves either list against the global defaults. |
 | `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `discardResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
 | `cards.js` | Pure card concerns: trigger matching, force overrides, `effectiveCards`, and the card builder's parsing half: `CARDGEN_SYSTEM` (the prompt that teaches the trigger syntax) and `parseGeneratedCards()` (fence- and prose-tolerant JSON parsing, strict on shape). Vue-free, so it runs in Node. |
-| `payload.js` | Request assembly: `buildPayload`, the send window, and lexical recall. With `use_cache` on, `buildPayload` returns `system` as `[stable, volatile]` instead of a string. Imports from cards.js, never the reverse; Vue-free like it. |
+| `payload.js` | Request assembly: `buildPayload`, the send window, and lexical recall. With `use_cache` on, `buildPayload` returns `system` as `[stable, volatile]`. Dependency direction is payload.js -> cards.js; both are Vue-free. |
 | `memory.js` | Background sliding-window summarization. |
 | `titles.js` | Auto-titling from recent turns via the utility model. |
-| `composables/useStreamGuard.js` | The backgrounded-tab defences: a screen wake lock held while streaming, and a `visibilitychange` watchdog that aborts a stream gone silent for `STALL_MS` (60s), so a frozen tab ends in the normal stop path instead of a stuck spinner. |
+| `composables/useStreamGuard.js` | Holds a screen wake lock while streaming and aborts a stream after `STALL_MS` (60s) of silence when the tab returns to the foreground. The abort uses the normal stop path. |
 | `utils/md.js` | Markdown in, sanitized and highlighted HTML out. |
 | `utils/format.js` | Timestamp formatting (native `Intl`). |
 | `utils/theme.js` | Light/dark toggle. |
@@ -226,12 +203,12 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `views/Login.vue` | Password prompt shown until a token exists. |
 | `components/ContextPanel.vue` | Edits system + pinned messages together. Also the URL fetch box: a fetched page lands as a system message, so it edits, deletes and sends like any other context. |
 | `components/CardsPanel.vue` | Card editor with live "active" indicators. For a convo in a workspace, lists the workspace's cards read-only above the convo's own. Also reused by WorkspacePanel as the shared-card editor (a workspace passes as `convo`; its missing messages/settings are guarded). The card builder lives here: pasted text goes to the utility model, and the parsed cards are appended to whichever owner the panel got, which is what makes it work in both scopes. |
-| `components/WorkspacePanel.vue` | Workspace editor: name, shared prompt, shared cards (via CardsPanel), and documents. A doc expands to a rendered read view and carries a download button, because a research report arrives here and has to be readable and savable, not just deletable. |
+| `components/WorkspacePanel.vue` | Workspace editor for the name, shared prompt, shared cards, and documents. Documents have rendered reading, download, and delete actions. |
 | `components/DebugPanel.vue` | Read-only live preview of the assembled `system` param (via `buildPayload`). |
 | `components/SettingsPanel.vue` / `GlobalSettings.vue` | Per-conversation overrides / global defaults. |
 | `components/Notifications.vue` | App-root renderer for sticky banners and transient Reka toasts. |
 | `views/Sidebar.vue` | New-chat and new-research buttons, then template, research-run and conversation lists. Workspace rows head their member conversations (click to edit, X to delete) and double as the management surface; unassigned conversations sit under a "Conversations" label. |
-| `views/ResearchPane.vue` | The research window, a sibling of ChatPane rather than a panel inside it. `currentRunId` being set is what swaps it in. Brief, clarifying questions, per-run model overrides, live progress and spend, then `applyResearch()` into a workspace. Reconnects a live run from the last stored seq, so a dropped stream resumes instead of reading as finished. |
+| `views/ResearchPane.vue` | Research view selected by `currentRunId`: brief, clarifying questions, per-run model overrides, live progress and spend, then `applyResearch()` into a workspace. Reconnects from the last stored sequence after a dropped stream. |
 | `components/Modal.vue` / `ConfirmModal.vue` | Generic modal shell / shared delete-confirmation dialog. |
 
 ## Local development
@@ -259,8 +236,7 @@ pnpm dev
 
 ## Checks
 
-Every module with non-trivial logic carries an assert-based self-check.
-There is no test framework: a check is the module itself, run directly.
+Every module with non-trivial logic carries a directly runnable, assert-based self-check.
 
 Card / payload logic, the confirm dialog, and export/import:
 

@@ -1,7 +1,7 @@
 """One configurable OpenAI-compatible chat.completions endpoint.
 
 Set OPENAI_COMPATIBLE_API_KEY and OPENAI_COMPATIBLE_BASE_URL, then list models under the `compatible/` prefix in MODELS.
-This entry sends text and reads text plus optional reasoning_content. It has no hosted tools or explicit cache controls.
+This entry sends text and reads text plus optional reasoning_content. Research uses an app finder, and cache behavior belongs to the endpoint.
 """
 
 import os

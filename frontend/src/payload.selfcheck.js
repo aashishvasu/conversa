@@ -159,7 +159,7 @@ assert.ok(!stableHalf.includes('WS_CARD') && volatileHalf.includes('WS_CARD'), '
 assert.ok(!stableHalf.includes('MEM') && volatileHalf.includes('MEM'), 'the memory summary refreshes, so it stays uncached')
 // use_cache off (the default): system stays a string
 assert.equal(typeof buildPayload(convo, wSettings, ws).system, 'string')
-// nothing stable to cache: no breakpoint rather than an empty cached block
+// no stable content produces a plain system string
 const noStable = buildPayload(convo, { ...cSettings, send_system_prompt: false })
 assert.equal(typeof noStable.system, 'string', 'a bare convo has no cacheable prefix')
 assert.ok(noStable.system.includes('DRAGON_LORE'))

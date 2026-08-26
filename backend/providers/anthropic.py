@@ -2,18 +2,14 @@
 
 import os
 
-# Model-invoked: it searches only when a message warrants it.
-# Empty disables it, in chat and as a research finder both.
+# The model invokes hosted search when a message warrants it; an empty value disables Anthropic hosted search.
 SEARCH_TOOL = os.environ.get("WEB_SEARCH_TOOL_VERSION", "web_search_20250305")
-# Lets the model open a URL the user pastes. Beta-gated, hence the header below.
+# Server-side page opening uses this tool and beta header.
 FETCH_TOOL = os.environ.get("WEB_FETCH_TOOL_VERSION", "web_fetch_20250910")
 FETCH_BETA = os.environ.get("WEB_FETCH_BETA", "web-fetch-2025-09-10")
 
-# Models predating adaptive thinking (pre-4.6).
-# They take the old fixed-token-budget form, reject output_config.effort, and accept temperature.
-# Everything newer takes the modern form.
-# Unknown ids are assumed modern, the direction the API moved.
-# Hand-maintained: add an id here if you expose an older model via MODELS.
+# These models use fixed token budgets and accept temperature. Other ids use adaptive thinking and reject temperature.
+# Unknown ids follow the adaptive format. Add an id here when MODELS exposes another fixed-budget model.
 LEGACY_MODELS = {
     "claude-haiku-4-5",
     "claude-sonnet-4-5",
@@ -24,8 +20,7 @@ LEGACY_MODELS = {
     "claude-3-haiku-20240307",
 }
 
-# Fixed budgets the effort levels map to on legacy models.
-# Modern models get the qualitative effort string instead and size their own thinking.
+# Legacy effort levels map to fixed budgets. Adaptive models size thinking from the qualitative effort value.
 LEGACY_EFFORT_BUDGETS = {"low": 4000, "medium": 10000, "high": 24000}
 
 PROVIDER = {
@@ -34,7 +29,7 @@ PROVIDER = {
     "search_tool": SEARCH_TOOL,
     "fetch_tool": FETCH_TOOL,
     "fetch_beta": FETCH_BETA,
-    # Bare ids, no prefix: unprefixed means Anthropic permanently (see split_model).
+    # Bare model ids belong to Anthropic (see split_model).
     "models": (
         "claude-fable-5:Fable 5,"
         "claude-opus-5:Opus 5,claude-sonnet-5:Sonnet 5,claude-opus-4-8:Opus 4.8,"

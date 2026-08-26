@@ -18,7 +18,7 @@ function wholePhraseMatch(text, phrase) {
 }
 
 // Returns clauses: [['dragon','red'],['wyrm']] for "dragon & red, wyrm".
-// A literal & inside a phrase becomes an AND of its words, which is a looser match rather than a broken one.
+// A literal & inside a phrase parses as AND between its words.
 // Add quoting syntax if someone actually hits it.
 export function parseTriggers(triggers) {
   return (triggers || '')

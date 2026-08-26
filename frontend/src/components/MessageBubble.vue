@@ -42,7 +42,7 @@ async function copyMessage() {
 </script>
 
 <template>
-  <!-- Ephemeral live trace, rendered above the streaming bubble so it appears the instant search/thinking events arrive rather than waiting for the first text token. -->
+  <!-- Render the live trace as soon as search or thinking events arrive. -->
   <div v-if="trace && trace.length" class="mb-1 text-xs text-muted">
     <button class="flex items-center gap-0.5 hover:text-base" @click.stop="emit('toggle-trace')">
       <ChevronRight :size="12" class="transition-transform" :class="traceOpen && 'rotate-90'" />
@@ -81,7 +81,7 @@ async function copyMessage() {
     <!-- view mode -->
     <div v-else class="flex" :class="rowAlign(message.role)" @click="emit('activate')">
       <div class="flex min-w-0 max-w-2xl flex-col" :class="colAlign(message.role)">
-        <!-- min-w keeps a narrow bubble wider than the hover toolbar so the toolbar (anchored right-2) sits inset from both edges rather than overflowing left. -->
+        <!-- min-w leaves room for the right-anchored hover toolbar inside narrow bubbles. -->
         <div class="relative min-w-[11rem] max-w-full rounded-lg px-4 py-2" :class="bubbleClass(message.role)">
           <div class="mb-1 flex items-center gap-1 opacity-60">
             <component :is="ROLE_ICON[message.role]" :size="13" />

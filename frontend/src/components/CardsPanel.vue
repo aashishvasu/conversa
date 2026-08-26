@@ -45,7 +45,7 @@ const groups = computed(() => {
 })
 
 // Flattened to header + card rows so every <details> shares one parent.
-// Editing a card's folder then moves its node instead of recreating it, which keeps it open and focused mid-edit.
+// Folder edits move the existing node, preserving its open and focus state.
 const rows = computed(() => {
   const out = []
   for (const [path, cards] of groups.value) {

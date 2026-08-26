@@ -1,7 +1,6 @@
 import { ref } from 'vue'
 
-// Auth: password is exchanged once at /api/login for a signed token, which is what we store and send.
-// On any 401 we drop the token and flip back to the login screen.
+// /api/login exchanges the password for the stored bearer token. A 401 clears it and returns to login.
 
 const TOKEN_KEY = 'conversa_token'
 export const authed = ref(false)
@@ -136,7 +135,7 @@ async function readSSE(res, onEvent) {
 // Reconnect with the last seq seen and the events missed in between are replayed.
 
 // One round of questions about a brief, before any run starts.
-// The answers are folded into the brief, so the planner sees the scope rather than inferring it.
+// The planner receives answers inside the brief.
 export async function clarifyResearch(brief, model) {
   const res = await fetch('/api/research/clarify', {
     method: 'POST',

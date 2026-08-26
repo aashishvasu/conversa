@@ -11,7 +11,7 @@ import ModelSelect from './ModelSelect.vue'
 // New conversations copy these.
 const g = globalSettings // ref auto-unwraps in template
 
-// The model selects emit a value instead of firing a native change event, so assign and persist in one step rather than pairing v-model with a separate @change.
+// Model selects emit their value; assign and persist it in one handler.
 const setGlobal = (k, v) => {
   g.value[k] = v
   persistGlobal()

@@ -22,9 +22,7 @@ import providers
 from providers import complete
 
 PROMPTS = {
-    # Measured: wording here does not move the ranking, because the hosted tool returns what its backend returns.
-    # BLOCKED_DOMAINS is the lever that does.
-    # Keep this short and spend tuning effort there.
+    # Hosted ranking comes from the search backend; BLOCKED_DOMAINS is the source-quality control.
     "search": (
         "You find sources. Run several web searches with distinct phrasings to cover the question. "
         "Searching is the whole job; whatever you write afterwards is discarded."
@@ -88,8 +86,7 @@ NOTE_MAX_TOKENS = 1500
 NOTHING = "NOTHING RELEVANT"
 
 
-# Display estimate only, US dollars per million tokens, input then output.
-# Published rates drift, so this feeds the running counter in the UI rather than any billing.
+# UI estimate in US dollars per million tokens, input then output. Update when published rates change.
 PRICES = {
     "claude-fable-5": (10, 50), "claude-mythos-5": (10, 50),
     "claude-opus-5": (5, 25), "claude-opus-4-8": (5, 25), "claude-opus-4-7": (5, 25),
@@ -98,8 +95,7 @@ PRICES = {
     "gpt-5.6-sol": (5, 30), "gpt-5.6-terra": (2, 12), "gpt-5.6-luna": (0.20, 1.20),
     "gpt-5.5": (5, 30),
 }
-# An unpriced model reads at the top tier, so a run never looks cheaper than it is.
-# Spend counts these separately, because reading 20x high is its own kind of wrong.
+# Unpriced models use the top-tier estimate and increment Spend.unpriced.
 UNKNOWN_PRICE = (5, 25)
 
 
@@ -146,10 +142,7 @@ def lines(text, limit):
 
 
 async def clarify(brief, model_id, spend=None):
-    """Questions whose answers would change how the run is done.
-
-    Their answers are folded into the brief, so the planner sees the scope rather than guessing at it.
-    """
+    """Questions whose answers join the planner's brief."""
     return lines(await complete(model_id, PROMPTS["clarify"], brief, max_tokens=512, spend=spend), 5)
 
 
@@ -162,8 +155,7 @@ def is_blocked(url):
     return any(host == d or host.endswith("." + d) for d in BLOCKED_DOMAINS)
 
 
-# App-level search: a plain HTTP request instead of a model call burnt on triggering the hosted tool.
-# Each finder returns the same [{"title", "url"}] shape as the hosted ones.
+# App finders return the same [{"title", "url"}] shape as hosted search.
 EXA_API_KEY = os.environ.get("EXA_API_KEY")
 BRAVE_API_KEY = os.environ.get("BRAVE_API_KEY")
 SEARXNG_URL = (os.environ.get("SEARXNG_URL") or "").rstrip("/")
@@ -245,8 +237,7 @@ async def _search_responses(query, model, limit, provider):
         instructions=PROMPTS["search"],
         max_output_tokens=4096,
         tools=[{"type": tool}],
-        # Forced, because left to itself the model sometimes answers from memory and cites nothing.
-        # Measured on one subquestion: the default returned 0 citations in 8s, this returned 2.
+        # Force hosted search so the response contains source citations.
         tool_choice={"type": tool},
     )
     response = await providers.CLIENTS[provider].responses.create(**kwargs)
@@ -260,8 +251,7 @@ async def _search_responses(query, model, limit, provider):
     return hits[: limit * 3]
 
 
-# Keyed by dialect, and gated on the provider actually offering a hosted tool: a Responses provider
-# without a `search_tool` has nothing to force, so it falls to the app finders like any other.
+# Hosted search requires both a dialect adapter and the provider's search_tool descriptor.
 HOSTED_FINDERS = {"anthropic": _search_anthropic, "responses": _search_responses}
 
 
@@ -303,8 +293,7 @@ async def search(query, model_id, limit=8):
     seen, out = set(), []
     for hit in hits:
         canonical = fetcher.canonicalize(hit["url"])
-        # Anthropic filters server-side, which is better because the backend then offers something in its place.
-        # Everything else (OpenAI's tool and the app finders) is filtered here with the same list.
+        # Anthropic requests replacements server-side; this pass applies the same blocklist to every finder.
         if canonical in seen or is_blocked(canonical):
             continue
         seen.add(canonical)
@@ -364,7 +353,7 @@ async def gather(question, search_model, note_model, limit=6, spend=None, on_sou
     Documents are dropped when the run ends: what leaves this function is notes and URLs.
     """
     def barren(reason):
-        # Emitted, not just returned: without an event the pane shows a subquestion with no rows and no reason.
+        # The event gives the pane a visible result row for this subquestion.
         result = {"url": "", "error": reason}
         if on_source:
             on_source(question, result)
@@ -381,9 +370,7 @@ async def gather(question, search_model, note_model, limit=6, spend=None, on_sou
 
     async def one(source):
         async with semaphore:
-            # One source failing costs that source alone.
-            # The catch is broad because an overloaded provider mid-gather would otherwise discard every note already paid for.
-            # CancelledError is a BaseException, so stopping a run still propagates through this.
+            # Isolate source failures while allowing CancelledError (a BaseException) to stop the run.
             try:
                 page = await _page(source["url"], question, pages)
                 body = await note(question, page, note_model, spend=spend)
@@ -429,7 +416,7 @@ if __name__ == "__main__":  # self-check: python research.py
     assert parsed == ["What is the cost?", "How does it scale over time?", "Why now, though?"], parsed
     assert len(lines("\n".join(f"subquestion number {i} here" for i in range(9)), 4)) == 4
 
-    # Spend: an unpriced model is charged at the top tier rather than counted as free.
+    # Spend applies the top-tier estimate to unpriced models.
     s = Spend()
     s.add("claude-haiku-4-5", 1_000_000, 0)
     assert s.usd == 1.0, s.usd
