@@ -33,7 +33,7 @@ export async function initStore() {
   globalThis.navigator?.storage?.persist?.()
   state.conversations = (await get(STORE_KEY)) || []
   state.workspaces = (await get(WORKSPACES_KEY)) || []
-  state.runs = (await get(RUNS_KEY)) || []
+  state.runs = ((await get(RUNS_KEY)) || []).filter(validRun)
   state.docs = (await get(DOCS_KEY)) || []
   models.value = (await get(MODELS_KEY)) || []
   savedGlobal = (await get(GLOBAL_KEY)) || null
@@ -178,7 +178,7 @@ export function selectConversation(id) {
 // --- Runs ---------------------------------------------------------------------
 // A run is a research turn's client record: brief, clarifying exchange, events, spend, and the final payload.
 // It belongs to the conversation that sent it (convoId, promptMessageId, resultMessageId) and dies with it.
-// Records without a convoId are pre-conversational leftovers: persisted and exported, rendered nowhere.
+// A record without a convoId is a pre-conversational leftover that renders nowhere (its applied report lives on as a workspace doc), so validRun drops it at every entry path.
 
 export function createRun(convo, promptMessageId, resultMessageId, brief) {
   const r = {
@@ -440,6 +440,10 @@ function validConversation(c) {
   return c?.id && Array.isArray(c.messages)
 }
 
+function validRun(r) {
+  return Boolean(r?.id && r.convoId)
+}
+
 function addMissing(target, values) {
   const ids = new Set(target.map((item) => item.id))
   let added = 0
@@ -462,7 +466,7 @@ export function importData(data) {
   hoistInlineDocs(Array.isArray(extras.workspaces) ? extras.workspaces : [], incomingDocs)
   let changed = addMissing(state.docs, incomingDocs)
   changed += addMissing(state.workspaces, extras.workspaces)
-  changed += addMissing(state.runs, extras.runs)
+  changed += addMissing(state.runs, Array.isArray(extras.runs) ? extras.runs.filter(validRun) : [])
   const have = new Set(state.conversations.map((c) => c.id))
   let added = 0
   for (const c of list) {
@@ -481,7 +485,7 @@ export async function restoreData(data) {
   const restored = structuredClone(data)
   state.conversations = restored.conversations.filter(validConversation)
   state.workspaces = restored.workspaces.filter((w) => w?.id)
-  state.runs = (Array.isArray(restored.runs) ? restored.runs : []).filter((r) => r?.id)
+  state.runs = (Array.isArray(restored.runs) ? restored.runs : []).filter(validRun)
   // A pre-v3 snapshot carries its docs inline on workspaces; the hoist turns them into the replacing doc set.
   state.docs = (Array.isArray(restored.docs) ? restored.docs : []).filter((d) => d?.id)
   hoistInlineDocs(state.workspaces, state.docs)

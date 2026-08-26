@@ -18,11 +18,11 @@ assert.deepEqual(exportData('a').conversations.map((c) => c.id), ['a'], 'single 
 
 const w = createWorkspace('W1')
 assert.equal(exportData().workspaces.length, 1, 'workspace included in full export')
-importData({ conversations: [], workspaces: [{ id: w.id, name: 'clobber?' }, { id: 'w2', name: 'W2' }], runs: [{ id: 'r1' }] })
+importData({ conversations: [], workspaces: [{ id: w.id, name: 'clobber?' }, { id: 'w2', name: 'W2' }], runs: [{ id: 'r1', convoId: 'a' }, { id: 'orphan' }] })
 const wss = exportData().workspaces
 assert.equal(wss.length, 2, 'new workspace added')
 assert.equal(wss.find((x) => x.id === w.id).name, 'W1', 'existing workspace not overwritten')
-assert.equal(exportData().runs.length, 1, 'run merge preserves a new id')
+assert.deepEqual(exportData().runs.map((r) => r.id), ['r1'], 'run merge preserves a new linked run and drops a pre-conversational record')
 
 assert.equal(workspaceOf({ workspaceId: 'nope' }), null)
 assert.equal(workspaceOf(null), null)
@@ -51,7 +51,7 @@ const prefs = await restoreData({
   ...snapshot,
   conversations: [{ id: 'restored', title: 'Restored', messages: [] }],
   workspaces: [{ id: 'restored-w', name: 'Restored' }],
-  runs: [{ id: 'restored-r' }],
+  runs: [{ id: 'restored-r', convoId: 'restored' }, { id: 'restored-orphan' }],
   settings: { temperature: 0.2 },
   usage: { '2020-01-01': { m: { chat: { calls: 1, input: 1, output: 1, cacheRead: 0, cacheWrite: 0, usd: 1, unpriced: 0 } } } },
   prefs: { theme: 'light', fontScale: 1.1, enterToSend: false },
@@ -59,7 +59,7 @@ const prefs = await restoreData({
 all = exportData()
 assert.deepEqual(all.conversations.map((c) => c.id), ['restored'], 'restore replaces conversations')
 assert.deepEqual(all.workspaces.map((w) => w.id), ['restored-w'], 'restore replaces workspaces')
-assert.deepEqual(all.runs.map((r) => r.id), ['restored-r'], 'restore replaces runs')
+assert.deepEqual(all.runs.map((r) => r.id), ['restored-r'], 'restore replaces runs and drops a pre-conversational record')
 assert.equal(globalSettings.value.temperature, 0.2, 'restore merges saved settings')
 assert.equal(prefs.theme, 'light', 'restore returns prefs for the browser caller')
 assert.deepEqual(usageDays(), { '2020-01-01': { m: { chat: { calls: 1, input: 1, output: 1, cacheRead: 0, cacheWrite: 0, usd: 1, unpriced: 0 } } } }, 'a snapshot with a usage field replaces the ledger')
