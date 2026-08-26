@@ -16,9 +16,8 @@ import runs
 from auth import require_auth, router as auth_router
 from providers import (
     CLIENTS, CONFIG_ERRORS, DEFAULT_EFFORT, DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_TEMPERATURE,
-    DEFAULT_UTILITY_MODEL, EFFORT_VALUES, MODELS, PROVIDERS, WEB_FETCH_BETA, WEB_FETCH_TOOL,
-    WEB_SEARCH_TOOL, apply_thinking, chat_completions_kwargs, field, join_system, split_model,
-    takes_reasoning,
+    DEFAULT_UTILITY_MODEL, EFFORT_VALUES, MODELS, PROVIDERS, apply_thinking,
+    chat_completions_kwargs, field, join_system, split_model, takes_reasoning,
 )
 
 load_dotenv()
@@ -211,12 +210,13 @@ async def anthropic_stream(provider, model, messages, system, max_tokens, effort
     apply_thinking(kwargs, effort, max_tokens)
     if system:
         kwargs["system"] = system_param(system)
+    entry = PROVIDERS[provider]
     tools = []
-    if WEB_SEARCH_TOOL:
-        tools.append({"type": WEB_SEARCH_TOOL, "name": "web_search", "max_uses": 5})
-    if WEB_FETCH_TOOL:
-        tools.append({"type": WEB_FETCH_TOOL, "name": "web_fetch", "max_uses": 5})
-        kwargs["extra_headers"] = {"anthropic-beta": WEB_FETCH_BETA}
+    if entry.get("search_tool"):
+        tools.append({"type": entry["search_tool"], "name": "web_search", "max_uses": 5})
+    if entry.get("fetch_tool"):
+        tools.append({"type": entry["fetch_tool"], "name": "web_fetch", "max_uses": 5})
+        kwargs["extra_headers"] = {"anthropic-beta": entry["fetch_beta"]}
     if tools:
         kwargs["tools"] = tools
     try:

@@ -212,7 +212,7 @@ def app_finders():
 
 async def _search_anthropic(query, model, limit, provider):
     tools = [{
-        "type": providers.WEB_SEARCH_TOOL,
+        "type": providers.PROVIDERS[provider]["search_tool"],
         "name": "web_search",
         "max_uses": SEARCH_MAX_USES,
         "blocked_domains": BLOCKED_DOMAINS,
@@ -267,7 +267,7 @@ HOSTED_FINDERS = {"anthropic": _search_anthropic, "responses": _search_responses
 
 def hosted_finder(provider):
     entry = providers.PROVIDERS.get(provider)
-    if not entry or (entry["dialect"] == "responses" and not entry.get("search_tool")):
+    if not entry or not entry.get("search_tool"):
         return None
     return HOSTED_FINDERS.get(entry["dialect"])
 

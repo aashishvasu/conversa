@@ -2,16 +2,23 @@
 
 Everything that knows an API key or a model id lives here.
 main.py owns the web app, research.py the gather stage, and runs.py the run loop; all three import this, which is what keeps them from importing each other.
+
+One module per provider beside this one, each exporting a `PROVIDER` dict; adding a provider on an
+existing dialect is that file plus its key in .env, and nothing in this package is edited.
+Self-check: `python -m providers` (see __main__.py).
 """
 
+import importlib
 import logging
 import os
+import pkgutil
 
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
 # Idempotent, and it has to run here too: importing this module before main reads the env otherwise finds nothing.
+# Before the provider modules are imported, too: their tool versions and keys are read at import time.
 load_dotenv()
 
 
@@ -25,97 +32,47 @@ DEFAULT_EFFORT = os.environ.get("DEFAULT_EFFORT", "")
 # Cheap model for auxiliary tasks: title generation and history compression.
 DEFAULT_UTILITY_MODEL = os.environ.get("DEFAULT_UTILITY_MODEL", "claude-haiku-4-5")
 
-# Anthropic's server-side web search tool.
-# Model-invoked: it searches only when a message warrants it.
-WEB_SEARCH_TOOL = os.environ.get("WEB_SEARCH_TOOL_VERSION", "web_search_20250305")
-# Server-side web fetch tool (lets the model open a URL the user pastes).
-# Beta-gated.
-WEB_FETCH_TOOL = os.environ.get("WEB_FETCH_TOOL_VERSION", "web_fetch_20250910")
-WEB_FETCH_BETA = os.environ.get("WEB_FETCH_BETA", "web-fetch-2025-09-10")
-# OpenAI's hosted search tool.
-# One tool covers both searching and opening pages, so it stands in for both of the above.
-# Empty disables it.
-OPENAI_WEB_SEARCH = os.environ.get("OPENAI_WEB_SEARCH_TOOL", "web_search")
-
 # A research run makes ~30 calls, so a transient 429 or 529 during one of them should be expected.
 # The SDKs retry 408/409/429/5xx and connection errors with exponential backoff; the default of 2 is too few for that.
 API_MAX_RETRIES = int(os.environ.get("API_MAX_RETRIES", "5"))
-
-# Models predating adaptive thinking (pre-4.6).
-# They take the old fixed-token-budget form, reject output_config.effort, and accept temperature.
-# Everything newer takes the modern form.
-# Unknown ids are assumed modern, the direction the API moved.
-# Hand-maintained: add an id here if you expose an older model via MODELS.
-LEGACY_MODELS = {
-    "claude-haiku-4-5",
-    "claude-sonnet-4-5",
-    "claude-opus-4-5",
-    "claude-opus-4-1",
-    "claude-sonnet-4-0",
-    "claude-opus-4-0",
-    "claude-3-haiku-20240307",
-}
-
-# Fixed budgets the effort levels map to on legacy models.
-# Modern models get the qualitative effort string instead and size their own thinking.
-LEGACY_EFFORT_BUDGETS = {"low": 4000, "medium": 10000, "high": 24000}
 
 # The effort vocabulary the frontend offers (store.js EFFORT_LEVELS).
 # Anthropic takes it as output_config.effort, OpenAI as reasoning.effort, so the lever needs no translation.
 EFFORT_VALUES = ("low", "medium", "high")
 
-# OpenAI reasoning models take reasoning.effort and reject temperature; older chat models are the inverse.
-# Prefix match, hand-maintained like LEGACY_MODELS above.
-OPENAI_REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+# WHY: the Anthropic dialect driver reads Anthropic's own id sets directly, since it is the only
+# consumer and there is one provider on that dialect. A second Anthropic-compatible provider with a
+# different generation split moves these onto its entry.
+from .anthropic import LEGACY_EFFORT_BUDGETS, LEGACY_MODELS  # noqa: E402
 
 # Providers are data; dialects are code.
 # `dialect` picks the wire protocol, and so both the branch in complete() and the stream generator in main.py.
-# Everything else here is a plain value, so a provider on an existing dialect costs one entry plus its key in .env.
 #
-# Fields: dialect (anthropic | responses | chat_completions), key_env, models, and optionally
+# Entry fields: dialect (anthropic | responses | chat_completions), key_env, models, and optionally
 # base_url (required away from the first-class endpoints), search_tool (hosted web search; absent = none),
-# and reasoning_prefixes (which ids take the dialect's thinking lever; absent = all of them).
+# reasoning_prefixes (which ids take the dialect's thinking lever; absent = all of them), plus whatever
+# else one dialect needs (Anthropic's fetch_tool and fetch_beta).
 # Model ids in `models` carry their own provider prefix, except Anthropic's, which are bare (see split_model).
-PROVIDERS = {
-    "anthropic": {
-        "dialect": "anthropic",
-        "key_env": "ANTHROPIC_API_KEY",
-        "models": (
-            "claude-fable-5:Fable 5,"
-            "claude-opus-5:Opus 5,claude-sonnet-5:Sonnet 5,claude-opus-4-8:Opus 4.8,"
-            "claude-sonnet-4-6:Sonnet 4.6,claude-haiku-4-5:Haiku 4.5"
-        ),
-    },
-    "openai": {
-        "dialect": "responses",
-        "key_env": "OPENAI_API_KEY",
-        "search_tool": OPENAI_WEB_SEARCH,
-        "reasoning_prefixes": OPENAI_REASONING_PREFIXES,
-        "models": (
-            "openai/gpt-5.6-sol:GPT-5.6 Sol,openai/gpt-5.6-terra:GPT-5.6 Terra,"
-            "openai/gpt-5.6-luna:GPT-5.6 Luna,openai/gpt-5.5:GPT-5.5,"
-            "openai/gpt-5-mini:GPT-5 Mini"
-        ),
-    },
-    # DeepSeek serves all three dialects (api-docs.deepseek.com, read 2026-08-26).
-    # Responses is the one carrying hosted web search and image input; its chat.completions takes function tools only.
-    # Every model it offers reasons, so there are no reasoning_prefixes to list.
-    "deepseek": {
-        "dialect": "responses",
-        "key_env": "DEEPSEEK_API_KEY",
-        "base_url": "https://api.deepseek.com",
-        "search_tool": "web_search",
-        "models": "deepseek/deepseek-v4-pro:DeepSeek V4 Pro,deepseek/deepseek-v4-flash:DeepSeek V4 Flash",
-    },
-    "moonshot": {
-        "dialect": "chat_completions",
-        "key_env": "MOONSHOT_API_KEY",
-        "base_url": "https://api.moonshot.ai/v1",
-        "models": "moonshot/kimi-k2-thinking:Kimi K2 Thinking",
-    },
-}
-
 DIALECTS = ("anthropic", "responses", "chat_completions")
+
+
+def _discover():
+    """Every sibling module exporting a PROVIDER dict, keyed by module name.
+
+    Dropping a file in registers it, which is the point: the registry has no list to edit and so no
+    line for two people to collide on. Alphabetical, which is the order the model dropdown groups by.
+    """
+    found = {}
+    for info in pkgutil.iter_modules(__path__):
+        if info.name.startswith("_"):  # __main__ carries the self-check, not a provider
+            continue
+        entry = getattr(importlib.import_module(f"{__name__}.{info.name}"), "PROVIDER", None)
+        if entry:
+            found[info.name] = entry
+    return found
+
+
+PROVIDERS = _discover()
 
 KEYS = {name: os.environ.get(p["key_env"]) for name, p in PROVIDERS.items()}
 
@@ -305,90 +262,3 @@ async def complete(model_id, system, prompt, max_tokens=2048, effort="", spend=N
     if spend and response.usage:
         spend.add(model_id, response.usage.prompt_tokens, response.usage.completion_tokens)
     return (response.choices[0].message.content or "").strip()
-
-
-if __name__ == "__main__":  # self-check: python providers.py
-    def _k(model, temperature=1.0):
-        return {"model": model, "max_tokens": 4096, "temperature": temperature}
-
-    # Modern model, thinking on: adaptive + effort, no temperature, roomier max_tokens.
-    m = apply_thinking(_k("claude-opus-4-8"), "high", 4096)
-    assert m["thinking"] == {"type": "adaptive", "display": "summarized"}, m
-    assert m["output_config"] == {"effort": "high"}, m
-    assert "temperature" not in m, m
-    assert m["max_tokens"] == 32000, m
-
-    # Modern model, thinking off: still no temperature (Opus 4.7/4.8 reject it outright).
-    m = apply_thinking(_k("claude-opus-4-8"), "", 4096)
-    assert "temperature" not in m and "thinking" not in m, m
-    assert m["max_tokens"] == 4096, m
-
-    # Legacy model: fixed budget, budget < max_tokens, temperature dropped only here.
-    m = apply_thinking(_k("claude-haiku-4-5"), "medium", 4096)
-    assert m["thinking"] == {"type": "enabled", "budget_tokens": 10000}, m
-    assert m["max_tokens"] > m["thinking"]["budget_tokens"], m
-    assert "output_config" not in m and "temperature" not in m, m
-
-    # Legacy model, thinking off: temperature survives, since legacy models accept it.
-    m = apply_thinking(_k("claude-haiku-4-5", temperature=0.3), "", 4096)
-    assert m["temperature"] == 0.3, m
-    assert "thinking" not in m, m
-
-    # Unknown ids are treated as modern, not legacy.
-    assert "output_config" in apply_thinking(_k("claude-future-9"), "low", 4096)
-
-    # A bare id means Anthropic, permanently.
-    # Conversations saved before OpenAI support hold bare ids.
-    assert split_model("claude-opus-5") == ("anthropic", "claude-opus-5")
-    assert split_model("openai/gpt-5.6") == ("openai", "gpt-5.6")
-    # rpartition, so a provider id that itself contains a slash still splits at the last one.
-    assert split_model("openai/ft:org/gpt-5.6") == ("openai/ft:org", "gpt-5.6")
-
-    # parse_models: label optional, provider derived, first occurrence of an id wins.
-    p = parse_models("claude-opus-5:Opus 5,openai/gpt-5.6:GPT,openai/gpt-5.6:dupe,bare-id")
-    assert [m["id"] for m in p] == ["claude-opus-5", "openai/gpt-5.6", "bare-id"], p
-    assert [m["provider"] for m in p] == ["anthropic", "openai", "anthropic"], p
-    assert p[1]["label"] == "GPT" and p[2]["label"] == "bare-id", p
-
-    # Models whose provider has no key are hidden rather than offered-then-503.
-    _all = parse_models("claude-opus-5:Opus,openai/gpt-5.6:GPT")
-    assert [m["id"] for m in _all if m["provider"] in {"anthropic"}] == ["claude-opus-5"], _all
-
-    # Registry shape: a typo in `dialect` surfaces as a 400 on send, and a chat.completions entry without a
-    # base_url would go to api.openai.com under someone else's key.
-    for _name, _entry in PROVIDERS.items():
-        assert _entry["dialect"] in DIALECTS, _name
-        assert _entry["key_env"] and _entry["models"], _name
-        # Only the two first-class endpoints are the SDK defaults; anything else needs its own address.
-        assert _entry.get("base_url") or _name in ("anthropic", "openai"), _name
-        # An entry whose ids carry the wrong prefix stays hidden whatever keys are set, since MODELS filters on provider.
-        for _m in parse_models(_entry["models"]):
-            assert _m["provider"] == _name, (_name, _m)
-
-    # Reasoning gate: OpenAI splits its lineup by id prefix, DeepSeek reasons on everything it offers.
-    assert takes_reasoning("openai", "gpt-5.6-sol") and not takes_reasoning("openai", "gpt-4o")
-    assert takes_reasoning("deepseek", "deepseek-v4-flash")
-
-    # chat.completions: the system param becomes the leading message, and temperature is omitted unless asked for.
-    _cc = chat_completions_kwargs("kimi-k2-thinking", [{"role": "user", "content": "hi"}],
-                                  ["stable", "volatile"], 2048, temperature=0.3)
-    assert _cc["messages"][0] == {"role": "system", "content": "stable\n\nvolatile"}, _cc
-    assert _cc["messages"][1]["content"] == "hi" and _cc["temperature"] == 0.3, _cc
-    _cc = chat_completions_kwargs("kimi-k2-thinking", [{"role": "user", "content": "hi"}], None, 2048)
-    assert _cc["messages"][0]["content"] == "hi" and "temperature" not in _cc, _cc
-
-    # An empty half is dropped rather than joined into leading blank lines.
-    assert join_system(["stable", ""]) == "stable"
-    assert join_system("plain") == "plain"
-
-    # Both providers share one effort vocabulary, so the lever needs no translation.
-    assert set(EFFORT_VALUES) == set(LEGACY_EFFORT_BUDGETS), EFFORT_VALUES
-
-    # field() reads SDK objects and plain dicts alike, and returns None on a shape it doesn't recognise.
-    class _Obj:
-        type = "url_citation"
-    assert field({"type": "url_citation"}, "type") == "url_citation"
-    assert field(_Obj(), "type") == "url_citation"
-    assert field({"a": 1}, "missing") is None and field(_Obj(), "missing") is None
-
-    print("providers selfcheck OK")
