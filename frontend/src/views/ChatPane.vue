@@ -161,7 +161,9 @@ async function runCompletion(c) {
       try {
         const t = await generateTitle(c, settings.utility_model)
         if (t) c.title = t
-      } catch { /* best-effort */ }
+      } catch (e) {
+        notify({ key: 'utility:title', severity: 'warning', text: `Title generation failed: ${e.message}` })
+      }
     }
   } catch (e) {
     if (e.name !== 'AbortError' && assistant) {
@@ -173,7 +175,8 @@ async function runCompletion(c) {
     streaming.value = false
     guard.end()
     // Refresh the memory summary in the background, off the send path.
-    refreshMemory(c, settings).catch(() => {})
+    // The key dedupes: this fires after every reply, so a persistently failing utility model refreshes one toast instead of stacking.
+    refreshMemory(c, settings).catch((e) => notify({ key: 'utility:memory', severity: 'warning', text: `Memory summary failed: ${e.message}` }))
     persistNow() // don't let a quick reload lose the completed message
   }
 }
