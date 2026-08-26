@@ -1,6 +1,5 @@
 <script setup>
 import {
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -21,7 +20,9 @@ import { answerConfirm, confirmState } from '../utils/confirm.js'
         <AlertDialogDescription class="mt-3 text-sm">{{ confirmState.message }}</AlertDialogDescription>
         <div class="mt-4 flex justify-end gap-2">
           <AlertDialogCancel class="rounded px-3 py-1.5 text-sm hover:bg-surface2">Cancel</AlertDialogCancel>
-          <AlertDialogAction class="rounded bg-danger px-3 py-1.5 text-sm font-medium text-on-danger hover:opacity-90" @click="answerConfirm(true)">{{ confirmState.label }}</AlertDialogAction>
+          <!-- AlertDialogAction's built-in close can fire before the click handler, letting the update:open dismissal above resolve the confirm as false first.
+               Resolving true nulls confirmState, so the v-if unmounts the dialog and the confirm button needs no built-in close. -->
+          <button class="rounded bg-danger px-3 py-1.5 text-sm font-medium text-on-danger hover:opacity-90" @click="answerConfirm(true)">{{ confirmState.label }}</button>
         </div>
       </AlertDialogContent>
     </AlertDialogPortal>
