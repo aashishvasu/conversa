@@ -2,8 +2,8 @@
 import { Menu } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import SpendBadge from '../components/SpendBadge.vue'
-import { sidebarOpen } from '../store.js'
-import { usageDays, usageRows } from '../usage.js'
+import { sidebarOpen } from '../state/store.js'
+import { usageDays, usageRows } from '../state/usage.js'
 
 const start = ref('')
 const end = ref('')

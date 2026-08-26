@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { EFFORT_LEVELS } from '../settings.js'
-import { downloadExport, globalSettings, importData, modelSupportsCache, persistGlobal, restoreData, snapshotInfo } from '../store.js'
+import { EFFORT_LEVELS } from '../state/settings.js'
+import { downloadExport, globalSettings, importData, modelSupportsCache, persistGlobal, restoreData, snapshotInfo } from '../state/store.js'
 import { enterToSend, fontScale, restorePrefs } from '../utils/prefs.js'
 import { restoreTheme } from '../utils/theme.js'
 import { confirmDelete } from '../utils/confirm.js'

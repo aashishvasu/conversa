@@ -1,7 +1,7 @@
-// Run: node src/utils/confirm.selfcheck.js.
+// Run: node src/selfchecks/confirm.selfcheck.js.
 // Fails loudly if the confirm contract breaks.
 import assert from 'node:assert'
-import { answerConfirm, confirmDelete, confirmState } from './confirm.js'
+import { answerConfirm, confirmDelete, confirmState } from '../utils/confirm.js'
 
 const p = confirmDelete('delete?')
 assert.ok(confirmState.value, 'opens (state set while pending)')

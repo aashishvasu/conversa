@@ -1,7 +1,7 @@
-// Run: node src/cards.selfcheck.js.
+// Run: node src/selfchecks/cards.selfcheck.js.
 // Fails loudly if card logic breaks.
 import assert from 'node:assert'
-import { matchCards, parseGeneratedCards, parseTriggers } from './cards.js'
+import { matchCards, parseGeneratedCards, parseTriggers } from '../prompt/cards.js'
 
 const cards = [
   { id: '1', triggers: 'dragon, wyrm', content: 'DRAGON_LORE' },

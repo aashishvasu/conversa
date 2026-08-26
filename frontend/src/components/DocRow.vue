@@ -1,10 +1,10 @@
 <script setup>
 import { Download, RotateCcw, X } from '@lucide/vue'
 import { ref } from 'vue'
-import { streamChat } from '../api.js'
-import { effectiveSettings } from '../settings.js'
-import { downloadText, undoDocRevision, updateDocText } from '../store.js'
-import { addConvoUsage, recordUsage } from '../usage.js'
+import { streamChat } from '../api/client.js'
+import { effectiveSettings } from '../state/settings.js'
+import { downloadText, undoDocRevision, updateDocText } from '../state/store.js'
+import { addConvoUsage, recordUsage } from '../state/usage.js'
 import { renderMarkdown } from '../utils/md.js'
 
 // One document row: name and size collapsed; markdown preview, download, and the revise action expanded.

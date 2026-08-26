@@ -27,7 +27,9 @@ Browser (Vue SPA, IndexedDB)  --HTTPS-->  FastAPI  --streaming-->  Model APIs
    conversation state                 keys + password
 ```
 
-### Backend endpoints (`backend/main.py`)
+### Backend endpoints (`backend/api/`)
+
+`main.py` is assembly only: it constructs the app and includes one router per route group from `api/` (`auth`, `chat`, `research`, `fetch`), with SSE framing shared through `api/sse.py`.
 
 - `POST /api/login`: exchanges `APP_PASSWORD` (constant-time compared) for a signed, expiring JWT.
 - `POST /api/refresh`: trades a still-valid token for a fresh full-TTL one.
@@ -36,25 +38,25 @@ Browser (Vue SPA, IndexedDB)  --HTTPS-->  FastAPI  --streaming-->  Model APIs
 - `GET  /api/models`: selectable models as `{id, label, provider, supports_cache}`, filtered to configured providers. `supports_cache` is a dialect property (Anthropic only), not a per-model one; `SettingsPanel.vue`/`GlobalSettings.vue` disable the cache checkbox and explain why when the effective model can't use it. Effort has the same gap (`takes_reasoning()`'s `reasoning_prefixes` check) and is not flagged yet.
 - `POST /api/chat`: streams a completion as SSE from the provider that owns the requested model.
   The server environment supplies API keys. The provider layer translates `effort`, attaches configured hosted tools, and emits text, thinking, and tool-trace events (`search`, `fetch`, `results`), plus one `usage` frame (`{model, input, output, cache_read, cache_write, usd, unpriced}`, priced server-side) before `done`.
-  `main.py` JSON-encodes each event so newlines and special characters remain inside one SSE frame.
+  `api/sse.py` JSON-encodes each event so newlines and special characters remain inside one SSE frame.
   A list-valued `system` is `[stable, volatile]`: the Anthropic dialect marks the first block for prompt caching (`use_cache`, off by default); the other dialects rejoin it.
-- `POST /api/fetch`: returns readable markdown from a URL (`backend/fetcher.py`).
-  With a `topic`, `backend/topic.py` returns the sections matching that topic.
+- `POST /api/fetch`: returns readable markdown from a URL (`backend/research/fetcher.py`).
+  With a `topic`, `backend/research/topic.py` returns the sections matching that topic.
 - `POST /api/research/clarify`: returns up to 5 questions about a brief, or none when it leaves nothing open. An optional `context` excerpt lets a mid-conversation brief lean on pronouns and prior decisions. Answers become part of the brief read by the planner.
 - `POST /api/research`: starts a run and returns its id.
   `GET /api/research/{id}` reads its state, `GET /api/research/{id}/stream` replays from `?after=<seq>` then tails live as SSE, `DELETE /api/research/{id}` cancels it.
 
 All endpoints except `/api/login` require `Authorization: Bearer <token>`.
-`/api/login`, `/api/refresh`, and the `require_auth` dependency the other routes depend on live in `backend/auth.py`.
+`/api/login`, `/api/refresh`, and the `require_auth` dependency the other routes depend on live in `backend/api/auth.py`.
 A 401 logs the client out automatically.
 Production serves the SPA and API from one origin through the `StaticFiles` mount. `CORS_ORIGINS` configures the separate Vite origin used in development.
 
 ### Provider layer (`backend/providers/`)
 
 Each first-class provider has one file exporting a `PROVIDER` dict. `providers/registry.py` combines them and owns keys, clients, model ids, and defaults; `providers/dialects.py` owns request construction, provider event parsing, streaming, and `complete()`.
-`providers/__init__.py` is the import facade. `main.py` owns the FastAPI boundary and SSE framing, `research.py` owns gathering, and `runs.py` owns the run loop. Dependency direction is `main.py`, `research.py`, and `runs.py` -> `providers`.
+`providers/__init__.py` is the import facade. `api/` owns the FastAPI boundary and SSE framing, `research/gather.py` owns gathering, and `research/runs.py` owns the run loop. Dependency direction is `api/`, `gather`, and `runs` -> `providers`.
 
-### Research runs (`backend/runs.py`, `backend/research.py`)
+### Research runs (`backend/research/runs.py`, `backend/research/gather.py`)
 
 `runs.py` owns the run lifecycle: a run is an `asyncio.Task` plus an event list held in the `RUNS` dict.
 Runs continue after the client closes its tab and end when the process restarts. The browser stores the brief.
@@ -63,7 +65,7 @@ The client half of a run lives on the conversation that sent it: a research send
 
 Phases are plan, gather, gap, report.
 Gather fans out one coroutine per subquestion under a semaphore; each searches, fetches, and writes notes, then drops the document.
-The search, fetch and note-taking stages live in `research.py`, with `PageCache`, `Spend`, and the prompts; `runs.py` imports them.
+The search, fetch and note-taking stages live in `gather.py`, with `PageCache`, `Spend`, and the prompts; `runs.py` imports them.
 A run retains notes and source URLs. Page bodies are released after note-taking, keeping retained memory proportional to the notes.
 
 `search()` tries configured app finders in Exa, Brave, SearXNG order, then the search model's hosted tool. Each query logs its finder to the uvicorn console; a failed finder logs its error before the next attempt.
@@ -77,7 +79,7 @@ The SSE stream emits a 1-second `tick` to keep idle proxies open during long pha
 `PROMPTS` is the tuning surface and a request may override any key.
 The finished payload is the research result: `{name, report: {name, text}, sections: [{question, notes: [{note, url}]}]}`, sections in the report's `qN` heading order.
 
-### Fetching (`backend/fetcher.py`, `backend/topic.py`)
+### Fetching (`backend/research/fetcher.py`, `backend/research/topic.py`)
 
 Ported from [magpi](https://github.com/grainologic/magpi) (MIT). trafilatura extracts HTML and keeps fenced code blocks; a content-type branch handles JSON and plain text; a Wayback lookup retries 403/404/410/451.
 
@@ -90,7 +92,7 @@ Providers are data, dialects are code.
 Each first-class provider file exports a dict naming its `dialect` (`anthropic`, `responses`, or `chat_completions`), key env var, selectable models, and any dialect-specific data such as `base_url`, `search_tool`, or `reasoning_prefixes`.
 `providers/registry.py` imports those modules explicitly. Keys, clients, `CONFIGURED`, and `BUILTIN_MODELS` derive from their entries.
 
-The dialect is the wire protocol, and there are three: Anthropic messages, OpenAI Responses, and OpenAI chat.completions. `providers/dialects.py` contains one stream adapter per protocol and maps each provider's events onto conversa event dictionaries. `main.py` JSON-encodes those dictionaries as SSE.
+The dialect is the wire protocol, and there are three: Anthropic messages, OpenAI Responses, and OpenAI chat.completions. `providers/dialects.py` contains one stream adapter per protocol and maps each provider's events onto conversa event dictionaries. `api/sse.py` JSON-encodes those dictionaries as SSE.
 A provider with its own protocol needs another adapter plus its `complete()` branch. A provider that implements an existing dialect needs only its file and registry import.
 
 DeepSeek uses Responses because that endpoint carries its reasoning stream, hosted web search, and image input.
@@ -127,7 +129,7 @@ DeepSeek's `PRICES` in `providers/deepseek.py` is the peak-hours cache-miss rate
 Three pure functions extract token and cache counts from each dialect's usage shape, shared by the streaming adapters and by `complete()`'s utility-call path: `anthropic_usage()` reads `message.usage` directly; `responses_usage()`/`responses_usage_from()` split the streamed `response.completed` event from the usage object inside it; `chat_completion_usage()`/`chat_completion_usage_from()` do the same for the chunk `stream_options.include_usage` attaches.
 `_chat_completions_stream` always sends `stream_options: {"include_usage": true}`; an OpenAI-compatible endpoint that rejects the parameter would 400 the whole stream, unverified without a key.
 
-On the frontend, `usage.js` is the client-side ledger: day buckets, one row per model per kind (`chat`, `utility`, `research`), persisted to IndexedDB like `store.js`. `streamChat`'s `onUsage` callback feeds it from all four call sites (`ChatPane.vue`, `memory.js`, `titles.js`, `CardsPanel.vue`'s card builder); each also folds the same frame into `convo.usage`, a flat running total for that conversation. A finished research run folds its `Spend.as_dict().models` breakdown into the ledger once, guarded by `spendLedgered` on the persisted run record so a reconnect or reopen replaying the same `final` frame does not double it.
+On the frontend, `state/usage.js` is the client-side ledger: day buckets, one row per model per kind (`chat`, `utility`, `research`), persisted to IndexedDB like `store.js`. `streamChat`'s `onUsage` callback feeds it from all four call sites (`ChatPane.vue`, `jobs/memory.js`, `jobs/titles.js`, `CardsPanel.vue`'s card builder); each also folds the same frame into `convo.usage`, a flat running total for that conversation. A finished research run folds its `Spend.as_dict().models` breakdown into the ledger once, guarded by `spendLedgered` on the persisted run record so a reconnect or reopen replaying the same `final` frame does not double it.
 The ledger joins the full snapshot export/restore (see Workspaces above). `components/SpendBadge.vue` renders `{calls, input, output, usd, unpriced}` in the chat footer via `convo.usage` and each Usage-pane table row. `views/UsagePane.vue` reads the ledger by model and kind over an optional native date range.
 
 ### chat.completions specifics (`_chat_completions_stream` in `backend/providers/dialects.py`)
@@ -150,9 +152,9 @@ The wire format for extended thinking split across model generations, so one bra
 Unknown model ids are treated as modern.
 `LEGACY_MODELS` in `providers/anthropic.py` is a hand-maintained set of older ids, so adding a pre-4.6 model to `MODELS` means adding its id there too.
 The three lever words (`low` / `medium` / `high`) are `EFFORT_VALUES`; Claude, OpenAI, and DeepSeek accept them verbatim. The generic compatibility path sends no effort parameter because chat.completions has no standard name for it.
-Covered by `python -m providers`.
+Covered by `python -m selfchecks.providers`.
 
-### How a request is assembled (`frontend/src/cards.js`)
+### How a request is assembled (`frontend/src/prompt/cards.js`)
 
 `buildPayload(convo, settings, workspace, docs)` assembles the provider request; the two call sites (ChatPane, DebugPanel) resolve `workspace` with `workspaceOf(convo)` and `docs` with `attachedDocs(convo)`.
 
@@ -175,14 +177,14 @@ The stable half is everything above the memory summary: workspace prompt, system
 The order is what makes this work: prompt caching is prefix-match, and cards are assembled last, so a card firing mid-conversation rewrites only the uncached tail.
 Messages stay uncached because the send window drops turns off the front as it slides, which changes the message prefix on most turns.
 
-### Workspaces (`frontend/src/store.js`)
+### Workspaces (`frontend/src/state/store.js`)
 
 A workspace is `{ id, name, systemPrompt, cards, docIds }` in its own IndexedDB key, persisted through the same debounced save as conversations.
 A conversation joins by setting `convo.workspaceId`; `workspaceOf(convo)` resolves it (null for a missing or deleted workspace, which degrades to plain-convo behavior everywhere).
 The merge into the request happens at read time in `buildPayload`, so joining, leaving, and deleting a workspace touch only that pointer.
 Full export is a versioned snapshot (`SNAPSHOT_VERSION` in `store.js`) carrying everything IndexedDB holds that is the user's rather than the deployment's: conversations, workspaces, docs, runs, saved settings, the usage ledger, and UI prefs. The models cache is excluded on purpose (server-owned, refetched after login) and the auth token never enters a snapshot at all. A snapshot from an older version still restores; a field that version never had (the usage ledger, before usage.md) is left untouched rather than wiped, since replace-all only replaces what the snapshot actually claims to hold, and pre-v3 snapshots that held docs inline on workspaces have them hoisted into the doc store on restore. Merge import also accepts the older bare-array format, keeps local workspaces and docs on id collision so existing links stay resolvable, and ignores snapshot-only settings, usage, and prefs. Restore replaces every collection after an explicit confirmation.
 
-### Documents (`frontend/src/store.js`)
+### Documents (`frontend/src/state/store.js`)
 
 A doc is `{ id, name, text, createdAt, updatedAt, source, versions }` living once in its own IndexedDB key; workspaces and conversations reference it through `docIds`, so one doc serves several owners without copies.
 `source` records provenance: `{ kind: 'upload' | 'research' | 'chat' | 'revise', runId?, convoId?, messageId? }`.
@@ -192,7 +194,7 @@ Docs enter the store four ways: workspace upload (WorkspacePanel), a finished re
 Docs are plain text sent whole per request; chunked retrieval (the recall scorer fits) is the upgrade path if attached docs outgrow the context window.
 A single-conversation export carries the docs it references; importing merges them with the same keep-local collision rule.
 
-### Memory / compression (`frontend/src/memory.js`)
+### Memory / compression (`frontend/src/jobs/memory.js`)
 
 When `use_memory` is on, `refreshMemory` runs in the background after each assistant reply (fire-and-forget, off the send path).
 It summarizes the `summarize_n` turns just above the send window into `convo.memory` via the utility model, and records where coverage ends in `memoryCount`.
@@ -205,21 +207,21 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 
 | File | Responsibility |
 |------|----------------|
-| `store.js` | Reactive conversation, workspace, document and research-run state, IndexedDB persistence, versioned export/import, and replace-all snapshot restore. A run is a research turn's client record, linked to its conversation and messages; `finishRun` lands the final frame (report doc, links, one spend fold). Also `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write raises a notification with an export offer while the data is still intact in memory. |
-| `settings.js` | The settings surface: `SETTING_KEYS` (what a conversation may override), `RESEARCH_KEYS` (what a run may override, rendered in ResearchBlock's models-and-depth section), and `EFFORT_LEVELS`, the single definition of the thinking-effort lever. `effectiveSettings(owner, keys)` resolves either list against the global defaults. |
-| `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `discardResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
-| `cards.js` | Pure card concerns: trigger matching, force overrides, `effectiveCards`, and the card builder's parsing half: `CARDGEN_SYSTEM` (the prompt that teaches the trigger syntax) and `parseGeneratedCards()` (fence- and prose-tolerant JSON parsing, strict on shape). Vue-free, so it runs in Node. |
-| `payload.js` | Request assembly: `buildPayload`, the send window, and lexical recall. With `use_cache` on, `buildPayload` returns `system` as `[stable, volatile]`. Dependency direction is payload.js -> cards.js; both are Vue-free. |
-| `memory.js` | Background sliding-window summarization. |
-| `titles.js` | Auto-titling from recent turns via the utility model. |
-| `usage.js` | Client-side usage ledger: day/model/kind buckets, `convo.usage`, IndexedDB-persisted; joins the full snapshot export/restore. |
+| `state/store.js` | Reactive conversation, workspace, document and research-run state, IndexedDB persistence, versioned export/import, and replace-all snapshot restore. A run is a research turn's client record, linked to its conversation and messages; `finishRun` lands the final frame (report doc, links, one spend fold). Also `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write raises a notification with an export offer while the data is still intact in memory. |
+| `state/settings.js` | The settings surface: `SETTING_KEYS` (what a conversation may override), `RESEARCH_KEYS` (what a run may override, rendered in ResearchBlock's models-and-depth section), and `EFFORT_LEVELS`, the single definition of the thinking-effort lever. `effectiveSettings(owner, keys)` resolves either list against the global defaults. |
+| `api/client.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `discardResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
+| `prompt/cards.js` | Pure card concerns: trigger matching, force overrides, `effectiveCards`, and the card builder's parsing half: `CARDGEN_SYSTEM` (the prompt that teaches the trigger syntax) and `parseGeneratedCards()` (fence- and prose-tolerant JSON parsing, strict on shape). Vue-free, so it runs in Node. |
+| `prompt/payload.js` | Request assembly: `buildPayload`, the send window, and lexical recall. With `use_cache` on, `buildPayload` returns `system` as `[stable, volatile]`. Dependency direction is payload.js -> cards.js; both are Vue-free. |
+| `jobs/memory.js` | Background sliding-window summarization. |
+| `jobs/titles.js` | Auto-titling from recent turns via the utility model. |
+| `state/usage.js` | Client-side usage ledger: day/model/kind buckets, `convo.usage`, IndexedDB-persisted; joins the full snapshot export/restore. |
 | `composables/useStreamGuard.js` | Holds a screen wake lock while streaming and aborts a stream after `STALL_MS` (60s) of silence when the tab returns to the foreground. The abort uses the normal stop path. |
 | `utils/md.js` | Markdown in, sanitized and highlighted HTML out. |
 | `utils/format.js` | Timestamp formatting (native `Intl`). |
 | `utils/theme.js` | Light/dark toggle. |
 | `utils/prefs.js` | Frontend-only UI prefs (font scale, Enter-to-send), persisted to localStorage. |
 | `utils/confirm.js` | Promise-based confirm: `await confirmDelete(msg)`, backed by one `ConfirmModal` at app root. |
-| `utils/notify.js` | Reactive app-wide notification queue with keyed dedupe and dismissal; `notify.selfcheck.js` checks its contract. |
+| `utils/notify.js` | Reactive app-wide notification queue with keyed dedupe and dismissal; `selfchecks/notify.selfcheck.js` checks its contract. |
 | `views/ChatPane.vue` | The chat window: message list, composer, toolbar (model + thinking-effort pickers + the Research mode toggle), and the stream loop. A research-mode send appends the request, its linked run, and the placeholder ResearchBlock renders; a running run blocks further sends in that conversation only. Renders the last `PAGE_SIZE` (100) messages with "Load more" (display-only, and separate from what's sent), and marks the send-window start with a divider. |
 | `components/MessageBubble.vue` | One message: view/edit bubble, pin/copy/delete/regenerate/save-as-document actions, and the live thinking/search trace while it streams (ephemeral, dropped on reload). List and stream mutations stay in ChatPane, behind events. |
 | `components/ModelSelect.vue` | The one model dropdown, rendered in five places. Groups models by provider with native `<optgroup>`. |
@@ -270,29 +272,28 @@ pnpm dev
 
 Every module with non-trivial logic carries a directly runnable, assert-based self-check.
 
-Card / payload logic, the confirm dialog, and export/import:
+Each source root keeps them in a `selfchecks/` folder, one runnable file per checked module.
 
 ```sh
 cd frontend
-node src/cards.selfcheck.js
-node src/payload.selfcheck.js
-node src/utils/confirm.selfcheck.js
-node src/utils/md.selfcheck.js
-node src/store.selfcheck.js
-node src/usage.selfcheck.js
+node src/selfchecks/cards.selfcheck.js
+node src/selfchecks/payload.selfcheck.js
+node src/selfchecks/confirm.selfcheck.js
+node src/selfchecks/md.selfcheck.js
+node src/selfchecks/notify.selfcheck.js
+node src/selfchecks/store.selfcheck.js
+node src/selfchecks/usage.selfcheck.js
 ```
 
-The backend's live at the bottom of each module, behind `__main__`, so uvicorn (which imports `app`) skips them:
-
 ```sh
-cd backend                          # .venv/Scripts on Windows, .venv/bin on *nix
-.venv/Scripts/python -m providers  # registry, request builders, cache split, and all three event mappings
-.venv/Scripts/python main.py        # SSE JSON framing
-.venv/Scripts/python auth.py        # token mint/verify roundtrip, require_auth rejections
-.venv/Scripts/python fetcher.py     # SSRF guard, URL canonicalization
-.venv/Scripts/python topic.py       # section ranking, headingless fallback
-.venv/Scripts/python research.py    # blocklist matching, finder parsing + precedence, list parsing, spend, page cache, source-failure isolation
-.venv/Scripts/python runs.py        # payload numbering, failed-report recovery, forget and evict
+cd backend                                    # .venv/Scripts on Windows, .venv/bin on *nix
+.venv/Scripts/python -m selfchecks.providers  # registry, request builders, cache split, and all three event mappings
+.venv/Scripts/python -m selfchecks.api        # SSE JSON framing
+.venv/Scripts/python -m selfchecks.auth       # token mint/verify roundtrip, require_auth rejections
+.venv/Scripts/python -m selfchecks.fetcher    # SSRF guard, URL canonicalization
+.venv/Scripts/python -m selfchecks.topic      # section ranking, headingless fallback
+.venv/Scripts/python -m selfchecks.gather     # blocklist matching, finder parsing + precedence, list parsing, page cache, source-failure isolation
+.venv/Scripts/python -m selfchecks.runs       # payload shape, failed-report recovery, forget and evict
 ```
 
 The wake lock and stall watchdog in `composables/useStreamGuard.js` are verified on a real mobile browser: background a stream mid-reply for over a minute, then return.

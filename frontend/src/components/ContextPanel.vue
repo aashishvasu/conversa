@@ -1,8 +1,8 @@
 <script setup>
 import { Trash2, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
-import { fetchUrl } from '../api.js'
-import { deleteDoc, docs, docsOf, removeDocRef } from '../store.js'
+import { fetchUrl } from '../api/client.js'
+import { deleteDoc, docs, docsOf, removeDocRef } from '../state/store.js'
 import { confirmDelete } from '../utils/confirm.js'
 import DocRow from './DocRow.vue'
 

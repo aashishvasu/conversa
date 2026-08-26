@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { fetchSettings, login } from '../api.js'
+import { fetchSettings, login } from '../api/client.js'
 
 const emit = defineEmits(['authenticated'])
 const pw = ref('')

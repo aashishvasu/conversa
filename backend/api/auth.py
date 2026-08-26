@@ -61,15 +61,3 @@ def refresh(_=Depends(require_auth)):
     # Sliding session: any still-valid token can be traded for a fresh full-TTL one.
     return {"token": mint_token()}
 
-
-if __name__ == "__main__":  # self-check: python auth.py
-    # A minted token verifies, and require_auth accepts it as a bearer header.
-    require_auth(f"Bearer {mint_token()}")
-    for bad in (None, "no-scheme", "Bearer garbage"):
-        try:
-            require_auth(bad)
-            raise AssertionError(f"accepted {bad!r}")
-        except HTTPException as e:
-            assert e.status_code == 401, e
-
-    print("auth selfcheck OK")

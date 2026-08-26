@@ -1,7 +1,7 @@
-// Run: node src/payload.selfcheck.js.
+// Run: node src/selfchecks/payload.selfcheck.js.
 // Fails loudly if payload assembly breaks.
 import assert from 'node:assert'
-import { buildPayload, recallMessages } from './payload.js'
+import { buildPayload, recallMessages } from '../prompt/payload.js'
 
 const cards = [
   { id: '1', triggers: 'dragon, wyrm', content: 'DRAGON_LORE' },

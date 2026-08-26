@@ -1,6 +1,6 @@
-// Run: node src/utils/notify.selfcheck.js.
+// Run: node src/selfchecks/notify.selfcheck.js.
 import assert from 'node:assert'
-import { dismiss, notifications, notify } from './notify.js'
+import { dismiss, notifications, notify } from '../utils/notify.js'
 
 const first = notify({ key: 'test', text: 'First' })
 const second = notify({ key: 'test', text: 'Second' })

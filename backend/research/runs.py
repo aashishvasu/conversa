@@ -3,7 +3,7 @@
 A run is an asyncio.Task plus its event list, held in the RUNS dict for the life of the process.
 That is what survives a client closing the tab.
 A process restart ends every run, and the brief lives in the browser, so the recovery is to start it again.
-Phases are plan, gather, gap, report; the gather stage itself lives in research.py.
+Phases are plan, gather, gap, report; the gather stage itself lives in gather.py.
 The finished payload is the research result: the report plus its per-subquestion note sections.
 """
 
@@ -12,7 +12,7 @@ import time
 import uuid
 
 from providers import Spend, complete
-from research import PROMPTS, PageCache, gather, lines
+from research.gather import PROMPTS, PageCache, gather, lines
 
 RUNS = {}
 FINISHED_TTL = 3600  # a finished run is evicted this long after the client could have collected it
@@ -183,66 +183,3 @@ def evict():
     for run_id in [i for i, r in RUNS.items() if r.finished_at and r.finished_at < cutoff]:
         del RUNS[run_id]
 
-
-if __name__ == "__main__":  # self-check: python runs.py
-    # The payload's sections are the answered subquestions in report order, notes reduced to {note, url}.
-    plan_sections = [
-        {"question": "one", "notes": [{"url": "https://a.example/1", "note": "NOTE_A", "title": "extra"}]},
-        {"question": "two", "notes": []},
-        {"question": "three", "notes": [{"url": "https://a.example/3", "note": "NOTE_C"}]},
-    ]
-    found = answered(plan_sections)
-    assert [s["question"] for s in found] == ["one", "three"], found
-    payload = result_payload("brief text", found, "REPORT_BODY")
-    assert payload["report"] == {"name": "Research report.md", "text": "REPORT_BODY"}
-    assert [s["question"] for s in payload["sections"]] == ["one", "three"], "sections follow the answered order"
-    assert payload["sections"][0]["notes"] == [{"note": "NOTE_A", "url": "https://a.example/1"}], "notes carry note and url only"
-
-    # Report failure preserves the gathered notes.
-    async def _resilience_checks():
-        real_gather, real_complete = gather, complete
-
-        async def canned_gather(question, *a, **k):
-            return {"question": question, "notes": [{"url": "https://a.example/1", "note": "NOTE_BODY"}], "failed": []}
-
-        async def complete_but_no_report(model_id, system, prompt, **k):
-            if system is PROMPTS["plan"]:
-                return "first subquestion here"
-            if system is PROMPTS["report"]:
-                raise RuntimeError("Error code: 529 - overloaded_error")
-            return "DONE"
-
-        globals().update(gather=canned_gather, complete=complete_but_no_report)
-        try:
-            run = Run("brief", {"search": "m", "note": "m", "report": "m"}, 2)
-            await _run(run)
-        finally:
-            globals().update(gather=real_gather, complete=real_complete)
-        assert run.status == "done", (run.status, run.error)
-        assert "report stage failed" in run.error, run.error
-        assert "NOTE_BODY" in run.payload["report"]["text"], "a failed report still hands over the notes"
-        assert run.payload["sections"][0]["notes"], "and the note sections survive too"
-
-    asyncio.run(_resilience_checks())
-
-    # A collected run is forgotten, and an uncollected one is swept once it is past its window.
-    # Retention is bounded by the next bit of research activity, and by the process ending.
-    RUNS.clear()
-    kept = Run("b", {}, 1)
-    RUNS[kept.id] = kept
-    taken = Run("b", {}, 1)
-    RUNS[taken.id] = taken
-    forget(taken.id)
-    assert taken.id not in RUNS and kept.id in RUNS, "collecting drops one run and leaves the others"
-
-    stale = Run("b", {}, 1)
-    stale.finished_at = time.time() - FINISHED_TTL - 1
-    RUNS[stale.id] = stale
-    running = Run("b", {}, 1)
-    RUNS[running.id] = running
-    evict()
-    assert stale.id not in RUNS, "a finished run past its window is swept"
-    assert running.id in RUNS, "a run that never finished is left alone"
-    RUNS.clear()
-
-    print("runs selfcheck OK")

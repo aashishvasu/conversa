@@ -1,11 +1,11 @@
 <script setup>
 import { Ban, ChevronDown, CircleCheck, GripVertical, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
-import { streamChat } from '../api.js'
-import { CARDGEN_SYSTEM, effectiveCards, matchedCardIds, parseGeneratedCards } from '../cards.js'
-import { effectiveSettings } from '../settings.js'
-import { workspaceOf } from '../store.js'
-import { addConvoUsage, recordUsage } from '../usage.js'
+import { streamChat } from '../api/client.js'
+import { CARDGEN_SYSTEM, effectiveCards, matchedCardIds, parseGeneratedCards } from '../prompt/cards.js'
+import { effectiveSettings } from '../state/settings.js'
+import { workspaceOf } from '../state/store.js'
+import { addConvoUsage, recordUsage } from '../state/usage.js'
 import { confirmDelete } from '../utils/confirm.js'
 
 // Also reused by WorkspacePanel with a workspace as `convo`; workspaces have cards but no messages, settings, or workspaceId, so those reads are guarded below.

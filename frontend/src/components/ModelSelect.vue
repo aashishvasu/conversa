@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { models } from '../store.js'
+import { models } from '../state/store.js'
 
 // Shared model dropdown for the composer and settings panels.
 // Native <optgroup> supplies provider headings on desktop and mobile.

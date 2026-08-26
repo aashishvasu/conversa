@@ -1,9 +1,9 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { TabsContent, TabsRoot } from 'reka-ui'
-import { authed, fetchModels, fetchSettings, getToken, logout } from './api.js'
-import { activePane, cacheModels, initStore, setGlobalSettings } from './store.js'
-import { initUsage } from './usage.js'
+import { authed, fetchModels, fetchSettings, getToken, logout } from './api/client.js'
+import { activePane, cacheModels, initStore, setGlobalSettings } from './state/store.js'
+import { initUsage } from './state/usage.js'
 import { dismiss, notify } from './utils/notify.js'
 import ConfirmModal from './components/ConfirmModal.vue'
 import Notifications from './components/Notifications.vue'

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { effectiveSettings, EFFORT_LEVELS } from '../settings.js'
-import { globalSettings, modelSupportsCache, saveAsTemplate, workspaces } from '../store.js'
+import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
+import { globalSettings, modelSupportsCache, saveAsTemplate, workspaces } from '../state/store.js'
 import { confirmDelete } from '../utils/confirm.js'
 import ModelSelect from './ModelSelect.vue'
 

@@ -1,5 +1,5 @@
-import { streamChat } from './api.js'
-import { addConvoUsage, recordUsage } from './usage.js'
+import { streamChat } from '../api/client.js'
+import { addConvoUsage, recordUsage } from '../state/usage.js'
 
 // Generate a short title from recent turns, seeded with the existing title on refresh.
 export async function generateTitle(convo, model) {

@@ -1,9 +1,9 @@
 import { get, set } from 'idb-keyval'
 import { computed, reactive, ref, watch } from 'vue'
 import { foldRunUsage, replaceUsage, usageDays } from './usage.js'
-import { dismiss, notify } from './utils/notify.js'
-import { enterToSend, fontScale } from './utils/prefs.js'
-import { isDark } from './utils/theme.js'
+import { dismiss, notify } from '../utils/notify.js'
+import { enterToSend, fontScale } from '../utils/prefs.js'
+import { isDark } from '../utils/theme.js'
 
 // All conversation state lives client-side in IndexedDB (via idb-keyval).
 

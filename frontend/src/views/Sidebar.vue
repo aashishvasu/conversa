@@ -1,7 +1,7 @@
 <script setup>
 import { Boxes, CopyPlus, Download, LogOut, MessageSquarePlus, Moon, Plus, SlidersHorizontal, Sun, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
-import { logout } from '../api.js'
+import { logout } from '../api/client.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { formatShort } from '../utils/format.js'
 import {
@@ -20,7 +20,7 @@ import {
   templates,
   workspaceOf,
   workspaces,
-} from '../store.js'
+} from '../state/store.js'
 import { isDark, toggleTheme } from '../utils/theme.js'
 import GlobalSettings from '../components/GlobalSettings.vue'
 import Modal from '../components/Modal.vue'

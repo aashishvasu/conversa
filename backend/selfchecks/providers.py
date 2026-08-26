@@ -1,8 +1,8 @@
-"""Provider package self-check: python -m providers."""
+"""Selfcheck: python -m selfchecks.providers"""
 
 from types import SimpleNamespace as Obj
 
-from . import (
+from providers import (
     DIALECTS,
     EFFORT_VALUES,
     PROVIDERS,
@@ -25,7 +25,7 @@ from . import (
     split_model,
     takes_reasoning,
 )
-from .anthropic import LEGACY_EFFORT_BUDGETS
+from providers.anthropic import LEGACY_EFFORT_BUDGETS
 
 
 def request(model: str, temperature: float = 1.0) -> dict:

@@ -1,6 +1,6 @@
-// Run: node src/usage.selfcheck.js.
+// Run: node src/selfchecks/usage.selfcheck.js.
 import assert from 'node:assert'
-import { addConvoUsage, addUsage, foldUsage, replaceUsage, usageDays, usageRows } from './usage.js'
+import { addConvoUsage, addUsage, foldUsage, replaceUsage, usageDays, usageRows } from '../state/usage.js'
 
 const days = {}
 addUsage(days, 'chat', 'claude-sonnet-5', { input: 100, output: 50, cache_read: 0, cache_write: 0, usd: 0.001 }, '2026-08-24')

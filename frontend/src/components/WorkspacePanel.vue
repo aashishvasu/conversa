@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { createDoc, docsOf, removeDocRef } from '../store.js'
+import { createDoc, docsOf, removeDocRef } from '../state/store.js'
 import { confirmDelete } from '../utils/confirm.js'
 import CardsPanel from './CardsPanel.vue'
 import DocRow from './DocRow.vue'
