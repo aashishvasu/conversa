@@ -15,10 +15,10 @@ import research
 import runs
 from auth import require_auth, router as auth_router
 from providers import (
-    CONFIG_ERRORS, DEFAULT_EFFORT, DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_TEMPERATURE,
+    CLIENTS, CONFIG_ERRORS, DEFAULT_EFFORT, DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_TEMPERATURE,
     DEFAULT_UTILITY_MODEL, EFFORT_VALUES, MODELS, OPENAI_REASONING_PREFIXES, OPENAI_WEB_SEARCH,
-    WEB_FETCH_BETA, WEB_FETCH_TOOL, WEB_SEARCH_TOOL, apply_thinking, client, field, openai_client,
-    split_model,
+    PROVIDERS, WEB_FETCH_BETA, WEB_FETCH_TOOL, WEB_SEARCH_TOOL, apply_thinking,
+    chat_completions_kwargs, client, field, join_system, openai_client, split_model,
 )
 
 load_dotenv()
@@ -251,7 +251,7 @@ async def openai_stream(model, messages, system, max_tokens, effort, temperature
     kwargs = dict(model=model, input=messages, max_output_tokens=max_tokens, stream=True)
     if system:
         # The Responses API's system-prompt slot takes one string, and OpenAI caches long prefixes on its own.
-        kwargs["instructions"] = "\n\n".join(system) if isinstance(system, list) else system
+        kwargs["instructions"] = join_system(system)
     if model.startswith(OPENAI_REASONING_PREFIXES):
         if effort:
             # summary="auto" mirrors Anthropic's display="summarized": it is what makes reasoning text stream at all.
@@ -291,6 +291,31 @@ async def openai_stream(model, messages, system, max_tokens, effort, temperature
         yield sse(error=str(e))
 
 
+async def chat_completions_stream(provider, model, messages, system, max_tokens, effort, temperature):
+    """Emits the same SSE frames as anthropic_stream, for any OpenAI-compatible provider.
+
+    No hosted tools on this dialect: `search`, `fetch` and `results` frames never appear, so the client's
+    research trace stays empty and the reply is whatever the model knows.
+    """
+    kwargs = chat_completions_kwargs(provider, model, messages, system, max_tokens, effort, temperature)
+    try:
+        stream = await CLIENTS[provider].chat.completions.create(stream=True, **kwargs)
+        async for chunk in stream:
+            if not chunk.choices:  # a usage-only final chunk carries no choices
+                continue
+            delta = chunk.choices[0].delta
+            # DeepSeek and Moonshot both stream thinking on reasoning_content, beside the standard content field.
+            think = field(delta, "reasoning_content")
+            if think:
+                yield sse(think=think)
+            text = field(delta, "content")
+            if text:
+                yield sse(text=text)
+        yield sse(done=True)
+    except Exception as e:
+        yield sse(error=str(e))
+
+
 @app.post("/api/chat")
 async def chat(req: ChatRequest, _=Depends(require_auth)):
     provider, model = split_model(req.model or DEFAULT_MODEL)
@@ -306,16 +331,18 @@ async def chat(req: ChatRequest, _=Depends(require_auth)):
         effort,
         req.temperature if req.temperature is not None else DEFAULT_TEMPERATURE,
     )
-    if provider == "anthropic":
-        if client is None:
-            raise HTTPException(503, "server ANTHROPIC_API_KEY not configured")
+    entry = PROVIDERS.get(provider)
+    if entry is None:
+        raise HTTPException(400, f"unknown provider: {provider}")
+    if CLIENTS[provider] is None:
+        raise HTTPException(503, f"server {entry['key_env']} not configured")
+    dialect = entry["dialect"]
+    if dialect == "anthropic":
         gen = anthropic_stream(*args)
-    elif provider == "openai":
-        if openai_client is None:
-            raise HTTPException(503, "server OPENAI_API_KEY not configured")
+    elif dialect == "responses":
         gen = openai_stream(*args)
     else:
-        raise HTTPException(400, f"unknown provider: {provider}")
+        gen = chat_completions_stream(provider, *args)
     return StreamingResponse(gen, media_type="text/event-stream")
 
 
