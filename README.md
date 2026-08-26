@@ -38,8 +38,8 @@ Any one provider key is enough.
 Set several to pick between their models per conversation.
 Models belonging to a provider you have no key for are left out of the model picker; if a model you named yourself in `MODELS` is missing its key, the app says so in a banner on first load.
 
-Besides Anthropic and OpenAI, conversa ships DeepSeek and Moonshot (Kimi) entries, and any other OpenAI-compatible provider is a few lines in `backend/providers.py` (see [DEVELOPMENT.md](DEVELOPMENT.md)).
-Those providers have no hosted web search, so in chat their models answer from what they know; research runs are unaffected when an `EXA_API_KEY`, `BRAVE_API_KEY` or `SEARXNG_URL` is set.
+Besides Anthropic and OpenAI, conversa ships DeepSeek and Moonshot (Kimi). A provider on an existing wire protocol is one file in `backend/providers/` (see [DEVELOPMENT.md](DEVELOPMENT.md)).
+DeepSeek has hosted web search through its Responses endpoint. Moonshot has no hosted tool in conversa, so research with it needs `EXA_API_KEY`, `BRAVE_API_KEY`, or `SEARXNG_URL`.
 
 ### Run it as a systemd service (Podman Quadlet)
 
@@ -135,7 +135,7 @@ Set these as environment variables when you start the container.
 | `DEFAULT_SUMMARIZE_N` | no | `20` | How many turns just above the send window get summarized into memory. |
 | `DEFAULT_USE_RECALL` | no | `false` | Whether relevant dropped turns get resent verbatim. |
 | `DEFAULT_USE_CACHE` | no | `false` | Whether the stable part of the prompt is cached by the provider. Off by default because it only pays back in long conversations with a large shared context. |
-| `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; every other provider's ids need its prefix (`openai/`, `deepseek/`, `moonshot/`). Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/providers.py`. |
+| `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; every other provider's ids need its prefix (`openai/`, `deepseek/`, `moonshot/`). Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/providers/anthropic.py`. |
 | `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches on its own when a message needs it. Empty disables it. |
 | `WEB_FETCH_TOOL_VERSION` | no | `web_fetch_20250910` | Anthropic web-fetch tool version; lets the model open a URL you paste in chat. Empty disables it. |
 | `WEB_FETCH_BETA` | no | `web-fetch-2025-09-10` | Beta header the web-fetch tool requires. |
