@@ -1,6 +1,6 @@
 // Run: node src/store.selfcheck.js.
 import assert from 'node:assert'
-import { activePane, applyResearch, attachedDocs, conversations, createDoc, createFromTemplate, createRun, createWorkspace, deleteDoc, deleteRun, deleteWorkspace, docsOf, exportData, globalSettings, importData, modelSupportsCache, models, removeDocRef, restoreData, saveAsTemplate, selectConversation, selectRun, setGlobalSettings, snapshotInfo, undoDocRevision, updateDocText, workspaceOf } from './store.js'
+import { activePane, attachedDocs, conversations, createDoc, createFromTemplate, createWorkspace, deleteDoc, deleteWorkspace, docsOf, exportData, globalSettings, importData, modelSupportsCache, models, removeDocRef, restoreData, saveAsTemplate, selectConversation, setGlobalSettings, snapshotInfo, undoDocRevision, updateDocText, workspaceOf } from './store.js'
 // recordUsage/usageDays operate on in-memory state; initUsage() itself needs a real IndexedDB and is not called here, the same reason this file never calls initStore() either.
 import { recordUsage, usageDays } from './usage.js'
 
@@ -37,13 +37,12 @@ assert.ok(!exportData().workspaces.some((x) => x.id === w.id), 'workspace remove
 assert.equal(fromT.workspaceId, null, 'member convo left the deleted workspace')
 assert.equal(t.workspaceId, null, 'member template left the deleted workspace')
 
-createRun()
 setGlobalSettings({ temperature: 0.7 })
 recordUsage('chat', { model: 'claude-sonnet-5', input: 100, output: 50, cache_read: 0, cache_write: 0, usd: 0.01 })
 const snapshot = exportData()
 assert.equal(snapshot.version, 3, 'full export is versioned')
 assert.ok(snapshot.exportedAt, 'full export is dated')
-assert.equal(snapshotInfo(snapshot)?.runs, 2, 'snapshot reports run count')
+assert.equal(snapshotInfo(snapshot)?.runs, 1, 'snapshot reports run count')
 assert.ok(Array.isArray(snapshot.docs), 'the doc store joins the full export')
 assert.deepEqual(snapshot.usage, usageDays(), 'the usage ledger joins the full export')
 assert.ok(!Object.hasOwn(snapshot, 'models'), 'the server-owned models cache is not the user\'s data to back up')
@@ -121,12 +120,6 @@ importData({ conversations: [{ id: 'dc2', title: 'D2', messages: [] }], docs: [{
 assert.equal(exportData().docs.find((d) => d.id === doc2.id).name, 'notes.md', 'doc collision keeps the local copy')
 assert.ok(exportData().docs.some((d) => d.id === 'nd'), 'new docs merge in')
 
-// applyResearch writes the report through the doc store with run lineage.
-const rw = applyResearch({ name: 'R', systemPrompt: '', docs: [{ name: 'Report.md', text: 'T' }], cards: [] }, null, 'run-1')
-const report = docsOf(rw)[0]
-assert.equal(report.source.runId, 'run-1', 'research reports carry their run id')
-assert.ok(report.name.endsWith('Report.md'))
-
 // Deleting an owner releases its refs through the same GC as removeDocRef.
 const gw = createWorkspace('G')
 const gd = createDoc({ name: 'g.md', text: 'G', source: { kind: 'upload' } })
@@ -148,17 +141,9 @@ assert.equal(modelSupportsCache('claude-opus-5'), true)
 assert.equal(modelSupportsCache('openai/gpt-5.6'), false)
 assert.equal(modelSupportsCache('unknown/model'), true, 'a model missing from the cached list defaults to supported, not hidden')
 
-// activePane: which of Chat/Research shows, driven by selection, independent of currentId/currentRunId.
-const r1 = createRun()
-assert.equal(activePane.value, 'research', 'creating a run switches to the research pane')
+// activePane: the sidebar tab; selecting a conversation from any tab lands back on Chat.
+activePane.value = 'usage'
 selectConversation('a')
-assert.equal(activePane.value, 'chat', 'selecting a conversation switches to the chat pane')
-selectRun(r1.id)
-assert.equal(activePane.value, 'research', 'selecting a run switches to the research pane')
-const r2 = createRun()
-deleteRun(r2.id)
-assert.equal(activePane.value, 'research', 'deleting a run while another remains selected stays on the research pane')
-deleteRun(r1.id)
-assert.equal(activePane.value, 'chat', 'deleting the last run falls back to the chat pane')
+assert.equal(activePane.value, 'chat', 'selecting a conversation switches to the chat tab')
 
 console.log('store selfcheck OK')

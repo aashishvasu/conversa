@@ -58,6 +58,7 @@ Each first-class provider has one file exporting a `PROVIDER` dict. `providers/r
 
 `runs.py` owns the run lifecycle: a run is an `asyncio.Task` plus an event list held in the `RUNS` dict.
 Runs continue after the client closes its tab and end when the process restarts. The browser stores the brief.
+The research endpoints are API-only; the SPA has no surface that calls them.
 
 Phases are plan, gather, gap, report.
 Gather fans out one coroutine per subquestion under a semaphore; each searches, fetches, and writes notes, then drops the document.
@@ -120,13 +121,13 @@ Effort remains a hint: at `low` with a short system prompt these models often re
 ### Usage and pricing (`backend/providers/registry.py`, `backend/providers/dialects.py`)
 
 `cost()` in `registry.py` is the one pricing function: base input/output rate from the provider entry's `prices` dict, a cache write at 1.25x and a cache read at 0.1x that same input rate, and Anthropic's hosted `web_search` tool at $10 per 1,000 uses. An unpriced model falls back to `UNKNOWN_PRICE`, the top tier, and reports `unpriced: true`. Every first-class provider has a `prices` entry except `compatible`, which stays unpriced: it is an operator-configured endpoint this codebase has no rate for.
-`Spend` (also in `registry.py`) accumulates calls through `cost()` and keeps a per-model breakdown in `as_dict()["models"]`, including that row's own `unpriced` count; research owns one `Spend` per run, and it is what backs the research pane and sidebar spend display and what the research fold hands to the client-side ledger.
+`Spend` (also in `registry.py`) accumulates calls through `cost()` and keeps a per-model breakdown in `as_dict()["models"]`, including that row's own `unpriced` count; research owns one `Spend` per run, and it is what the research fold hands to the client-side ledger.
 DeepSeek's `PRICES` in `providers/deepseek.py` is the peak-hours cache-miss rate; `cost()` has no per-provider cache multiplier or time-of-day rate yet, so DeepSeek's cheaper cache-hit and off-peak pricing both currently read as full-rate spend.
 Three pure functions extract token and cache counts from each dialect's usage shape, shared by the streaming adapters and by `complete()`'s utility-call path: `anthropic_usage()` reads `message.usage` directly; `responses_usage()`/`responses_usage_from()` split the streamed `response.completed` event from the usage object inside it; `chat_completion_usage()`/`chat_completion_usage_from()` do the same for the chunk `stream_options.include_usage` attaches.
 `_chat_completions_stream` always sends `stream_options: {"include_usage": true}`; an OpenAI-compatible endpoint that rejects the parameter would 400 the whole stream, unverified without a key.
 
 On the frontend, `usage.js` is the client-side ledger: day buckets, one row per model per kind (`chat`, `utility`, `research`), persisted to IndexedDB like `store.js`. `streamChat`'s `onUsage` callback feeds it from all four call sites (`ChatPane.vue`, `memory.js`, `titles.js`, `CardsPanel.vue`'s card builder); each also folds the same frame into `convo.usage`, a flat running total for that conversation. A finished research run folds its `Spend.as_dict().models` breakdown into the ledger once, guarded by `spendLedgered` on the persisted run record so a reconnect or reopen replaying the same `final` frame does not double it.
-The ledger joins the full snapshot export/restore (see Workspaces above). `components/SpendBadge.vue` renders `{calls, input, output, usd, unpriced}` in the research pane, chat footer via `convo.usage`, and each Usage-pane table row. `views/UsagePane.vue` reads the ledger by model and kind over an optional native date range.
+The ledger joins the full snapshot export/restore (see Workspaces above). `components/SpendBadge.vue` renders `{calls, input, output, usd, unpriced}` in the chat footer via `convo.usage` and each Usage-pane table row. `views/UsagePane.vue` reads the ledger by model and kind over an optional native date range.
 
 ### chat.completions specifics (`_chat_completions_stream` in `backend/providers/dialects.py`)
 
@@ -186,7 +187,7 @@ A doc is `{ id, name, text, createdAt, updatedAt, source, versions }` living onc
 `source` records provenance: `{ kind: 'upload' | 'research' | 'chat' | 'revise', runId?, convoId?, messageId? }`.
 `docsOf(owner)` resolves refs at read time and drops dangling ones; `attachedDocs(convo)` merges workspace docs first, then the conversation's own, deduped by id, and the order is load-bearing because docs sit in the cached stable half of `system`.
 Removing a ref (`removeDocRef`) deletes the doc once no workspace or conversation references it, and deleting a workspace or conversation releases its refs through the same GC; `deleteDoc` removes a doc outright and strips every ref.
-Docs enter the store four ways: workspace upload (WorkspacePanel), a finished research run (`applyResearch`, report doc tagged with its `runId`), promoting an assistant reply (MessageBubble's save-as-document action), and revision (DocRow's utility-model revise, which pushes the prior text onto `versions`, capped at 10 because `flush()` snapshots the whole archive per write).
+Docs enter the store three ways: workspace upload (WorkspacePanel), promoting an assistant reply (MessageBubble's save-as-document action), and revision (DocRow's utility-model revise, which pushes the prior text onto `versions`, capped at 10 because `flush()` snapshots the whole archive per write).
 Docs are plain text sent whole per request; chunked retrieval (the recall scorer fits) is the upgrade path if attached docs outgrow the context window.
 A single-conversation export carries the docs it references; importing merges them with the same keep-local collision rule.
 
@@ -203,9 +204,9 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 
 | File | Responsibility |
 |------|----------------|
-| `store.js` | Reactive conversation, workspace, document and research-run state, IndexedDB persistence, versioned export/import, and replace-all snapshot restore. Also `applyResearch()`, which lands a finished run in a workspace, and `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write raises a notification with an export offer while the data is still intact in memory. |
-| `settings.js` | The settings surface: `SETTING_KEYS` (what a conversation may override), `RESEARCH_KEYS` (what a run may override), and `EFFORT_LEVELS`, the single definition of the thinking-effort lever. `effectiveSettings(owner, keys)` resolves either list against the global defaults. |
-| `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `discardResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
+| `store.js` | Reactive conversation, workspace and document state, IndexedDB persistence, versioned export/import, and replace-all snapshot restore. Legacy research-run records persist and export without a UI. Also `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write raises a notification with an export offer while the data is still intact in memory. |
+| `settings.js` | The settings surface: `SETTING_KEYS` (what a conversation may override), `RESEARCH_KEYS` (the research defaults, rendered by no panel), and `EFFORT_LEVELS`, the single definition of the thinking-effort lever. `effectiveSettings(owner, keys)` resolves either list against the global defaults. |
+| `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `discardResearch`), currently uncalled. `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
 | `cards.js` | Pure card concerns: trigger matching, force overrides, `effectiveCards`, and the card builder's parsing half: `CARDGEN_SYSTEM` (the prompt that teaches the trigger syntax) and `parseGeneratedCards()` (fence- and prose-tolerant JSON parsing, strict on shape). Vue-free, so it runs in Node. |
 | `payload.js` | Request assembly: `buildPayload`, the send window, and lexical recall. With `use_cache` on, `buildPayload` returns `system` as `[stable, volatile]`. Dependency direction is payload.js -> cards.js; both are Vue-free. |
 | `memory.js` | Background sliding-window summarization. |
@@ -229,13 +230,12 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `components/DebugPanel.vue` | Read-only live preview of the assembled `system` param (via `buildPayload`). |
 | `components/SettingsPanel.vue` / `GlobalSettings.vue` | Per-conversation overrides / global defaults. |
 | `components/Notifications.vue` | App-root renderer for sticky banners and transient Reka toasts. |
-| `views/Sidebar.vue` | `PaneTabs`, then new-chat and new-research buttons, then template, research-run and conversation lists. Workspace rows head their member conversations (click to edit, RowActionsMenu to delete) and double as the management surface; unassigned conversations sit under a "Conversations" label. |
-| `components/RowActionsMenu.vue` | Reka `DropdownMenu` behind one "..." trigger per sidebar row, replacing the hover icon strips run/template/workspace/convo rows each had. |
-| `components/shell/PaneTabs.vue` | The Chat/Research/Usage `TabsList`, mounted in `Sidebar.vue` inside the `TabsRoot` App.vue wraps around Sidebar and the panes. Its `TabsTrigger`s and the panes' `TabsContent` share one Reka Tabs vocabulary. |
-| `views/ResearchPane.vue` | Research view for `currentRun`, shown when `store.js`'s `activePane` is `'research'` (`selectRun` sets both it and `currentRunId`). Brief, clarifying questions, per-run model overrides, live progress and spend, then `applyResearch()` into a workspace. Reconnects from the last stored sequence after a dropped stream. No run selected renders an empty state with a "Start one" action. |
-| `views/UsagePane.vue` | Usage ledger table by model and kind, optionally scoped by native From/To date inputs. The pane keeps its range while hidden, so returning from Chat or Research preserves it. |
+| `views/Sidebar.vue` | The vertical `PaneTabs` rail, then the selected tab's sublist: Chat lists templates and conversations (+ creates one), Workspaces lists workspace rows (click to edit name, shared prompt, docs, cards; + creates one), Usage lists nothing. The footer holds global settings, theme, and logout. |
+| `components/RowActionsMenu.vue` | Reka `DropdownMenu` behind one "..." trigger per sidebar row. |
+| `components/shell/PaneTabs.vue` | The vertical Chat/Workspaces/Usage `TabsList`, mounted in `Sidebar.vue` inside the `TabsRoot` App.vue wraps around Sidebar and the panes. Each tab scopes the sidebar sublist; Usage swaps the main pane to `UsagePane`, the other two show `ChatPane`, which stays mounted so the composer draft survives tab switches. |
+| `views/UsagePane.vue` | Usage ledger table by model and kind, optionally scoped by native From/To date inputs. The pane keeps its range while hidden, so returning from Chat preserves it. |
 | `components/Modal.vue` / `ConfirmModal.vue` | Reka `Dialog` shell (focus trap, aria wiring) / Reka `AlertDialog` shared delete-confirmation dialog. |
-| `components/SpendBadge.vue` | One spend summary (calls, k tokens, `>$X.XX` with the unpriced tooltip), mounted in research, chat (`convo.usage`), and each Usage-pane row. |
+| `components/SpendBadge.vue` | One spend summary (calls, k tokens, `>$X.XX` with the unpriced tooltip), mounted in the chat footer (`convo.usage`) and each Usage-pane row. |
 
 ### PWA (`frontend/vite.config.js`)
 

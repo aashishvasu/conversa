@@ -9,14 +9,11 @@ import ConfirmModal from './components/ConfirmModal.vue'
 import Notifications from './components/Notifications.vue'
 import ChatPane from './views/ChatPane.vue'
 import Login from './views/Login.vue'
-import ResearchPane from './views/ResearchPane.vue'
 import Sidebar from './views/Sidebar.vue'
 import UsagePane from './views/UsagePane.vue'
 
-// One state for the boot pipeline, not the three independent flags (ready/bootError/serverError)
-// this used to be: they only ever combined into one of four sequential stages, so nothing prevented
-// a future edit from setting two of them at once. `authed` (from api.js) stays separate: unlike this
-// pipeline, it flips at any point in the session (a 401 logs it out again), not just once at boot.
+// One state for the boot pipeline: the stages are strictly sequential, so a single enum makes conflicting flag combinations unrepresentable.
+// `authed` (from api.js) stays separate: unlike the one-way boot stages, it flips at any point in the session (a 401 logs it out again).
 const bootState = ref('loading') // 'loading' | 'bootError' | 'serverError' | 'ready'
 // initStore() failing means IndexedDB could not be read (blocked, corrupt), so there is nothing to show and nothing to export. The raw error is the page.
 const bootErrorMessage = ref('')
@@ -81,16 +78,13 @@ async function onAuthed({ config_errors: errors, ...settings }) {
   <Login v-else-if="!authed" @authenticated="onAuthed" />
   <div v-else class="flex h-dvh flex-col">
     <Notifications />
-    <!-- TabsRoot is the shared ancestor for Sidebar's PaneTabs triggers and the TabsContent panes below;
-         manual activation keeps arrow-key nav from switching away from a streaming chat. -->
-    <TabsRoot v-model="activePane" activation-mode="manual" class="flex min-h-0 flex-1">
+    <!-- TabsRoot is the shared ancestor for Sidebar's vertical PaneTabs triggers and the panes; manual activation keeps arrow-key nav from switching away from a streaming chat.
+         Chat and Workspaces both show the current conversation (workspace editing is a sidebar modal), so ChatPane sits outside TabsContent and stays mounted, keeping the composer draft across tab switches. -->
+    <TabsRoot v-model="activePane" orientation="vertical" activation-mode="manual" class="flex min-h-0 flex-1">
       <Sidebar />
-      <TabsContent value="chat" class="min-w-0 flex-1 data-[state=inactive]:hidden data-[state=active]:flex">
+      <div v-show="activePane !== 'usage'" class="flex min-w-0 flex-1">
         <ChatPane />
-      </TabsContent>
-      <TabsContent value="research" class="min-w-0 flex-1 data-[state=inactive]:hidden data-[state=active]:flex">
-        <ResearchPane />
-      </TabsContent>
+      </div>
       <TabsContent force-mount value="usage" class="min-w-0 flex-1 data-[state=inactive]:hidden data-[state=active]:flex">
         <UsagePane />
       </TabsContent>

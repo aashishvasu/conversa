@@ -1,28 +1,23 @@
 <script setup>
-import { Boxes, CopyPlus, Download, LogOut, MessageSquarePlus, Moon, Plus, SlidersHorizontal, Sun, Telescope, X } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { Boxes, CopyPlus, Download, LogOut, Moon, Plus, SlidersHorizontal, Sun, X } from '@lucide/vue'
+import { ref } from 'vue'
 import { logout } from '../api.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { formatShort } from '../utils/format.js'
 import {
+  activePane,
   conversations,
   createConversation,
   createFromTemplate,
-  createRun,
   createWorkspace,
   currentId,
-  currentRunId,
   deleteConversation,
-  deleteRun,
   deleteWorkspace,
   downloadExport,
   persistNow,
-  runs,
   selectConversation,
-  selectRun,
   sidebarOpen,
   templates,
-  workspaceOf,
   workspaces,
 } from '../store.js'
 import { isDark, toggleTheme } from '../utils/theme.js'
@@ -44,46 +39,16 @@ async function removeWorkspace(w) {
   }
 }
 
-// Conversation list, flattened to workspace rows + convo rows.
-// The workspace row is the single place its name appears: it heads the group, opens the editor on click, and carries the delete button.
-// Every workspace shows, member convos or none.
-// A workspaceId pointing at a deleted or unimported workspace lands under "Conversations" (workspaceOf resolves it to null).
-const rows = computed(() => {
-  const out = []
-  for (const w of workspaces.value) {
-    out.push({ key: `h:${w.id}`, ws: w })
-    for (const c of conversations.value.filter((c) => c.workspaceId === w.id)) {
-      out.push({ key: c.id, convo: c, grouped: true })
-    }
-  }
-  const rest = conversations.value.filter((c) => !workspaceOf(c))
-  if (rest.length) out.push({ key: 'h:rest', label: 'Conversations' })
-  for (const c of rest) out.push({ key: c.id, convo: c })
-  return out
-})
 const version = __APP_VERSION__ // injected by Vite at build time (package.json version)
 
 function pick(id) {
   selectConversation(id)
   sidebarOpen.value = false
 }
-function pickRun(id) {
-  selectRun(id)
+function newConversation() {
+  createConversation()
   sidebarOpen.value = false
 }
-function newRun() {
-  createRun()
-  sidebarOpen.value = false
-}
-async function removeRun(r) {
-  const warning = r.status === 'running' ? ' It is still running, and stopping it here will lose the result.' : ''
-  if (await confirmDelete(`Delete "${r.title}"?${warning}`)) deleteRun(r.id)
-}
-// A finished run is worth a glance in the list: what it cost, and whether it reached a workspace.
-const runSummary = (r) => [
-  r.status === 'draft' ? 'not started' : r.status,
-  r.spend?.usd ? `$${r.spend.usd.toFixed(2)}` : null,
-].filter(Boolean).join(' · ')
 async function remove(id, message) {
   if (await confirmDelete(message)) deleteConversation(id)
 }
@@ -98,96 +63,75 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
     class="fixed inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-edge bg-surface text-base transition-transform md:static md:translate-x-0"
     :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
   >
-    <PaneTabs class="mx-3 mt-3" />
+    <PaneTabs class="m-3" />
+    <div class="mx-3 border-t border-edge"></div>
 
-    <!-- A conversation and a research run are the two things you can start, so they sit side by side. -->
-    <div class="flex gap-2 p-3">
-      <button class="flex flex-1 items-center justify-center gap-1.5 rounded bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-500" title="New conversation" @click="createConversation()">
-        <MessageSquarePlus :size="16" /> Chat
-      </button>
-      <button class="flex flex-1 items-center justify-center gap-1.5 rounded bg-surface2 py-2 text-sm font-medium hover:opacity-80" title="New research run" @click="newRun">
-        <Telescope :size="16" /> Research
-      </button>
-    </div>
-
-    <div v-if="runs.length" class="border-b border-edge p-2">
-      <p class="px-1 pb-1 text-xs uppercase text-muted">Research</p>
-      <div
-        v-for="r in runs"
-        :key="r.id"
-        class="group relative rounded hover:bg-surface2"
-        :class="r.id === currentRunId && 'bg-surface2'"
-      >
-        <button class="w-full px-2 py-2 text-left" @click="pickRun(r.id)">
-          <div class="flex items-center gap-1.5 truncate pr-8 text-sm">
-            <Telescope :size="13" class="shrink-0 text-muted" :class="r.status === 'running' && 'text-indigo-500'" />
-            <span class="truncate">{{ r.title }}</span>
+    <!-- Chat tab: templates, then conversations -->
+    <div v-if="activePane === 'chat'" class="flex-1 overflow-y-auto p-2">
+      <!-- Templates: click to edit in the chat window; copy to start a conversation; delete -->
+      <template v-if="templates.length">
+        <p class="px-1 pb-1 text-xs uppercase text-muted">Templates</p>
+        <div
+          v-for="t in templates"
+          :key="t.id"
+          class="group relative rounded hover:bg-surface2"
+          :class="t.id === currentId && 'bg-surface2'"
+        >
+          <button class="w-full truncate px-2 py-1.5 pr-8 text-left text-sm" @click="pick(t.id)">{{ t.title }}</button>
+          <div class="absolute right-1 top-1.5">
+            <RowActionsMenu :actions="[
+              { label: 'New conversation from template', icon: CopyPlus, onSelect: () => createFromTemplate(t) },
+              { label: 'Delete template', icon: X, danger: true, onSelect: () => remove(t.id, 'Delete this template?') },
+            ]" />
           </div>
-          <div class="mt-0.5 text-[10px] text-muted">{{ runSummary(r) }}</div>
+        </div>
+      </template>
+
+      <p class="flex items-center justify-between px-1 pb-1 text-xs uppercase text-muted" :class="templates.length && 'pt-2'">
+        Conversations
+        <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" title="New conversation" @click="newConversation"><Plus :size="14" /></button>
+      </p>
+      <div
+        v-for="c in conversations"
+        :key="c.id"
+        class="group relative rounded hover:bg-surface2"
+        :class="c.id === currentId && 'bg-surface2'"
+      >
+        <button class="w-full px-2 py-2 text-left" @click="pick(c.id)">
+          <div class="truncate pr-8 text-sm">{{ c.title }}</div>
+          <div class="mt-0.5 flex justify-between text-[10px] text-muted">
+            <span>{{ c.messages.length }} msgs</span>
+            <span>{{ formatShort(lastTs(c)) }}</span>
+          </div>
         </button>
         <div class="absolute right-1 top-1.5">
-          <RowActionsMenu :actions="[{ label: 'Delete run', icon: X, danger: true, onSelect: () => removeRun(r) }]" />
-        </div>
-      </div>
-    </div>
-
-    <!-- Templates: click to edit in the chat window; copy to start a conversation; delete -->
-    <div v-if="templates.length" class="border-b border-edge p-2">
-      <p class="px-1 pb-1 text-xs uppercase text-muted">Templates</p>
-      <div
-        v-for="t in templates"
-        :key="t.id"
-        class="group relative rounded hover:bg-surface2"
-        :class="t.id === currentId && !currentRunId && 'bg-surface2'"
-      >
-        <button class="w-full truncate px-2 py-1.5 pr-8 text-left text-sm" @click="pick(t.id)">{{ t.title }}</button>
-        <div class="absolute right-1 top-1.5">
           <RowActionsMenu :actions="[
-            { label: 'New conversation from template', icon: CopyPlus, onSelect: () => createFromTemplate(t) },
-            { label: 'Delete template', icon: X, danger: true, onSelect: () => remove(t.id, 'Delete this template?') },
+            { label: 'Export conversation', icon: Download, onSelect: () => downloadExport(c.id) },
+            { label: 'Delete', icon: X, danger: true, onSelect: () => remove(c.id, 'Delete this conversation? This cannot be undone.') },
           ]" />
         </div>
       </div>
     </div>
 
-    <!-- Workspace rows head their convo groups and are the management surface: click to edit (name, shared prompt, docs, cards), X to delete (clears membership only).
+    <!-- Workspaces tab: each row is the management surface, click to edit (name, shared prompt, docs, cards).
          Convos join a workspace via their settings panel. -->
-    <div class="flex-1 overflow-y-auto p-2">
+    <div v-else-if="activePane === 'workspaces'" class="flex-1 overflow-y-auto p-2">
       <p class="flex items-center justify-between px-1 pb-1 text-xs uppercase text-muted">
         Workspaces
         <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" title="New workspace" @click="addWorkspace"><Plus :size="14" /></button>
       </p>
-      <template v-for="row in rows" :key="row.key">
-        <div v-if="row.ws" class="group relative rounded hover:bg-surface2">
-          <button class="flex w-full items-center gap-1.5 truncate px-2 py-1.5 pr-8 text-left text-sm font-medium" title="Edit workspace" @click="editingWs = row.ws">
-            <Boxes :size="14" class="shrink-0 text-muted" />{{ row.ws.name }}
-          </button>
-          <div class="absolute right-1 top-1.5">
-            <RowActionsMenu :actions="[{ label: 'Delete workspace', icon: X, danger: true, onSelect: () => removeWorkspace(row.ws) }]" />
-          </div>
+      <div v-for="w in workspaces" :key="w.id" class="group relative rounded hover:bg-surface2">
+        <button class="flex w-full items-center gap-1.5 truncate px-2 py-1.5 pr-8 text-left text-sm font-medium" title="Edit workspace" @click="editingWs = w">
+          <Boxes :size="14" class="shrink-0 text-muted" />{{ w.name }}
+        </button>
+        <div class="absolute right-1 top-1.5">
+          <RowActionsMenu :actions="[{ label: 'Delete workspace', icon: X, danger: true, onSelect: () => removeWorkspace(w) }]" />
         </div>
-        <p v-else-if="row.label" class="flex items-center px-1 pb-1 pt-2 text-xs uppercase text-muted">{{ row.label }}</p>
-        <div
-          v-else
-          class="group relative rounded hover:bg-surface2"
-          :class="[row.convo.id === currentId && 'bg-surface2', row.grouped && 'ml-2']"
-        >
-          <button class="w-full px-2 py-2 text-left" @click="pick(row.convo.id)">
-            <div class="truncate pr-8 text-sm">{{ row.convo.title }}</div>
-            <div class="mt-0.5 flex justify-between text-[10px] text-muted">
-              <span>{{ row.convo.messages.length }} msgs</span>
-              <span>{{ formatShort(lastTs(row.convo)) }}</span>
-            </div>
-          </button>
-          <div class="absolute right-1 top-1.5">
-            <RowActionsMenu :actions="[
-              { label: 'Export conversation', icon: Download, onSelect: () => downloadExport(row.convo.id) },
-              { label: 'Delete', icon: X, danger: true, onSelect: () => remove(row.convo.id, 'Delete this conversation? This cannot be undone.') },
-            ]" />
-          </div>
-        </div>
-      </template>
+      </div>
+      <p v-if="!workspaces.length" class="px-1 text-xs italic text-muted">No workspaces yet.</p>
     </div>
+
+    <div v-else class="flex-1"></div>
 
     <div class="flex items-center gap-1 border-t border-edge p-2">
       <button class="flex flex-1 items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-surface2" @click="showGlobal = true">

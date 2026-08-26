@@ -6,7 +6,7 @@
 
 A local-first chat client for Claude, GPT, and DeepSeek. Conversation data lives in browser IndexedDB.
 
-The FastAPI server holds provider keys and the app password, relays model streams, fetches pages, and runs research jobs after the browser closes.
+The FastAPI server holds provider keys and the app password, relays model streams, and fetches pages.
 
 The production build includes a PWA manifest and service worker.
 
@@ -16,9 +16,7 @@ Storage locations:
 |------|-----------------|---------------|
 | Chat transcripts | IndexedDB | |
 | Cards, workspaces, documents, templates | IndexedDB | |
-| Finished research reports | IndexedDB after save | Run memory until save, eviction, or restart |
 | Provider API keys | | Environment variables |
-| Pages read during research | | Run memory while processed |
 | App password | | Environment variable |
 
 ## Run it
@@ -41,7 +39,7 @@ Set several to pick between their models per conversation.
 The model picker contains models from configured providers. A `MODELS` entry with incomplete provider configuration produces a banner on first load.
 
 Conversa supports Anthropic's Messages API, OpenAI's Responses API, and DeepSeek's Responses API.
-The `compatible` entry serves one chat.completions endpoint at a time. Set its key and base URL, then list models with the `compatible/` prefix. It sends text messages and reads text plus `reasoning_content`. Research through this entry uses Exa, Brave, or SearXNG.
+The `compatible` entry serves one chat.completions endpoint at a time. Set its key and base URL, then list models with the `compatible/` prefix. It sends text messages and reads text plus `reasoning_content`.
 
 ### Run it as a systemd service (Podman Quadlet)
 
@@ -171,27 +169,6 @@ Two kinds of note live there:
 Paste a URL into the context editor's fetch box and the page comes back as clean markdown, pinned to the board as a system message you can edit or delete.
 The server fetches it, because your browser is blocked from most pages by CORS.
 
-### Research: a run that reads the web and writes you a report
-
-Press **Research** beside **New chat** in the sidebar.
-Each run appears alongside conversations in the sidebar.
-
-Give it a brief.
-Before starting, you can have it ask you a few scoping questions: how deep to go, which time period, who is reading.
-Your answers go to the planner with the brief, which is what decides how wide a net the run casts.
-
-The run then breaks the brief into subquestions, searches for each, reads what it finds, and writes a cited report.
-It keeps going if you close the tab, and reopening picks the stream back up where you left it.
-A counter shows tokens and estimated cost as it goes, and stop ends it immediately.
-
-The result lands in a workspace: the report as a reference document, and each subquestion's underlying notes as a card you pull in by typing `q1`, `q2` and so on.
-Open the workspace to read the report, or download it as a markdown file.
-The report stays in workspace context. Raw notes remain `q1`..`qN` cards and enter context when triggered.
-
-Research tries configured app finders in Exa, Brave, SearXNG order. The search model's hosted tool runs after those finders fail or when all three are absent.
-
-Research has separate search, note, and report models. The note model reads every page and accounts for most model input, so a cheap model belongs there.
-
 ### Cards: notes that appear only when relevant
 
 A **card** is like an index card in a box.
@@ -226,7 +203,7 @@ Recall returns the original turns word for word, where memory summarizes.
 ### Models
 
 The model picker in the composer toolbar (also in **Conversation settings** and **Global settings**) groups models under their provider.
-Every feature works the same on either: cards, memory, recall, workspaces, templates, thinking effort, web search, research runs, and the utility model that writes titles and memory summaries.
+Every feature works the same on either: cards, memory, recall, workspaces, templates, thinking effort, web search, and the utility model that writes titles and memory summaries.
 You can point the utility model at one provider while chatting with another.
 
 ### Thinking effort
@@ -245,23 +222,22 @@ The trace is ephemeral: it lives in memory for the current turn, and a reload cl
 ### Workspaces: shared context for a group of conversations
 
 A **workspace** bundles a shared system prompt, shared cards, and plain-text documents (`.txt`/`.md`), and any number of conversations can point at it.
-Documents can be uploaded, and research runs write their reports here too.
 Every reply in a member conversation carries the workspace's prompt, its documents in full, and whichever of its cards trigger, on top of the conversation's own system messages and cards.
 Where the same topic has a card in both, the workspace card is sent first and the conversation card after it, so a conversation can refine the shared note.
 
-Workspaces head the sidebar's conversation list, below the new-chat and research buttons and any research runs: each workspace row heads its member conversations, the + next to the **Workspaces** label creates one, clicking a row opens its editor (name, prompt, documents, cards), and everything unassigned sits below under **Conversations**.
+The sidebar is a vertical tab rail: **Chat** lists templates and conversations, **Workspaces** lists workspaces, and **Usage** shows the spend table.
+The + in a list's header creates a conversation or workspace, and clicking a workspace row opens its editor (name, prompt, documents, cards).
 A conversation joins or leaves through **Conversation settings**; membership is a single link, so joining, leaving, or deleting the workspace leaves the conversation's own cards and messages exactly as they were.
 In a member conversation the card panel lists the workspace's cards read-only, with the same live "active" dots as its own; editing them happens in the workspace so a change to shared context is always a deliberate act.
 The include and exclude buttons on a workspace card are the exception: they are stored on the conversation, so one conversation can force a shared card to send every turn, or silence it, while the rest of the workspace keeps it as is.
 
 Documents are sent whole with every request and count as input tokens, so keep them to what the conversations actually need.
 Click a document in the workspace editor to read it rendered, or use the download button to save it as a file.
-That is how a research report gets out of the browser.
 
 ### Documents: one copy, referenced anywhere
 
 Every document lives once in a browser-side document store; workspaces and conversations reference it.
-A research report or an uploaded file can therefore back several workspaces and conversations at the same time, with no copies to drift apart.
+An uploaded file or a promoted reply can therefore back several workspaces and conversations at the same time, with no copies to drift apart.
 
 A conversation attaches a document directly in its **Context** panel, whether or not it belongs to a workspace: attached documents are sent whole with every request, right after any workspace documents.
 The same panel detaches a document, and its picker deletes one from the store outright.

@@ -58,7 +58,7 @@ const windowStartId = computed(() =>
   convo.value ? sendWindow(convo.value, effectiveSettings(convo.value))[0]?.id : null,
 )
 
-// This conversation's running spend, same shape and rendering as the research pane's.
+// This conversation's running spend.
 const convoSpend = computed(() => convo.value?.usage || { calls: 0, input: 0, output: 0, usd: 0, unpriced: 0 })
 
 function setModel(id) {

@@ -16,10 +16,8 @@ const GLOBAL_KEY = 'conversa_global' // user edits to the global defaults, persi
 
 const state = reactive({ conversations: [], workspaces: [], runs: [], docs: [] })
 export const currentId = ref(null)
-// A selected run displays the research pane.
-export const currentRunId = ref(null)
-// Which main pane is showing: 'chat' | 'research'.
-// Independent of currentRunId/currentId so a pane can be a Reka Tabs value (the tab strip in Sidebar shares this ref through the TabsRoot App.vue wraps around Sidebar and the panes).
+// The selected sidebar tab: 'chat' | 'workspaces' | 'usage'.
+// It scopes the sidebar sublist and picks the main pane (UsagePane for 'usage', ChatPane otherwise), as a Reka Tabs value shared through the TabsRoot App.vue wraps around Sidebar and the panes.
 export const activePane = ref('chat')
 export const globalSettings = ref(null)
 export const models = ref([]) // [{id, label}], cached from backend
@@ -172,55 +170,12 @@ export function deleteConversation(id) {
 
 export function selectConversation(id) {
   currentId.value = id
-  currentRunId.value = null
   activePane.value = 'chat'
 }
 
 // --- Runs ---------------------------------------------------------------------
-// Research runs and conversations are sibling sidebar records.
-// It owns its brief, its clarifying exchange, its settings overrides and its result.
-// It reaches conversations only through the workspace its payload lands in.
-
-export const runs = computed(() => state.runs)
-export const currentRun = computed(() => state.runs.find((r) => r.id === currentRunId.value) || null)
-
-export function createRun() {
-  const r = {
-    id: crypto.randomUUID(),
-    title: 'New research',
-    brief: '',
-    questions: [],
-    answers: '',
-    settings: {},
-    serverId: null,
-    status: 'draft',
-    phase: '',
-    events: [],
-    spend: null,
-    spendLedgered: false, // set once its finished spend is folded into the usage ledger, so a reopen doesn't refold
-    payload: null,
-    workspaceId: null,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  }
-  state.runs.unshift(r)
-  selectRun(r.id)
-  return r
-}
-
-export function deleteRun(id) {
-  state.runs = state.runs.filter((r) => r.id !== id)
-  if (currentRunId.value === id) {
-    currentRunId.value = state.runs[0]?.id || null
-    // Only the zero-runs-left case needs to move the tab: another run staying selected means the research tab still has something to show.
-    if (!currentRunId.value) activePane.value = 'chat'
-  }
-}
-
-export function selectRun(id) {
-  currentRunId.value = id
-  activePane.value = 'research'
-}
+// Standalone research run records: brief, clarifying exchange, events, spend, payload.
+// Persisted and exported only; the research-in-chat migration attaches them to conversations.
 
 // --- Workspaces ---------------------------------------------------------------
 // A workspace = { id, name, systemPrompt, cards, docIds } shared by its conversations, which point at it via convo.workspaceId.
@@ -231,24 +186,6 @@ export const workspaces = computed(() => state.workspaces)
 export function createWorkspace(name = 'New workspace') {
   const w = { id: crypto.randomUUID(), name, systemPrompt: '', cards: [], docIds: [] }
   state.workspaces.push(w)
-  return w
-}
-
-// Land a finished research run in a workspace: the report into the doc store, the per-subquestion notes as qN cards.
-// Passing an existing workspace appends, so repeated runs on one topic accumulate in the same place.
-// Known ceiling: appended runs share the qN trigger namespace, so q1 pulls q1 from every run in the workspace.
-// On one topic that reads as more context, not wrong context.
-// If it gets noisy, number a run's subquestions from the workspace's existing count so report and cards agree.
-export function applyResearch(payload, workspace = null, runId = null) {
-  const w = workspace || createWorkspace(payload.name || 'Research')
-  if (!workspace) w.systemPrompt = payload.systemPrompt || ''
-  const stamp = new Date().toISOString().slice(0, 10)
-  for (const d of payload.docs || []) {
-    w.docIds.push(createDoc({ name: `${stamp} ${d.name}`, text: d.text, source: { kind: 'research', runId } }).id)
-  }
-  for (const c of payload.cards || []) {
-    w.cards.push({ id: crypto.randomUUID(), triggers: c.triggers, path: c.path, content: c.content })
-  }
   return w
 }
 
@@ -477,7 +414,6 @@ export async function restoreData(data) {
   savedGlobal = restored.settings && typeof restored.settings === 'object' ? restored.settings : null
   if (globalSettings.value) globalSettings.value = { ...globalSettings.value, ...(savedGlobal || {}) }
   currentId.value = conversations.value[0]?.id || null
-  currentRunId.value = null
   activePane.value = 'chat'
   // A v1 snapshot (before usage.md) has no usage field at all; leave the current ledger alone rather than wipe it, since replace-all only applies to what the snapshot actually says it is replacing.
   if (Object.hasOwn(restored, 'usage')) replaceUsage(restored.usage)
