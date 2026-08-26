@@ -210,14 +210,14 @@ def app_finders():
     return [finder for key, finder in keyed if key]
 
 
-async def _search_anthropic(query, model, limit):
+async def _search_anthropic(query, model, limit, provider):
     tools = [{
         "type": providers.WEB_SEARCH_TOOL,
         "name": "web_search",
         "max_uses": SEARCH_MAX_USES,
         "blocked_domains": BLOCKED_DOMAINS,
     }]
-    message = await providers.client.messages.create(
+    message = await providers.CLIENTS[provider].messages.create(
         model=model,
         max_tokens=4096,
         system=PROMPTS["search"],
@@ -237,20 +237,21 @@ async def _search_anthropic(query, model, limit):
     return hits[: limit * 3]
 
 
-async def _search_openai(query, model, limit):
+async def _search_responses(query, model, limit, provider):
+    tool = providers.PROVIDERS[provider]["search_tool"]
     kwargs = dict(
         model=model,
         input=query,
         instructions=PROMPTS["search"],
         max_output_tokens=4096,
-        tools=[{"type": providers.OPENAI_WEB_SEARCH}],
+        tools=[{"type": tool}],
         # Forced, because left to itself the model sometimes answers from memory and cites nothing.
         # Measured on one subquestion: the default returned 0 citations in 8s, this returned 2.
-        tool_choice={"type": providers.OPENAI_WEB_SEARCH},
+        tool_choice={"type": tool},
     )
-    response = await providers.openai_client.responses.create(**kwargs)
+    response = await providers.CLIENTS[provider].responses.create(**kwargs)
     hits = []
-    # OpenAI reports sources as url_citation annotations on the text it wrote, not as a result list.
+    # The Responses dialect reports sources as url_citation annotations on the text it wrote, not as a result list.
     for item in response.output or []:
         for part in getattr(item, "content", None) or []:
             for note in getattr(part, "annotations", None) or []:
@@ -259,7 +260,16 @@ async def _search_openai(query, model, limit):
     return hits[: limit * 3]
 
 
-HOSTED_FINDERS = {"anthropic": _search_anthropic, "openai": _search_openai}
+# Keyed by dialect, and gated on the provider actually offering a hosted tool: a Responses provider
+# without a `search_tool` has nothing to force, so it falls to the app finders like any other.
+HOSTED_FINDERS = {"anthropic": _search_anthropic, "responses": _search_responses}
+
+
+def hosted_finder(provider):
+    entry = providers.PROVIDERS.get(provider)
+    if not entry or (entry["dialect"] == "responses" and not entry.get("search_tool")):
+        return None
+    return HOSTED_FINDERS.get(entry["dialect"])
 
 
 async def search(query, model_id, limit=8):
@@ -267,10 +277,10 @@ async def search(query, model_id, limit=8):
 
     App finders run first when configured, so searching costs an HTTP request instead of a model call.
     The search model's hosted tool is the fallback, and the only finder when no app key is set.
-    A provider missing from HOSTED_FINDERS with no app key configured raises here, naming what is missing.
+    A provider with no hosted tool and no app key configured raises here, naming what is missing.
     """
     provider, model = providers.split_model(model_id)
-    hosted = HOSTED_FINDERS.get(provider)
+    hosted = hosted_finder(provider)
     attempts = app_finders()
     if not attempts and hosted is None:
         raise RuntimeError(f"provider {provider} has no hosted search and no app search key is configured")
@@ -289,7 +299,7 @@ async def search(query, model_id, limit=8):
     if hits is None:
         if hosted is None:
             raise error
-        hits = await hosted(query, model, limit)
+        hits = await hosted(query, model, limit, provider)
     seen, out = set(), []
     for hit in hits:
         canonical = fetcher.canonicalize(hit["url"])
