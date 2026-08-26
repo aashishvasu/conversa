@@ -1,31 +1,20 @@
-import { streamChat } from '../api/client.js'
-import { addConvoUsage, recordUsage } from '../state/usage.js'
+import { utilityCall } from './utility.js'
 
 // Summarize a window of turns via the utility model.
 // Stateless: the window is re-read in full on every refresh, so message edits/deletes can never desync it.
-async function summarize(msgs, model, convo) {
+function summarize(msgs, model, convo) {
   const transcript = msgs.map((m) => `${m.role}: ${m.content}`).join('\n\n')
   const system =
     'You summarize part of a conversation. Preserve key facts, decisions, names, ' +
     'and anything needed to continue coherently. Output only the summary, with no ' +
     'preamble and no commentary.'
-  let out = ''
-  await streamChat(
-    {
-      model,
-      max_tokens: 1024,
-      temperature: 0.3,
-      system,
-      messages: [{ role: 'user', content: `Summarize this conversation excerpt:\n${transcript}` }],
-    },
-    (t) => (out += t),
-    null, null,
-    (usage) => {
-      addConvoUsage(convo, usage)
-      recordUsage('utility', usage)
-    },
-  )
-  return out.trim()
+  return utilityCall(convo, {
+    model,
+    max_tokens: 1024,
+    temperature: 0.3,
+    system,
+    messages: [{ role: 'user', content: `Summarize this conversation excerpt:\n${transcript}` }],
+  })
 }
 
 // Refresh convo.memory in the background, fired after each assistant reply and left off the send path.

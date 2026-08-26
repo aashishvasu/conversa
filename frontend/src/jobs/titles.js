@@ -1,5 +1,4 @@
-import { streamChat } from '../api/client.js'
-import { addConvoUsage, recordUsage } from '../state/usage.js'
+import { utilityCall } from './utility.js'
 
 // Generate a short title from recent turns, seeded with the existing title on refresh.
 export async function generateTitle(convo, model) {
@@ -15,21 +14,12 @@ export async function generateTitle(convo, model) {
     ? `Current title: ${existing}\n\nRecent messages:\n${recent}\n\nGive an updated 3-6 word title reflecting where the conversation is now.`
     : `Recent messages:\n${recent}\n\nGive a 3-6 word title.`
 
-  let out = ''
-  await streamChat(
-    {
-      model,
-      max_tokens: 20,
-      temperature: 0.5,
-      system: 'Reply with only a short conversation title. No quotes, no trailing punctuation, no preamble.',
-      messages: [{ role: 'user', content: user }],
-    },
-    (t) => (out += t),
-    null, null,
-    (usage) => {
-      addConvoUsage(convo, usage)
-      recordUsage('utility', usage)
-    },
-  )
-  return out.trim().replace(/^["']|["']$/g, '').slice(0, 80)
+  const out = await utilityCall(convo, {
+    model,
+    max_tokens: 20,
+    temperature: 0.5,
+    system: 'Reply with only a short conversation title. No quotes, no trailing punctuation, no preamble.',
+    messages: [{ role: 'user', content: user }],
+  })
+  return out.replace(/^["']|["']$/g, '').slice(0, 80)
 }

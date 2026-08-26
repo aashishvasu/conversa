@@ -10,8 +10,7 @@ function blankRow() {
   return { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, usd: 0, unpriced: 0 }
 }
 
-// Shared accumulation: row.calls takes an explicit count so a single generation (always 1) and an
-// already-aggregated fold (its own call count) use the same field summation.
+// Shared accumulation: row.calls takes an explicit count so a single generation (always 1) and an already-aggregated fold (its own call count) use the same field summation.
 // fields.unpriced is a boolean on a single generation's frame and a count on an aggregated fold;
 // Number() normalizes both to how many of these calls had no published rate.
 function addFields(row, calls, fields) {
@@ -33,8 +32,7 @@ export function addUsage(days, kind, model, usage, day = new Date().toISOString(
   return addFields((kinds[kind] ??= blankRow()), 1, usage)
 }
 
-// Pure: folds an already-aggregated per-model row (a research run's Spend.as_dict().models entry)
-// into the ledger, carrying its own call count rather than counting the fold as a single call.
+// Pure: folds an already-aggregated per-model row (a research run's Spend.as_dict().models entry) into the ledger, carrying its own call count rather than counting the fold as a single call.
 export function foldUsage(days, kind, model, row, day = new Date().toISOString().slice(0, 10)) {
   const models = (days[day] ??= {})
   const kinds = (models[model] ??= {})
@@ -61,8 +59,7 @@ export function usageRows(days, start = '', end = '') {
   return [...rows.values()].sort((a, b) => a.model.localeCompare(b.model) || kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind))
 }
 
-// Running total for one conversation, updated by every caller that streams against it (chat and the
-// utility callers in memory.js/titles.js/CardsPanel.vue): one number, what this conversation has cost.
+// Running total for one conversation, updated by both streaming call sites (chat in ChatPane.vue, every utilityCall in jobs/utility.js): one number, what this conversation has cost.
 export function addConvoUsage(convo, usage) {
   if (!usage) return
   convo.usage ??= blankRow()

@@ -1,10 +1,9 @@
 <script setup>
 import { Download, RotateCcw, X } from '@lucide/vue'
 import { ref } from 'vue'
-import { streamChat } from '../api/client.js'
+import { utilityCall } from '../jobs/utility.js'
 import { effectiveSettings } from '../state/settings.js'
 import { downloadText, undoDocRevision, updateDocText } from '../state/store.js'
-import { addConvoUsage, recordUsage } from '../state/usage.js'
 import { renderMarkdown } from '../utils/md.js'
 
 // One document row: name and size collapsed; markdown preview, download, and the revise action expanded.
@@ -24,25 +23,16 @@ async function revise() {
   busy.value = true
   error.value = ''
   try {
-    let out = ''
-    await streamChat(
-      {
-        model: effectiveSettings(props.owner).utility_model,
-        // Output is the whole document; a research report runs to ~16k tokens (the report cap in runs.py).
-        max_tokens: 16384,
-        temperature: 0.2,
-        system: REVISE_SYSTEM,
-        messages: [{ role: 'user', content: `Document "${props.doc.name}":\n\n${props.doc.text}\n\nRequested change: ${instruction.value}` }],
-      },
-      (t) => (out += t),
-      null, null,
-      (usage) => {
-        addConvoUsage(props.owner, usage)
-        recordUsage('utility', usage)
-      },
-    )
-    if (!out.trim()) throw new Error('The model returned nothing')
-    updateDocText(props.doc, out.trim())
+    const out = await utilityCall(props.owner, {
+      model: effectiveSettings(props.owner).utility_model,
+      // Output is the whole document; a research report runs to ~16k tokens (the report cap in runs.py).
+      max_tokens: 16384,
+      temperature: 0.2,
+      system: REVISE_SYSTEM,
+      messages: [{ role: 'user', content: `Document "${props.doc.name}":\n\n${props.doc.text}\n\nRequested change: ${instruction.value}` }],
+    })
+    if (!out) throw new Error('The model returned nothing')
+    updateDocText(props.doc, out)
     instruction.value = ''
   } catch (e) {
     error.value = String(e?.message || e)

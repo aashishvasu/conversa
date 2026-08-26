@@ -1,11 +1,10 @@
 <script setup>
 import { Ban, ChevronDown, CircleCheck, GripVertical, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
-import { streamChat } from '../api/client.js'
+import { utilityCall } from '../jobs/utility.js'
 import { CARDGEN_SYSTEM, effectiveCards, matchedCardIds, parseGeneratedCards } from '../prompt/cards.js'
 import { effectiveSettings } from '../state/settings.js'
 import { workspaceOf } from '../state/store.js'
-import { addConvoUsage, recordUsage } from '../state/usage.js'
 import { confirmDelete } from '../utils/confirm.js'
 
 // Also reused by WorkspacePanel with a workspace as `convo`; workspaces have cards but no messages, settings, or workspaceId, so those reads are guarded below.
@@ -126,22 +125,13 @@ async function generate() {
     const content = examples
       ? `Existing cards, match their granularity and trigger style:\n${examples}\n\nText to convert:\n${genText.value}`
       : genText.value
-    let out = ''
-    await streamChat(
-      {
-        model: effectiveSettings(props.convo).utility_model,
-        max_tokens: 4096,
-        temperature: 0.2,
-        system: CARDGEN_SYSTEM,
-        messages: [{ role: 'user', content }],
-      },
-      (t) => (out += t),
-      null, null,
-      (usage) => {
-        addConvoUsage(props.convo, usage)
-        recordUsage('utility', usage)
-      },
-    )
+    const out = await utilityCall(props.convo, {
+      model: effectiveSettings(props.convo).utility_model,
+      max_tokens: 4096,
+      temperature: 0.2,
+      system: CARDGEN_SYSTEM,
+      messages: [{ role: 'user', content }],
+    })
     for (const c of parseGeneratedCards(out)) {
       props.convo.cards.push({ id: crypto.randomUUID(), ...c })
     }
