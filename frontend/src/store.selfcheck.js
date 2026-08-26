@@ -1,8 +1,7 @@
 // Run: node src/store.selfcheck.js.
 import assert from 'node:assert'
-import { activePane, createFromTemplate, createRun, createWorkspace, deleteRun, deleteWorkspace, exportData, globalSettings, importData, modelSupportsCache, models, restoreData, saveAsTemplate, selectConversation, selectRun, setGlobalSettings, snapshotInfo, workspaceOf } from './store.js'
-// recordUsage/usageDays operate on in-memory state; initUsage() itself needs a real IndexedDB
-// and is not called here, the same reason this file never calls initStore() either.
+import { activePane, applyResearch, attachedDocs, conversations, createDoc, createFromTemplate, createRun, createWorkspace, deleteDoc, deleteRun, deleteWorkspace, docsOf, exportData, globalSettings, importData, modelSupportsCache, models, removeDocRef, restoreData, saveAsTemplate, selectConversation, selectRun, setGlobalSettings, snapshotInfo, undoDocRevision, updateDocText, workspaceOf } from './store.js'
+// recordUsage/usageDays operate on in-memory state; initUsage() itself needs a real IndexedDB and is not called here, the same reason this file never calls initStore() either.
 import { recordUsage, usageDays } from './usage.js'
 
 assert.equal(importData([{ id: 'a', title: 'A', messages: [] }]), 1, 'adds new conversation')
@@ -42,9 +41,10 @@ createRun()
 setGlobalSettings({ temperature: 0.7 })
 recordUsage('chat', { model: 'claude-sonnet-5', input: 100, output: 50, cache_read: 0, cache_write: 0, usd: 0.01 })
 const snapshot = exportData()
-assert.equal(snapshot.version, 2, 'full export is versioned')
+assert.equal(snapshot.version, 3, 'full export is versioned')
 assert.ok(snapshot.exportedAt, 'full export is dated')
 assert.equal(snapshotInfo(snapshot)?.runs, 2, 'snapshot reports run count')
+assert.ok(Array.isArray(snapshot.docs), 'the doc store joins the full export')
 assert.deepEqual(snapshot.usage, usageDays(), 'the usage ledger joins the full export')
 assert.ok(!Object.hasOwn(snapshot, 'models'), 'the server-owned models cache is not the user\'s data to back up')
 
@@ -76,8 +76,73 @@ assert.deepEqual(usageDays(), beforeV1Restore, 'a v1 snapshot with no usage fiel
 assert.equal(snapshotInfo(v1)?.conversations, 1, 'an old-versioned snapshot is still accepted')
 assert.equal(snapshotInfo({ ...v1, version: 999 }), null, 'a snapshot from a newer, not-yet-understood format is rejected')
 
-// Assign the ref directly rather than cacheModels(), which persists via idb-keyval's set() and
-// needs a real IndexedDB, the same reason this file never calls initStore()/initUsage() either.
+// --- Documents ---
+// A legacy export with inline workspace docs hoists them into the doc store as refs.
+importData({ conversations: [], workspaces: [{ id: 'lw', name: 'Legacy', docs: [{ id: 'ld', name: 'lore.md', text: 'LORE' }] }] })
+const lw = workspaceOf({ workspaceId: 'lw' })
+assert.deepEqual(lw.docIds, ['ld'], 'inline docs became refs on import')
+assert.ok(!lw.docs, 'the inline list is gone after the hoist')
+assert.equal(exportData().docs.find((d) => d.id === 'ld')?.source.kind, 'upload', 'the hoisted doc landed in the store')
+
+// Resolution drops dangling refs; attachment merge puts workspace docs first and dedupes shared ids.
+const doc2 = createDoc({ name: 'notes.md', text: 'NOTES', source: { kind: 'chat', convoId: 'v1', messageId: 'm' } })
+const looseConvo = { workspaceId: 'lw', docIds: [doc2.id, 'ld', 'missing'] }
+assert.deepEqual(docsOf(looseConvo).map((d) => d.id), [doc2.id, 'ld'], 'dangling refs drop out')
+assert.deepEqual(attachedDocs(looseConvo).map((d) => d.id), ['ld', doc2.id], 'workspace docs lead, shared ids deduped')
+
+// Removing a ref deletes the doc only once no workspace or conversation references it.
+importData({ conversations: [{ id: 'dc', title: 'D', messages: [], workspaceId: 'lw', docIds: ['ld'] }] })
+const dc = conversations.value.find((c) => c.id === 'dc')
+removeDocRef(dc, 'ld')
+assert.ok(exportData().docs.some((d) => d.id === 'ld'), 'doc survives while the workspace still references it')
+removeDocRef(lw, 'ld')
+assert.ok(!exportData().docs.some((d) => d.id === 'ld'), 'the last ref going deletes the doc')
+
+// deleteDoc strips the id from every owner.
+const dd = createDoc({ name: 'x.md', text: 'X', source: { kind: 'upload' } })
+lw.docIds.push(dd.id)
+deleteDoc(dd.id)
+assert.ok(!lw.docIds.includes(dd.id), 'deleteDoc strips owner refs')
+
+// Revisions stack capped, undo pops.
+const vd = createDoc({ name: 'v.md', text: 'v0', source: { kind: 'upload' } })
+for (let i = 1; i <= 12; i++) updateDocText(vd, `v${i}`)
+assert.equal(vd.text, 'v12')
+assert.equal(vd.versions.length, 10, 'versions cap at 10')
+assert.equal(vd.versions[0].text, 'v2', 'the oldest versions drop first')
+undoDocRevision(vd)
+assert.equal(vd.text, 'v11', 'undo restores the previous text')
+assert.equal(vd.versions.length, 9)
+
+// A single-conversation export carries the docs it references; re-importing keeps local copies on collision.
+dc.docIds = [doc2.id]
+assert.deepEqual(exportData('dc').docs.map((d) => d.id), [doc2.id], 'single-convo export carries its referenced docs')
+importData({ conversations: [{ id: 'dc2', title: 'D2', messages: [] }], docs: [{ id: doc2.id, name: 'clobber.md', text: 'X' }, { id: 'nd', name: 'new.md', text: 'N' }] })
+assert.equal(exportData().docs.find((d) => d.id === doc2.id).name, 'notes.md', 'doc collision keeps the local copy')
+assert.ok(exportData().docs.some((d) => d.id === 'nd'), 'new docs merge in')
+
+// applyResearch writes the report through the doc store with run lineage.
+const rw = applyResearch({ name: 'R', systemPrompt: '', docs: [{ name: 'Report.md', text: 'T' }], cards: [] }, null, 'run-1')
+const report = docsOf(rw)[0]
+assert.equal(report.source.runId, 'run-1', 'research reports carry their run id')
+assert.ok(report.name.endsWith('Report.md'))
+
+// Deleting an owner releases its refs through the same GC as removeDocRef.
+const gw = createWorkspace('G')
+const gd = createDoc({ name: 'g.md', text: 'G', source: { kind: 'upload' } })
+gw.docIds.push(gd.id, doc2.id)
+deleteWorkspace(gw.id)
+assert.ok(!exportData().docs.some((d) => d.id === gd.id), 'a doc only the deleted workspace held is gone')
+assert.ok(exportData().docs.some((d) => d.id === doc2.id), 'a doc still attached to a conversation survives the workspace delete')
+
+// Restoring a pre-v3 snapshot hoists its inline docs into the replacing doc set.
+const v2 = { version: 2, exportedAt: 'x', conversations: [], workspaces: [{ id: 'rw2', name: 'R2', docs: [{ id: 'rd', name: 'r.md', text: 'R' }] }], runs: [], settings: {}, prefs: {} }
+assert.equal(snapshotInfo(v2)?.docs, 1, 'pre-v3 snapshots count inline docs')
+await restoreData(v2)
+assert.deepEqual(exportData().docs.map((d) => d.id), ['rd'], 'restore hoists inline docs into the store')
+assert.deepEqual(exportData().workspaces[0].docIds, ['rd'], 'the restored workspace references them')
+
+// Assign the ref directly rather than cacheModels(), which persists via idb-keyval's set() and needs a real IndexedDB, the same reason this file never calls initStore()/initUsage() either.
 models.value = [{ id: 'claude-opus-5', supports_cache: true }, { id: 'openai/gpt-5.6', supports_cache: false }]
 assert.equal(modelSupportsCache('claude-opus-5'), true)
 assert.equal(modelSupportsCache('openai/gpt-5.6'), false)

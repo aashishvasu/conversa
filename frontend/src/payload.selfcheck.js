@@ -120,20 +120,21 @@ const manyConvo = {
 }
 assert.equal(recallMessages(manyConvo, [manyConvo.messages.at(-1)]).length, 3)
 
-// workspace: prompt leads system, docs sent whole, workspace cards precede convo cards
+// workspace: prompt leads system, resolved docs sent whole, workspace cards precede convo cards
 const ws = {
   id: 'w', name: 'W', systemPrompt: 'WS_PROMPT',
   cards: [{ id: 'wc', triggers: 'dragon', content: 'WS_CARD' }],
-  docs: [{ id: 'd', name: 'lore.md', text: 'DOC_TEXT' }],
 }
+const wsDocs = [{ id: 'd', name: 'lore.md', text: 'DOC_TEXT' }]
 const wSettings = { model: 'm', max_tokens: 10, num_messages_to_send: 5, send_system_prompt: true }
-const wp = buildPayload(convo, wSettings, ws)
+const wp = buildPayload(convo, wSettings, ws, wsDocs)
 assert.ok(wp.system.includes('WS_PROMPT') && wp.system.includes('You are a bard.'))
 assert.ok(wp.system.indexOf('WS_PROMPT') < wp.system.indexOf('You are a bard.'), 'workspace prompt leads')
-assert.ok(wp.system.includes('DOC_TEXT'), 'workspace docs are injected')
+// The doc block is part of the cached prefix: a format drift silently invalidates every stored prefix.
+assert.ok(wp.system.includes('Reference document "lore.md":\nDOC_TEXT'), 'docs are injected in the exact pre-doc-store byte format')
 assert.ok(wp.system.indexOf('WS_CARD') < wp.system.indexOf('DRAGON_LORE'), 'workspace cards precede convo cards')
 // send_system_prompt=false drops the workspace prompt but keeps docs and cards (intentional context)
-const wp2 = buildPayload(convo, { ...wSettings, send_system_prompt: false }, ws)
+const wp2 = buildPayload(convo, { ...wSettings, send_system_prompt: false }, ws, wsDocs)
 assert.ok(!wp2.system.includes('WS_PROMPT') && wp2.system.includes('DOC_TEXT') && wp2.system.includes('WS_CARD'))
 // no workspace arg: same payload as a plain convo
 assert.equal(buildPayload(convo, wSettings).system, buildPayload(convo, wSettings, null).system)
@@ -151,10 +152,10 @@ assert.ok(buildPayload(convo, wSettings, wsMulti).system.includes('WS_CARD'), 'o
 // use_cache: system splits into [stable, volatile].
 // Anything that changes turn to turn belongs in the second half, or it invalidates the cache on the turn it changes.
 const cSettings = { ...wSettings, use_cache: true, use_memory: true }
-const cached = buildPayload({ ...convo, memory: 'MEM', memoryCount: 0 }, cSettings, ws)
+const cached = buildPayload({ ...convo, memory: 'MEM', memoryCount: 0 }, cSettings, ws, wsDocs)
 assert.ok(Array.isArray(cached.system) && cached.system.length === 2, 'use_cache splits system in two')
 const [stableHalf, volatileHalf] = cached.system
-assert.ok(stableHalf.includes('WS_PROMPT') && stableHalf.includes('DOC_TEXT'), 'workspace prompt + docs cached')
+assert.ok(stableHalf.includes('WS_PROMPT') && stableHalf.includes('DOC_TEXT'), 'workspace prompt + attached docs cached')
 assert.ok(!stableHalf.includes('WS_CARD') && volatileHalf.includes('WS_CARD'), 'a firing card must not invalidate the cache')
 assert.ok(!stableHalf.includes('MEM') && volatileHalf.includes('MEM'), 'the memory summary refreshes, so it stays uncached')
 // use_cache off (the default): system stays a string

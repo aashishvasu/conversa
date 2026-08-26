@@ -15,7 +15,7 @@ Storage locations:
 | What | In your browser | On the server |
 |------|-----------------|---------------|
 | Chat transcripts | IndexedDB | |
-| Cards, workspaces, templates | IndexedDB | |
+| Cards, workspaces, documents, templates | IndexedDB | |
 | Finished research reports | IndexedDB after save | Run memory until save, eviction, or restart |
 | Provider API keys | | Environment variables |
 | Pages read during research | | Run memory while processed |
@@ -111,7 +111,7 @@ podman run -p 8000:8000 \
   conversa
 ```
 
-Your conversations, settings, cards, workspaces, and templates live in the browser, so an update leaves all of them intact.
+Your conversations, settings, cards, workspaces, documents, and templates live in the browser, so an update leaves all of them intact.
 
 ## Configuration
 
@@ -257,6 +257,20 @@ The include and exclude buttons on a workspace card are the exception: they are 
 Documents are sent whole with every request and count as input tokens, so keep them to what the conversations actually need.
 Click a document in the workspace editor to read it rendered, or use the download button to save it as a file.
 That is how a research report gets out of the browser.
+
+### Documents: one copy, referenced anywhere
+
+Every document lives once in a browser-side document store; workspaces and conversations reference it.
+A research report or an uploaded file can therefore back several workspaces and conversations at the same time, with no copies to drift apart.
+
+A conversation attaches a document directly in its **Context** panel, whether or not it belongs to a workspace: attached documents are sent whole with every request, right after any workspace documents.
+The same panel detaches a document, and its picker deletes one from the store outright.
+Removing a document from its last workspace or conversation also deletes it.
+
+The save-as-document button on any assistant reply turns that reply into a document, named after its first heading, ready to attach anywhere.
+
+Every document row has a **Revise** box: describe a change, and the utility model rewrites the document in place.
+The previous text is kept (the last ten revisions), and the undo button restores it.
 
 ### Prompt caching: reduce repeated workspace input
 

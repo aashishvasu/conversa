@@ -152,7 +152,7 @@ async function stop() {
 const target = ref('')
 async function save() {
   const existing = workspaces.value.find((w) => w.id === target.value)
-  const w = applyResearch(run.value.payload, existing || null)
+  const w = applyResearch(run.value.payload, existing || null, run.value.id)
   run.value.workspaceId = w.id
   persistNow()
   // The workspace is persisted before best-effort server eviction.

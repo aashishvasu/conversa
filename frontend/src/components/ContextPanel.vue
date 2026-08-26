@@ -1,8 +1,10 @@
 <script setup>
-import { X } from '@lucide/vue'
+import { Trash2, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { fetchUrl } from '../api.js'
+import { deleteDoc, docs, docsOf, removeDocRef } from '../store.js'
 import { confirmDelete } from '../utils/confirm.js'
+import DocRow from './DocRow.vue'
 
 const props = defineProps({ convo: Object })
 
@@ -21,6 +23,24 @@ async function remove(m) {
   if (m.role !== 'system') { m.pinned = false; return }
   if (await confirmDelete('Delete this system message?')) {
     props.convo.messages = props.convo.messages.filter((x) => x.id !== m.id)
+  }
+}
+
+// Standing document attachments: the convo's own docIds, alongside whatever its workspace already shares.
+const attached = computed(() => docsOf(props.convo))
+const unattached = computed(() => docs.value.filter((d) => !props.convo.docIds?.includes(d.id)))
+
+function attach(id) {
+  ;(props.convo.docIds ??= []).push(id)
+}
+async function detach(id) {
+  if (await confirmDelete('Remove this document from the conversation?', 'Remove')) {
+    removeDocRef(props.convo, id)
+  }
+}
+async function destroyDoc(id) {
+  if (await confirmDelete('Delete this document? Workspaces and conversations referencing it lose it.')) {
+    deleteDoc(id)
   }
 }
 
@@ -81,5 +101,23 @@ async function addPage() {
       </button>
     </div>
     <p v-if="fetchError" class="text-xs text-red-500">{{ fetchError }}</p>
+
+    <hr class="border-edge" />
+
+    <p class="text-muted">Attached documents are sent whole with every request, alongside any workspace documents.</p>
+    <DocRow v-for="d in attached" :key="d.id" :doc="d" :owner="convo" @remove="detach(d.id)" />
+    <p v-if="!attached.length" class="text-xs italic text-muted">No documents attached.</p>
+
+    <details v-if="unattached.length" class="rounded border border-edge">
+      <summary class="cursor-pointer list-none px-2 py-1.5 text-muted [&::-webkit-details-marker]:hidden">+ Attach a document ({{ unattached.length }} available)</summary>
+      <div class="space-y-1 border-t border-edge p-2">
+        <div v-for="d in unattached" :key="d.id" class="flex items-center gap-2">
+          <span class="min-w-0 flex-1 truncate">{{ d.name }}</span>
+          <span class="shrink-0 text-xs text-muted">{{ (d.text.length / 1000).toFixed(1) }}k chars</span>
+          <button class="shrink-0 rounded bg-surface2 px-2 py-0.5 hover:opacity-80" @click="attach(d.id)">Attach</button>
+          <button class="shrink-0 text-muted hover:text-red-500" title="Delete document" @click="destroyDoc(d.id)"><Trash2 :size="14" /></button>
+        </div>
+      </div>
+    </details>
   </div>
 </template>

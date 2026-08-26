@@ -8,7 +8,7 @@ import { notify } from '../utils/notify.js'
 import { buildPayload, sendWindow } from '../payload.js'
 import { effectiveSettings, EFFORT_LEVELS } from '../settings.js'
 import { addConvoUsage, recordUsage } from '../usage.js'
-import { currentConversation, persistNow, sidebarOpen, workspaceOf } from '../store.js'
+import { attachedDocs, createDoc, currentConversation, persistNow, sidebarOpen, workspaceOf } from '../store.js'
 import { generateTitle } from '../titles.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { CHECK_SVG, COPY_SVG } from '../utils/md.js'
@@ -93,6 +93,13 @@ async function confirmRemoveMessage(id) {
   if (await confirmDelete('Delete this message?')) removeMessage(id)
 }
 
+// Promote a reply into the doc store, where any conversation or workspace can attach it (ContextPanel, WorkspacePanel).
+// Deliberately not attached here: the text is already in this transcript, and attaching would resend it with every request.
+function promoteToDoc(m) {
+  const name = m.content.match(/^#+\s+(.+)$/m)?.[1] || convo.value.title
+  createDoc({ name, text: m.content, source: { kind: 'chat', convoId: convo.value.id, messageId: m.id } })
+}
+
 // Delegated handler for every code-block Copy button (markdown is v-html).
 function onContentClick(e) {
   const btn = e.target.closest('.code-copy')
@@ -131,7 +138,7 @@ async function runCompletion(c) {
   guard.start()
   let assistant = null
   try {
-    const payload = buildPayload(c, settings, workspaceOf(c)) // built BEFORE the empty assistant placeholder
+    const payload = buildPayload(c, settings, workspaceOf(c), attachedDocs(c)) // built BEFORE the empty assistant placeholder
     c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() })
     assistant = c.messages.at(-1) // the reactive proxy, so streamed tokens render live
     liveTrace.value = []
@@ -290,6 +297,7 @@ async function regenTitle() {
           @delete="confirmRemoveMessage(m.id)"
           @regenerate="regenerate(m)"
           @toggle-trace="liveOpen = !liveOpen"
+          @promote="promoteToDoc(m)"
         />
 
         <div class="flex justify-center">

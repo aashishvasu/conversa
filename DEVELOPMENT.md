@@ -152,9 +152,9 @@ Covered by `python -m providers`.
 
 ### How a request is assembled (`frontend/src/cards.js`)
 
-`buildPayload(convo, settings, workspace)` assembles the provider request:
+`buildPayload(convo, settings, workspace, docs)` assembles the provider request; the two call sites (ChatPane, DebugPanel) resolve `workspace` with `workspaceOf(convo)` and `docs` with `attachedDocs(convo)`.
 
-- **`system` param** gets the workspace's shared prompt (if `send_system_prompt`), then all system messages (same gate), the workspace's plain-text docs in full, the memory summary (if `use_memory`), and the content of any triggered cards.
+- **`system` param** gets the workspace's shared prompt (if `send_system_prompt`), then all system messages (same gate), the attached documents in full, the memory summary (if `use_memory`), and the content of any triggered cards.
   The card scan runs over workspace cards and convo cards together, workspace first (`effectiveCards`).
   `convo.cardOverrides[cardId]` = `'include'` / `'skip'` replaces a workspace card's force for that one conversation.
   Card triggers are comma-separated clauses (comma = OR, `&` inside a clause = AND).
@@ -168,18 +168,27 @@ Covered by `python -m providers`.
 Pinned turns bypass the send-window limit; this does **not** enforce user/assistant alternation, so wildly mixed pins could be rejected by the API.
 
 With `use_cache` on, `system` has `[stable, volatile]` form.
-The stable half is everything above the memory summary: workspace prompt, system messages, workspace docs.
+The stable half is everything above the memory summary: workspace prompt, system messages, attached documents.
 `anthropic_system()` in `providers/dialects.py` marks the first block ephemeral, billing a large workspace once per cache window. Responses and chat.completions receive the halves joined as one string.
 The order is what makes this work: prompt caching is prefix-match, and cards are assembled last, so a card firing mid-conversation rewrites only the uncached tail.
 Messages stay uncached because the send window drops turns off the front as it slides, which changes the message prefix on most turns.
 
 ### Workspaces (`frontend/src/store.js`)
 
-A workspace is `{ id, name, systemPrompt, cards, docs }` in its own IndexedDB key, persisted through the same debounced save as conversations.
+A workspace is `{ id, name, systemPrompt, cards, docIds }` in its own IndexedDB key, persisted through the same debounced save as conversations.
 A conversation joins by setting `convo.workspaceId`; `workspaceOf(convo)` resolves it (null for a missing or deleted workspace, which degrades to plain-convo behavior everywhere).
 The merge into the request happens at read time in `buildPayload`, so joining, leaving, and deleting a workspace touch only that pointer.
-Docs are plain text, stored inline and sent whole per request; chunked retrieval (the recall scorer fits) is the upgrade path if docs outgrow the context window.
-Full export is a versioned snapshot (`SNAPSHOT_VERSION` in `store.js`) carrying everything IndexedDB holds that is the user's rather than the deployment's: conversations, workspaces, runs, saved settings, the usage ledger, and UI prefs. The models cache is excluded on purpose (server-owned, refetched after login) and the auth token never enters a snapshot at all. A snapshot from an older version still restores; a field that version never had (the usage ledger, before usage.md) is left untouched rather than wiped, since replace-all only replaces what the snapshot actually claims to hold. Merge import also accepts the older bare-array format, keeps local workspaces on id collision so existing links stay resolvable, and ignores snapshot-only settings, usage, and prefs. Restore replaces every collection after an explicit confirmation.
+Full export is a versioned snapshot (`SNAPSHOT_VERSION` in `store.js`) carrying everything IndexedDB holds that is the user's rather than the deployment's: conversations, workspaces, docs, runs, saved settings, the usage ledger, and UI prefs. The models cache is excluded on purpose (server-owned, refetched after login) and the auth token never enters a snapshot at all. A snapshot from an older version still restores; a field that version never had (the usage ledger, before usage.md) is left untouched rather than wiped, since replace-all only replaces what the snapshot actually claims to hold, and pre-v3 snapshots that held docs inline on workspaces have them hoisted into the doc store on restore. Merge import also accepts the older bare-array format, keeps local workspaces and docs on id collision so existing links stay resolvable, and ignores snapshot-only settings, usage, and prefs. Restore replaces every collection after an explicit confirmation.
+
+### Documents (`frontend/src/store.js`)
+
+A doc is `{ id, name, text, createdAt, updatedAt, source, versions }` living once in its own IndexedDB key; workspaces and conversations reference it through `docIds`, so one doc serves several owners without copies.
+`source` records provenance: `{ kind: 'upload' | 'research' | 'chat' | 'revise', runId?, convoId?, messageId? }`.
+`docsOf(owner)` resolves refs at read time and drops dangling ones; `attachedDocs(convo)` merges workspace docs first, then the conversation's own, deduped by id, and the order is load-bearing because docs sit in the cached stable half of `system`.
+Removing a ref (`removeDocRef`) deletes the doc once no workspace or conversation references it, and deleting a workspace or conversation releases its refs through the same GC; `deleteDoc` removes a doc outright and strips every ref.
+Docs enter the store four ways: workspace upload (WorkspacePanel), a finished research run (`applyResearch`, report doc tagged with its `runId`), promoting an assistant reply (MessageBubble's save-as-document action), and revision (DocRow's utility-model revise, which pushes the prior text onto `versions`, capped at 10 because `flush()` snapshots the whole archive per write).
+Docs are plain text sent whole per request; chunked retrieval (the recall scorer fits) is the upgrade path if attached docs outgrow the context window.
+A single-conversation export carries the docs it references; importing merges them with the same keep-local collision rule.
 
 ### Memory / compression (`frontend/src/memory.js`)
 
@@ -194,7 +203,7 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 
 | File | Responsibility |
 |------|----------------|
-| `store.js` | Reactive conversation, workspace and research-run state, IndexedDB persistence, versioned export/import, and replace-all snapshot restore. Also `applyResearch()`, which lands a finished run in a workspace, and `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write raises a notification with an export offer while the data is still intact in memory. |
+| `store.js` | Reactive conversation, workspace, document and research-run state, IndexedDB persistence, versioned export/import, and replace-all snapshot restore. Also `applyResearch()`, which lands a finished run in a workspace, and `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write raises a notification with an export offer while the data is still intact in memory. |
 | `settings.js` | The settings surface: `SETTING_KEYS` (what a conversation may override), `RESEARCH_KEYS` (what a run may override), and `EFFORT_LEVELS`, the single definition of the thinking-effort lever. `effectiveSettings(owner, keys)` resolves either list against the global defaults. |
 | `api.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `discardResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
 | `cards.js` | Pure card concerns: trigger matching, force overrides, `effectiveCards`, and the card builder's parsing half: `CARDGEN_SYSTEM` (the prompt that teaches the trigger syntax) and `parseGeneratedCards()` (fence- and prose-tolerant JSON parsing, strict on shape). Vue-free, so it runs in Node. |
@@ -210,12 +219,13 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `utils/confirm.js` | Promise-based confirm: `await confirmDelete(msg)`, backed by one `ConfirmModal` at app root. |
 | `utils/notify.js` | Reactive app-wide notification queue with keyed dedupe and dismissal; `notify.selfcheck.js` checks its contract. |
 | `views/ChatPane.vue` | The chat window: message list, composer, toolbar (model + thinking-effort pickers), and the stream loop. Renders the last `PAGE_SIZE` (100) messages with "Load more" (display-only, and separate from what's sent), and marks the send-window start with a divider. |
-| `components/MessageBubble.vue` | One message: view/edit bubble, pin/copy/delete/regenerate actions, and the live thinking/search trace while it streams (ephemeral, dropped on reload). List and stream mutations stay in ChatPane, behind events. |
+| `components/MessageBubble.vue` | One message: view/edit bubble, pin/copy/delete/regenerate/save-as-document actions, and the live thinking/search trace while it streams (ephemeral, dropped on reload). List and stream mutations stay in ChatPane, behind events. |
 | `components/ModelSelect.vue` | The one model dropdown, rendered in five places. Groups models by provider with native `<optgroup>`. |
 | `views/Login.vue` | Password prompt shown until a token exists. |
-| `components/ContextPanel.vue` | Edits system + pinned messages together. Also the URL fetch box: a fetched page lands as a system message, so it edits, deletes and sends like any other context. |
+| `components/ContextPanel.vue` | Edits system + pinned messages together. Also the URL fetch box: a fetched page lands as a system message, so it edits, deletes and sends like any other context. Also the document picker: attach any stored doc to the conversation, detach it, or delete it from the store. |
+| `components/DocRow.vue` | One document row shared by WorkspacePanel and ContextPanel: rendered preview, download, remove, and the revise action (utility model rewrites the text, prior version kept for undo). |
 | `components/CardsPanel.vue` | Card editor with live "active" indicators. For a convo in a workspace, lists the workspace's cards read-only above the convo's own. Also reused by WorkspacePanel as the shared-card editor (a workspace passes as `convo`; its missing messages/settings are guarded). The card builder lives here: pasted text goes to the utility model, and the parsed cards are appended to whichever owner the panel got, which is what makes it work in both scopes. |
-| `components/WorkspacePanel.vue` | Workspace editor for the name, shared prompt, shared cards, and documents. Documents have rendered reading, download, and delete actions. |
+| `components/WorkspacePanel.vue` | Workspace editor for the name, shared prompt, shared cards, and documents (uploaded here, rendered as DocRow rows). |
 | `components/DebugPanel.vue` | Read-only live preview of the assembled `system` param (via `buildPayload`). |
 | `components/SettingsPanel.vue` / `GlobalSettings.vue` | Per-conversation overrides / global defaults. |
 | `components/Notifications.vue` | App-root renderer for sticky banners and transient Reka toasts. |

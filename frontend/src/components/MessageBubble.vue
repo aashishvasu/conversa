@@ -1,5 +1,5 @@
 <script setup>
-import { Bot, Check, ChevronRight, Cog, Copy, Pencil, Pin, RotateCcw, Trash2, User, X } from '@lucide/vue'
+import { Bot, Check, ChevronRight, Cog, Copy, FileText, Pencil, Pin, RotateCcw, Trash2, User, X } from '@lucide/vue'
 import { ref } from 'vue'
 import { formatTime } from '../utils/format.js'
 import { renderMarkdown } from '../utils/md.js'
@@ -12,10 +12,11 @@ const props = defineProps({
   trace: { type: Array, default: null }, // live thinking/search steps while this message streams
   traceOpen: Boolean,
 })
-const emit = defineEmits(['edit', 'cancel-edit', 'done-edit', 'delete', 'regenerate', 'activate', 'toggle-trace'])
+const emit = defineEmits(['edit', 'cancel-edit', 'done-edit', 'delete', 'regenerate', 'activate', 'toggle-trace', 'promote'])
 
 const ROLE_ICON = { user: User, assistant: Bot, system: Cog }
 const copied = ref(false)
+const promoted = ref(false)
 
 function bubbleClass(role) {
   if (role === 'user') return 'bg-indigo-600 text-white'
@@ -38,6 +39,11 @@ async function copyMessage() {
   await navigator.clipboard.writeText(props.message.content)
   copied.value = true
   setTimeout(() => (copied.value = false), 1200)
+}
+function promote() {
+  emit('promote')
+  promoted.value = true
+  setTimeout(() => (promoted.value = false), 1200)
 }
 </script>
 
@@ -94,6 +100,10 @@ async function copyMessage() {
             <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Regenerate from here" @click="emit('regenerate')"><RotateCcw :size="14" /></button>
             <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Edit" @click="emit('edit')"><Pencil :size="14" /></button>
             <button v-if="message.role !== 'system'" class="rounded p-1 hover:bg-surface2" :class="message.pinned ? 'text-indigo-400' : 'hover:text-base'" :title="message.pinned ? 'Unpin' : 'Pin (always sent)'" @click="togglePin"><Pin :size="14" :class="message.pinned && 'fill-current'" /></button>
+            <button v-if="message.role === 'assistant' && message.content" class="rounded p-1 hover:bg-surface2 hover:text-base" title="Save as document" @click="promote">
+              <Check v-if="promoted" :size="14" class="text-green-500" />
+              <FileText v-else :size="14" />
+            </button>
             <button class="rounded p-1 hover:bg-surface2 hover:text-base" title="Copy raw" @click="copyMessage">
               <Check v-if="copied" :size="14" class="text-green-500" />
               <Copy v-else :size="14" />

@@ -42,7 +42,7 @@ async function onRestoreFile(e) {
     const info = snapshotInfo(data)
     if (!info) throw new Error('Choose a full conversa snapshot')
     const date = info.exportedAt ? new Date(info.exportedAt).toLocaleString() : 'an unknown date'
-    if (!await confirmDelete(`Restore ${info.conversations} conversations, ${info.workspaces} workspaces, and ${info.runs} research runs from ${date}? This replaces this browser's data.`, 'Restore')) return
+    if (!await confirmDelete(`Restore ${info.conversations} conversations, ${info.workspaces} workspaces, ${info.docs} documents, and ${info.runs} research runs from ${date}? This replaces this browser's data.`, 'Restore')) return
     const prefs = await restoreData(data)
     restorePrefs(prefs)
     restoreTheme(prefs.theme)
