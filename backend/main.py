@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections.abc import AsyncIterable, AsyncIterator
 import logging
 import os
 
@@ -15,9 +16,8 @@ import research
 import runs
 from auth import require_auth, router as auth_router
 from providers import (
-    CLIENTS, CONFIG_ERRORS, DEFAULT_EFFORT, DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_TEMPERATURE,
-    DEFAULT_UTILITY_MODEL, EFFORT_VALUES, MODELS, PROVIDERS, apply_thinking,
-    chat_completions_kwargs, field, join_system, split_model, takes_reasoning,
+    CONFIG_ERRORS, DEFAULT_EFFORT, DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_TEMPERATURE,
+    DEFAULT_UTILITY_MODEL, EFFORT_VALUES, MODELS, resolve_model, stream_chat,
 )
 
 load_dotenv()
@@ -184,173 +184,38 @@ async def fetch_url(req: FetchRequest, _=Depends(require_auth)):
         raise HTTPException(400, str(e))
 
 
-def sse(**payload):
+def sse(**payload: object) -> str:
     # json-encode each chunk so newlines/special chars can't break SSE framing.
     return f"data: {json.dumps(payload)}\n\n"
 
 
-def system_param(system):
-    """Anthropic `system` field, as a string or as cached blocks.
-
-    A list is [stable, volatile]: the workspace prompt and docs, then memory, recall and cards.
-    Marking the first block ephemeral caches it, so a large workspace is billed once per cache window rather than per turn.
-    A block under the API's ~1024-token minimum stays uncached, silently and at list price.
-    """
-    if isinstance(system, list):
-        return [
-            {"type": "text", "text": s, **({"cache_control": {"type": "ephemeral"}} if i == 0 else {})}
-            for i, s in enumerate(system)
-            if s
-        ]
-    return system
-
-
-async def anthropic_stream(provider, model, messages, system, max_tokens, effort, temperature):
-    kwargs = dict(model=model, max_tokens=max_tokens, temperature=temperature, messages=messages)
-    apply_thinking(kwargs, effort, max_tokens)
-    if system:
-        kwargs["system"] = system_param(system)
-    entry = PROVIDERS[provider]
-    tools = []
-    if entry.get("search_tool"):
-        tools.append({"type": entry["search_tool"], "name": "web_search", "max_uses": 5})
-    if entry.get("fetch_tool"):
-        tools.append({"type": entry["fetch_tool"], "name": "web_fetch", "max_uses": 5})
-        kwargs["extra_headers"] = {"anthropic-beta": entry["fetch_beta"]}
-    if tools:
-        kwargs["tools"] = tools
-    try:
-        async with CLIENTS[provider].messages.stream(**kwargs) as stream:
-            async for event in stream:
-                if event.type == "content_block_delta":
-                    d = event.delta
-                    if d.type == "text_delta":
-                        yield sse(text=d.text)
-                    elif d.type == "thinking_delta":  # extended-thinking models
-                        yield sse(think=d.thinking)
-                # server-side web search: content_block_stop carries the finalized block
-                elif event.type == "content_block_stop":
-                    block = event.content_block
-                    if getattr(block, "type", "") == "server_tool_use":
-                        if getattr(block, "name", "") == "web_fetch":
-                            yield sse(fetch=block.input.get("url"))
-                        else:
-                            yield sse(search=block.input.get("query"))
-                    elif getattr(block, "type", "") == "web_search_tool_result" and isinstance(block.content, list):
-                        links = [{"title": getattr(r, "title", None), "url": getattr(r, "url", None)}
-                                 for r in block.content if getattr(r, "type", "") == "web_search_result"]
-                        if links:
-                            yield sse(results=links)
-        yield sse(done=True)
-    except Exception as e:  # surface API errors to the client instead of a dead stream
-        yield sse(error=str(e))
-
-
-async def responses_stream(provider, model, messages, system, max_tokens, effort, temperature):
-    """Emits the same SSE frames as anthropic_stream, so api.js handles both alike.
-
-    Serves OpenAI and every provider that implements the Responses API, DeepSeek included.
-    """
-    kwargs = dict(model=model, input=messages, max_output_tokens=max_tokens, stream=True)
-    if system:
-        # The Responses API's system-prompt slot takes one string, and the server caches long prefixes on its own.
-        kwargs["instructions"] = join_system(system)
-    if takes_reasoning(provider, model):
-        if effort:
-            # summary="auto" mirrors Anthropic's display="summarized": it is what makes reasoning text stream at all.
-            # The trace can still come out empty, because effort is a hint.
-            # Verified against the API: at "low" with a short system prompt, gpt-5.6 often returns no reasoning item, while "high" reasons reliably.
-            # An empty trace on an easy turn is the model's call.
-            kwargs["reasoning"] = {"effort": effort, "summary": "auto"}
-    else:
-        kwargs["temperature"] = temperature  # reasoning models reject it
-    search_tool = PROVIDERS[provider].get("search_tool")
-    if search_tool:
-        kwargs["tools"] = [{"type": search_tool}]
-    try:
-        stream = await CLIENTS[provider].responses.create(**kwargs)
-        async for event in stream:
-            etype = getattr(event, "type", "")
-            if etype == "response.output_text.delta":
-                yield sse(text=event.delta)
-            # OpenAI streams a summary of its reasoning; DeepSeek streams the chain itself and generates no summary.
-            elif etype in ("response.reasoning_summary_text.delta", "response.reasoning_text.delta"):
-                yield sse(think=event.delta)
-            elif etype == "response.output_item.done":
-                action = field(event.item, "action") if field(event.item, "type") == "web_search_call" else None
-                if action is not None:
-                    if field(action, "type") == "open_page":
-                        yield sse(fetch=field(action, "url"))
-                    elif field(action, "query"):
-                        yield sse(search=field(action, "query"))
-            elif etype == "response.output_text.annotation.added":
-                a = field(event, "annotation")
-                if field(a, "type") == "url_citation":
-                    # One citation per frame, where Anthropic batches them, so the trace shows more and smaller groups.
-                    # Buffer here if that reads noisy.
-                    yield sse(results=[{"title": field(a, "title"), "url": field(a, "url")}])
-            elif etype == "error":
-                yield sse(error=str(field(event, "message") or event))
-        yield sse(done=True)
-    except Exception as e:
-        yield sse(error=str(e))
-
-
-async def chat_completions_stream(provider, model, messages, system, max_tokens, effort, temperature):
-    """Emits the same SSE frames as anthropic_stream, for a provider that serves chat.completions only.
-
-    No hosted tools and no thinking lever on this dialect: `search`, `fetch` and `results` frames never
-    appear, and thinking depth is whatever the model id implies.
-    """
-    kwargs = chat_completions_kwargs(model, messages, system, max_tokens, temperature)
-    try:
-        stream = await CLIENTS[provider].chat.completions.create(stream=True, **kwargs)
-        async for chunk in stream:
-            if not chunk.choices:  # a usage-only final chunk carries no choices
-                continue
-            delta = chunk.choices[0].delta
-            # DeepSeek and Moonshot both stream thinking on reasoning_content, beside the standard content field.
-            think = field(delta, "reasoning_content")
-            if think:
-                yield sse(think=think)
-            text = field(delta, "content")
-            if text:
-                yield sse(text=text)
-        yield sse(done=True)
-    except Exception as e:
-        yield sse(error=str(e))
-
-
-# One generator per wire protocol, which is the whole of what a dialect is.
-DIALECT_STREAMS = {
-    "anthropic": anthropic_stream,
-    "responses": responses_stream,
-    "chat_completions": chat_completions_stream,
-}
+async def sse_stream(events: AsyncIterable[dict]) -> AsyncIterator[str]:
+    async for payload in events:
+        yield sse(**payload)
 
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest, _=Depends(require_auth)):
-    provider, model = split_model(req.model or DEFAULT_MODEL)
     max_tokens = req.max_tokens or DEFAULT_MAX_TOKENS
     effort = req.effort if req.effort is not None else DEFAULT_EFFORT
     if effort and effort not in EFFORT_VALUES:
         raise HTTPException(400, f"unknown effort level: {effort}")
-    entry = PROVIDERS.get(provider)
-    if entry is None:
-        raise HTTPException(400, f"unknown provider: {provider}")
-    if CLIENTS[provider] is None:
-        raise HTTPException(503, f"server {entry['key_env']} not configured")
-    gen = DIALECT_STREAMS[entry["dialect"]](
+    try:
+        provider, model = resolve_model(req.model or DEFAULT_MODEL)
+    except LookupError as error:
+        raise HTTPException(400, str(error))
+    except RuntimeError as error:
+        raise HTTPException(503, str(error))
+    events = stream_chat(
         provider,
         model,
-        [m.model_dump() for m in req.messages],
+        [message.model_dump() for message in req.messages],
         req.system,
         max_tokens,
         effort,
         req.temperature if req.temperature is not None else DEFAULT_TEMPERATURE,
     )
-    return StreamingResponse(gen, media_type="text/event-stream")
+    return StreamingResponse(sse_stream(events), media_type="text/event-stream")
 
 
 # Serve the built SPA in production (same origin, so no CORS needed).
@@ -360,12 +225,5 @@ if os.path.isdir("static"):
 
 
 if __name__ == "__main__":  # self-check: python main.py (uvicorn imports app, never runs this)
-    # system_param: a plain string passes through.
-    # [stable, volatile] becomes blocks carrying cache_control on the first only, and an empty half is dropped.
-    assert system_param("just a string") == "just a string"
-    _b = system_param(["stable", "volatile"])
-    assert _b[0] == {"type": "text", "text": "stable", "cache_control": {"type": "ephemeral"}}, _b
-    assert _b[1] == {"type": "text", "text": "volatile"}, _b
-    assert [b["text"] for b in system_param(["stable", ""])] == ["stable"], "empty half dropped"
-
+    assert sse(text="a\nb") == 'data: {"text": "a\\nb"}\n\n'
     print("selfcheck OK")

@@ -1,88 +1,109 @@
 """Provider package self-check: python -m providers."""
 
-from . import *
+from types import SimpleNamespace as Obj
 
-def _k(model, temperature=1.0):
+from . import (
+    DIALECTS,
+    EFFORT_VALUES,
+    PROVIDERS,
+    anthropic_frame,
+    anthropic_system,
+    apply_thinking,
+    chat_completion_frames,
+    chat_completions_kwargs,
+    field,
+    join_system,
+    parse_models,
+    resolve_model,
+    response_frame,
+    split_model,
+    takes_reasoning,
+)
+from .anthropic import LEGACY_EFFORT_BUDGETS
+
+
+def request(model: str, temperature: float = 1.0) -> dict:
     return {"model": model, "max_tokens": 4096, "temperature": temperature}
 
-# Modern model, thinking on: adaptive + effort, no temperature, roomier max_tokens.
-m = apply_thinking(_k("claude-opus-4-8"), "high", 4096)
-assert m["thinking"] == {"type": "adaptive", "display": "summarized"}, m
-assert m["output_config"] == {"effort": "high"}, m
-assert "temperature" not in m, m
-assert m["max_tokens"] == 32000, m
 
-# Modern model, thinking off: still no temperature (Opus 4.7/4.8 reject it outright).
-m = apply_thinking(_k("claude-opus-4-8"), "", 4096)
-assert "temperature" not in m and "thinking" not in m, m
-assert m["max_tokens"] == 4096, m
+modern = apply_thinking(request("claude-opus-4-8"), "high", 4096)
+assert modern["thinking"] == {"type": "adaptive", "display": "summarized"}, modern
+assert modern["output_config"] == {"effort": "high"} and modern["max_tokens"] == 32000, modern
+assert "temperature" not in modern, modern
 
-# Legacy model: fixed budget, budget < max_tokens, temperature dropped only here.
-m = apply_thinking(_k("claude-haiku-4-5"), "medium", 4096)
-assert m["thinking"] == {"type": "enabled", "budget_tokens": 10000}, m
-assert m["max_tokens"] > m["thinking"]["budget_tokens"], m
-assert "output_config" not in m and "temperature" not in m, m
+modern = apply_thinking(request("claude-opus-4-8"), "", 4096)
+assert "temperature" not in modern and "thinking" not in modern, modern
 
-# Legacy model, thinking off: temperature survives, since legacy models accept it.
-m = apply_thinking(_k("claude-haiku-4-5", temperature=0.3), "", 4096)
-assert m["temperature"] == 0.3, m
-assert "thinking" not in m, m
+legacy = apply_thinking(request("claude-haiku-4-5"), "medium", 4096)
+assert legacy["thinking"] == {"type": "enabled", "budget_tokens": 10000}, legacy
+assert legacy["max_tokens"] > legacy["thinking"]["budget_tokens"], legacy
+assert "output_config" not in legacy and "temperature" not in legacy, legacy
+assert apply_thinking(request("claude-haiku-4-5", 0.3), "", 4096)["temperature"] == 0.3
+assert "output_config" in apply_thinking(request("claude-future-9"), "low", 4096)
+assert set(EFFORT_VALUES) == set(LEGACY_EFFORT_BUDGETS), EFFORT_VALUES
 
-# Unknown ids are treated as modern, not legacy.
-assert "output_config" in apply_thinking(_k("claude-future-9"), "low", 4096)
-
-# A bare id means Anthropic, permanently.
-# Conversations saved before OpenAI support hold bare ids.
 assert split_model("claude-opus-5") == ("anthropic", "claude-opus-5")
 assert split_model("openai/gpt-5.6") == ("openai", "gpt-5.6")
-# rpartition, so a provider id that itself contains a slash still splits at the last one.
 assert split_model("openai/ft:org/gpt-5.6") == ("openai/ft:org", "gpt-5.6")
+models = parse_models("claude-opus-5:Opus 5,openai/gpt-5.6:GPT,openai/gpt-5.6:dupe,bare-id")
+assert [model["id"] for model in models] == ["claude-opus-5", "openai/gpt-5.6", "bare-id"], models
+assert [model["provider"] for model in models] == ["anthropic", "openai", "anthropic"], models
+assert models[1]["label"] == "GPT" and models[2]["label"] == "bare-id", models
 
-# parse_models: label optional, provider derived, first occurrence of an id wins.
-p = parse_models("claude-opus-5:Opus 5,openai/gpt-5.6:GPT,openai/gpt-5.6:dupe,bare-id")
-assert [m["id"] for m in p] == ["claude-opus-5", "openai/gpt-5.6", "bare-id"], p
-assert [m["provider"] for m in p] == ["anthropic", "openai", "anthropic"], p
-assert p[1]["label"] == "GPT" and p[2]["label"] == "bare-id", p
+assert set(PROVIDERS) == {"anthropic", "compatible", "deepseek", "openai"}, PROVIDERS
+for name, entry in PROVIDERS.items():
+    assert entry["dialect"] in DIALECTS and entry["key_env"] and "models" in entry, name
+    assert entry.get("base_url") or name in ("anthropic", "compatible", "openai"), name
+    for model in parse_models(entry["models"]):
+        assert model["provider"] == name, (name, model)
+assert PROVIDERS["compatible"]["models"] == ""
+assert PROVIDERS["compatible"]["base_url_env"] == "OPENAI_COMPATIBLE_BASE_URL"
 
-# Models whose provider has no key are hidden rather than offered-then-503.
-_all = parse_models("claude-opus-5:Opus,openai/gpt-5.6:GPT")
-assert [m["id"] for m in _all if m["provider"] in {"anthropic"}] == ["claude-opus-5"], _all
-
-# Registry shape: a typo in `dialect` surfaces as a 400 on send, and a chat.completions entry without a
-# base_url would go to api.openai.com under someone else's key.
-for _name, _entry in PROVIDERS.items():
-    assert _entry["dialect"] in DIALECTS, _name
-    assert _entry["key_env"] and _entry["models"], _name
-    # Only the two first-class endpoints are the SDK defaults; anything else needs its own address.
-    assert _entry.get("base_url") or _name in ("anthropic", "openai"), _name
-    # An entry whose ids carry the wrong prefix stays hidden whatever keys are set, since MODELS filters on provider.
-    for _m in parse_models(_entry["models"]):
-        assert _m["provider"] == _name, (_name, _m)
-
-# Reasoning gate: OpenAI splits its lineup by id prefix, DeepSeek reasons on everything it offers.
 assert takes_reasoning("openai", "gpt-5.6-sol") and not takes_reasoning("openai", "gpt-4o")
 assert takes_reasoning("deepseek", "deepseek-v4-flash")
 
-# chat.completions: the system param becomes the leading message, and temperature is omitted unless asked for.
-_cc = chat_completions_kwargs("kimi-k2-thinking", [{"role": "user", "content": "hi"}],
-                              ["stable", "volatile"], 2048, temperature=0.3)
-assert _cc["messages"][0] == {"role": "system", "content": "stable\n\nvolatile"}, _cc
-assert _cc["messages"][1]["content"] == "hi" and _cc["temperature"] == 0.3, _cc
-_cc = chat_completions_kwargs("kimi-k2-thinking", [{"role": "user", "content": "hi"}], None, 2048)
-assert _cc["messages"][0]["content"] == "hi" and "temperature" not in _cc, _cc
+blocks = anthropic_system(["stable", "volatile"])
+assert blocks == [
+    {"type": "text", "text": "stable", "cache_control": {"type": "ephemeral"}},
+    {"type": "text", "text": "volatile"},
+], blocks
+assert anthropic_system("plain") == "plain"
+assert anthropic_system(["stable", ""]) == [{"type": "text", "text": "stable", "cache_control": {"type": "ephemeral"}}]
 
-# An empty half is dropped rather than joined into leading blank lines.
-assert join_system(["stable", ""]) == "stable"
-assert join_system("plain") == "plain"
+chat = chat_completions_kwargs(
+    "some-model", [{"role": "user", "content": "hi"}], ["stable", "volatile"], 2048, temperature=0.3
+)
+assert chat["messages"][0] == {"role": "system", "content": "stable\n\nvolatile"}, chat
+assert chat["messages"][1]["content"] == "hi" and chat["temperature"] == 0.3, chat
+assert "temperature" not in chat_completions_kwargs("some-model", [], None, 2048)
+assert join_system(["stable", ""]) == "stable" and join_system("plain") == "plain"
 
-# Both providers share one effort vocabulary, so the lever needs no translation.
-assert set(EFFORT_VALUES) == set(LEGACY_EFFORT_BUDGETS), EFFORT_VALUES
+assert anthropic_frame(Obj(type="content_block_delta", delta=Obj(type="text_delta", text="hello"))) == {"text": "hello"}
+assert anthropic_frame(Obj(type="content_block_delta", delta=Obj(type="thinking_delta", thinking="hmm"))) == {"think": "hmm"}
+assert anthropic_frame(Obj(type="content_block_stop", content_block={
+    "type": "server_tool_use", "name": "web_fetch", "input": {"url": "https://example.com"}
+})) == {"fetch": "https://example.com"}
 
-# field() reads SDK objects and plain dicts alike, and returns None on a shape it doesn't recognise.
-class _Obj:
-    type = "url_citation"
+assert response_frame(Obj(type="response.output_text.delta", delta="hello")) == {"text": "hello"}
+assert response_frame(Obj(type="response.reasoning_text.delta", delta="hmm")) == {"think": "hmm"}
+assert response_frame(Obj(type="response.reasoning_summary_text.delta", delta="summary")) == {"think": "summary"}
+assert response_frame(Obj(type="response.output_item.done", item={
+    "type": "web_search_call", "action": {"type": "search", "query": "kettle"}
+})) == {"search": "kettle"}
+assert response_frame(Obj(type="response.output_text.annotation.added", annotation={
+    "type": "url_citation", "title": "Kettles", "url": "https://example.com/kettle"
+})) == {"results": [{"title": "Kettles", "url": "https://example.com/kettle"}]}
+
+frames = chat_completion_frames(Obj(choices=[Obj(delta={"reasoning_content": "hmm", "content": "answer"})]))
+assert frames == [{"think": "hmm"}, {"text": "answer"}], frames
+assert chat_completion_frames(Obj(choices=[])) == []
 assert field({"type": "url_citation"}, "type") == "url_citation"
-assert field(_Obj(), "type") == "url_citation"
-assert field({"a": 1}, "missing") is None and field(_Obj(), "missing") is None
+assert field(Obj(type="url_citation"), "type") == "url_citation"
+
+try:
+    resolve_model("missing/model")
+    raise AssertionError("unknown provider accepted")
+except LookupError:
+    pass
 
 print("providers selfcheck OK")
