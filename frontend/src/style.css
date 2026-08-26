@@ -9,6 +9,8 @@
   --c-edge: #e4e4e7;
   --c-text: #18181b;
   --c-muted: #6b7280;
+  --c-danger: #dc2626;
+  --c-on-danger: #ffffff;
   --c-code: #f6f8fa;
 }
 .dark {
@@ -28,6 +30,8 @@
   --color-edge: var(--c-edge);
   --color-base: var(--c-text);
   --color-muted: var(--c-muted);
+  --color-danger: var(--c-danger);
+  --color-on-danger: var(--c-on-danger);
 }
 
 html, body, #app { height: 100dvh; }

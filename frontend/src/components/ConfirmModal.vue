@@ -1,14 +1,29 @@
 <script setup>
+import {
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogOverlay,
+  AlertDialogPortal,
+  AlertDialogRoot,
+  AlertDialogTitle,
+} from 'reka-ui'
 import { answerConfirm, confirmState } from '../utils/confirm.js'
-import Modal from './Modal.vue'
 </script>
 
 <template>
-  <Modal v-if="confirmState" title="Please confirm" @close="answerConfirm(false)">
-    <p class="text-sm">{{ confirmState.message }}</p>
-    <div class="mt-4 flex justify-end gap-2">
-      <button class="rounded px-3 py-1.5 text-sm hover:bg-surface2" @click="answerConfirm(false)">Cancel</button>
-      <button class="rounded bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500" @click="answerConfirm(true)">{{ confirmState.label }}</button>
-    </div>
-  </Modal>
+  <AlertDialogRoot v-if="confirmState" :open="true" @update:open="open => !open && confirmState && answerConfirm(false)">
+    <AlertDialogPortal>
+      <AlertDialogOverlay class="fixed inset-0 z-40 bg-black/50" />
+      <AlertDialogContent class="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg bg-surface p-4 text-base shadow-xl">
+        <AlertDialogTitle class="text-sm font-medium">Please confirm</AlertDialogTitle>
+        <AlertDialogDescription class="mt-3 text-sm">{{ confirmState.message }}</AlertDialogDescription>
+        <div class="mt-4 flex justify-end gap-2">
+          <AlertDialogCancel class="rounded px-3 py-1.5 text-sm hover:bg-surface2">Cancel</AlertDialogCancel>
+          <AlertDialogAction class="rounded bg-danger px-3 py-1.5 text-sm font-medium text-on-danger hover:opacity-90" @click="answerConfirm(true)">{{ confirmState.label }}</AlertDialogAction>
+        </div>
+      </AlertDialogContent>
+    </AlertDialogPortal>
+  </AlertDialogRoot>
 </template>
