@@ -1,4 +1,4 @@
-"""Provider layer: clients, the model registry, and the two shapes of a model call.
+"""Provider layer: the provider registry, clients, and the three shapes of a model call.
 
 Everything that knows an API key or a model id lives here.
 main.py owns the web app, research.py the gather stage, and runs.py the run loop; all three import this, which is what keeps them from importing each other.
@@ -14,8 +14,51 @@ from openai import AsyncOpenAI
 # Idempotent, and it has to run here too: importing this module before main reads the env otherwise finds nothing.
 load_dotenv()
 
-API_KEY = os.environ.get("ANTHROPIC_API_KEY")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+# Providers are data; dialects are code.
+# `dialect` picks the wire protocol, and so both the branch in complete() and the stream generator in main.py.
+# Everything else here is a plain value, so an OpenAI-compatible provider costs one entry plus its key in .env.
+#
+# Fields: dialect (anthropic | responses | chat_completions), key_env, models, and for the OpenAI-compatible
+# dialects base_url and effort_param (absent = this provider has no thinking lever to send).
+# Model ids in `models` carry their own provider prefix, except Anthropic's, which are bare (see split_model).
+PROVIDERS = {
+    "anthropic": {
+        "dialect": "anthropic",
+        "key_env": "ANTHROPIC_API_KEY",
+        "models": (
+            "claude-fable-5:Fable 5,"
+            "claude-opus-5:Opus 5,claude-sonnet-5:Sonnet 5,claude-opus-4-8:Opus 4.8,"
+            "claude-sonnet-4-6:Sonnet 4.6,claude-haiku-4-5:Haiku 4.5"
+        ),
+    },
+    "openai": {
+        "dialect": "responses",
+        "key_env": "OPENAI_API_KEY",
+        "models": (
+            "openai/gpt-5.6-sol:GPT-5.6 Sol,openai/gpt-5.6-terra:GPT-5.6 Terra,"
+            "openai/gpt-5.6-luna:GPT-5.6 Luna,openai/gpt-5.5:GPT-5.5,"
+            "openai/gpt-5-mini:GPT-5 Mini"
+        ),
+    },
+    "deepseek": {
+        "dialect": "chat_completions",
+        "key_env": "DEEPSEEK_API_KEY",
+        "base_url": "https://api.deepseek.com",
+        "effort_param": "reasoning_effort",
+        "models": "deepseek/deepseek-v4-pro:DeepSeek V4 Pro,deepseek/deepseek-v4-flash:DeepSeek V4 Flash",
+    },
+    "moonshot": {
+        "dialect": "chat_completions",
+        "key_env": "MOONSHOT_API_KEY",
+        "base_url": "https://api.moonshot.ai/v1",
+        # Thinking depth rides the model id here, so there is no effort parameter to send.
+        "models": "moonshot/kimi-k2-thinking:Kimi K2 Thinking",
+    },
+}
+
+DIALECTS = ("anthropic", "responses", "chat_completions")
+
+KEYS = {name: os.environ.get(p["key_env"]) for name, p in PROVIDERS.items()}
 
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "claude-sonnet-5")
 DEFAULT_TEMPERATURE = float(os.environ.get("DEFAULT_TEMPERATURE", "1.0"))
@@ -72,16 +115,9 @@ OPENAI_REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 
 # Selectable models, labelled.
 # Format: "provider/id:Label,id2:Label2" (label optional, provider optional).
-# Built-ins are always offered; the MODELS env var appends extra ids.
+# Built-ins come from the registry above and are always offered; the MODELS env var appends extra ids.
 # First occurrence of an id wins.
-BUILTIN_MODELS = (
-    "claude-fable-5:Fable 5,"
-    "claude-opus-5:Opus 5,claude-sonnet-5:Sonnet 5,claude-opus-4-8:Opus 4.8,"
-    "claude-sonnet-4-6:Sonnet 4.6,claude-haiku-4-5:Haiku 4.5,"
-    "openai/gpt-5.6-sol:GPT-5.6 Sol,openai/gpt-5.6-terra:GPT-5.6 Terra,"
-    "openai/gpt-5.6-luna:GPT-5.6 Luna,openai/gpt-5.5:GPT-5.5,"
-    "openai/gpt-5-mini:GPT-5 Mini"
-)
+BUILTIN_MODELS = ",".join(p["models"] for p in PROVIDERS.values())
 
 
 def apply_thinking(kwargs, effort, max_tokens):
@@ -139,6 +175,31 @@ def parse_models(raw):
     return out
 
 
+def join_system(system):
+    """Collapse buildPayload's [stable, volatile] halves into the single system string every non-Anthropic dialect takes.
+
+    The cache split is Anthropic-only: OpenAI-compatible APIs cache long prefixes themselves, or not at all.
+    """
+    return "\n\n".join(s for s in system if s) if isinstance(system, list) else system
+
+
+def chat_completions_kwargs(provider, model, messages, system, max_tokens, effort, temperature=None):
+    """Request body for the chat.completions dialect, shared by complete() and main.py's stream.
+
+    The thinking lever is per provider (`effort_param`), because chat.completions has no standard one;
+    a provider without one silently ignores the effort setting, which is what the UI lever already implies elsewhere.
+    """
+    if system:
+        messages = [{"role": "system", "content": join_system(system)}, *messages]
+    kwargs = dict(model=model, messages=messages, max_tokens=max_tokens)
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    effort_param = PROVIDERS[provider].get("effort_param")
+    if effort and effort_param:
+        kwargs[effort_param] = effort
+    return kwargs
+
+
 def field(obj, name):
     """Read a field off an SDK model or a plain dict.
 
@@ -148,7 +209,7 @@ def field(obj, name):
     return obj.get(name) if isinstance(obj, dict) else getattr(obj, name, None)
 
 
-CONFIGURED = {p for p, key in (("anthropic", API_KEY), ("openai", OPENAI_API_KEY)) if key}
+CONFIGURED = {name for name, key in KEYS.items() if key}
 
 ALL_MODELS = parse_models(BUILTIN_MODELS + "," + os.environ.get("MODELS", ""))
 # Only offer what we hold a key for: an unusable option in the dropdown fails as a bare 503 on send, and silently (swallowed) when it's the utility model.
@@ -164,7 +225,9 @@ def _config_error(msg):
     logging.warning(msg)
 
 
-_dropped = [m["id"] for m in ALL_MODELS if m["provider"] not in CONFIGURED]
+# Only ids the operator asked for by name are worth a banner.
+# A registry provider with no key is an offer nobody took up, so it is hidden without comment.
+_dropped = [m["id"] for m in parse_models(os.environ.get("MODELS", "")) if m["provider"] not in CONFIGURED]
 if _dropped:
     _missing = sorted({split_model(i)[0] for i in _dropped})
     _config_error(
@@ -174,8 +237,22 @@ for _name, _mid in (("DEFAULT_MODEL", DEFAULT_MODEL), ("DEFAULT_UTILITY_MODEL", 
     if not any(m["id"] == _mid for m in MODELS):
         _config_error(f"{_name}={_mid} is not selectable (no API key for it, or not in MODELS)")
 
-client = AsyncAnthropic(api_key=API_KEY, max_retries=API_MAX_RETRIES) if API_KEY else None
-openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY, max_retries=API_MAX_RETRIES) if OPENAI_API_KEY else None
+def _build_client(name):
+    key = KEYS[name]
+    if not key:
+        return None
+    entry = PROVIDERS[name]
+    if entry["dialect"] == "anthropic":
+        return AsyncAnthropic(api_key=key, max_retries=API_MAX_RETRIES)
+    # The openai SDK speaks both remaining dialects; base_url is what points it at a compatible provider.
+    return AsyncOpenAI(api_key=key, base_url=entry.get("base_url"), max_retries=API_MAX_RETRIES)
+
+
+CLIENTS = {name: _build_client(name) for name in PROVIDERS}
+
+# The two first-class clients by name, for the hosted-search finders in research.py, which are dialect-specific by nature.
+client = CLIENTS["anthropic"]
+openai_client = CLIENTS["openai"]
 
 
 async def complete(model_id, system, prompt, max_tokens=2048, effort="", spend=None):
@@ -185,29 +262,42 @@ async def complete(model_id, system, prompt, max_tokens=2048, effort="", spend=N
     `spend` is anything with .add(model_id, input_tokens, output_tokens), which keeps cost accounting out of here.
     """
     provider, model = split_model(model_id)
-    if provider == "anthropic":
+    entry = PROVIDERS.get(provider)
+    if entry is None:
+        raise ValueError(f"unknown provider: {provider}")
+    api = CLIENTS[provider]
+    if api is None:
+        raise ValueError(f"server {entry['key_env']} not configured")
+    dialect = entry["dialect"]
+    if dialect == "anthropic":
         kwargs = dict(model=model, max_tokens=max_tokens, messages=[{"role": "user", "content": prompt}])
         if system:
             kwargs["system"] = system
         apply_thinking(kwargs, effort, max_tokens)
         # Streaming throughout, because the SDK refuses a non-streaming request whose max_tokens could outrun its 10-minute ceiling.
         # The report call is well past that threshold, and one path beats a size test that gets it wrong later.
-        async with client.messages.stream(**kwargs) as stream:
+        async with api.messages.stream(**kwargs) as stream:
             message = await stream.get_final_message()
         if spend:
             spend.add(model_id, message.usage.input_tokens, message.usage.output_tokens)
         return "".join(b.text for b in message.content if b.type == "text").strip()
-    if provider == "openai":
+    if dialect == "responses":
         kwargs = dict(model=model, input=prompt, max_output_tokens=max_tokens)
         if system:
-            kwargs["instructions"] = system
+            kwargs["instructions"] = join_system(system)
         if effort and model.startswith(OPENAI_REASONING_PREFIXES):
             kwargs["reasoning"] = {"effort": effort}
-        response = await openai_client.responses.create(**kwargs)
+        response = await api.responses.create(**kwargs)
         if spend and response.usage:
             spend.add(model_id, response.usage.input_tokens, response.usage.output_tokens)
         return (response.output_text or "").strip()
-    raise ValueError(f"unknown provider: {provider}")
+    kwargs = chat_completions_kwargs(
+        provider, model, [{"role": "user", "content": prompt}], system, max_tokens, effort
+    )
+    response = await api.chat.completions.create(**kwargs)
+    if spend and response.usage:
+        spend.add(model_id, response.usage.prompt_tokens, response.usage.completion_tokens)
+    return (response.choices[0].message.content or "").strip()
 
 
 if __name__ == "__main__":  # self-check: python providers.py
@@ -256,6 +346,33 @@ if __name__ == "__main__":  # self-check: python providers.py
     # Models whose provider has no key are hidden rather than offered-then-503.
     _all = parse_models("claude-opus-5:Opus,openai/gpt-5.6:GPT")
     assert [m["id"] for m in _all if m["provider"] in {"anthropic"}] == ["claude-opus-5"], _all
+
+    # Registry shape: a typo in `dialect` surfaces as a 400 on send, and a chat.completions entry without a
+    # base_url would go to api.openai.com under someone else's key.
+    for _name, _entry in PROVIDERS.items():
+        assert _entry["dialect"] in DIALECTS, _name
+        assert _entry["key_env"] and _entry["models"], _name
+        if _entry["dialect"] == "chat_completions":
+            assert _entry.get("base_url"), _name
+        # An entry whose ids carry the wrong prefix stays hidden whatever keys are set, since MODELS filters on provider.
+        for _m in parse_models(_entry["models"]):
+            assert _m["provider"] == _name, (_name, _m)
+
+    # chat.completions: system becomes the leading message, and the effort lever travels under the provider's own name.
+    _cc = chat_completions_kwargs("deepseek", "deepseek-v4-pro", [{"role": "user", "content": "hi"}],
+                                  ["stable", "volatile"], 2048, "high", temperature=0.3)
+    assert _cc["messages"][0] == {"role": "system", "content": "stable\n\nvolatile"}, _cc
+    assert _cc["messages"][1]["content"] == "hi" and _cc["temperature"] == 0.3, _cc
+    assert _cc["reasoning_effort"] == "high", _cc
+
+    # A provider with no effort_param sends no lever at all rather than a parameter the API rejects.
+    _cc = chat_completions_kwargs("moonshot", "kimi-k2-thinking", [{"role": "user", "content": "hi"}], None, 2048, "high")
+    assert "reasoning_effort" not in _cc and _cc["messages"][0]["content"] == "hi", _cc
+    assert "temperature" not in _cc, _cc
+
+    # An empty half is dropped rather than joined into leading blank lines.
+    assert join_system(["stable", ""]) == "stable"
+    assert join_system("plain") == "plain"
 
     # Both providers share one effort vocabulary, so the lever needs no translation.
     assert set(EFFORT_VALUES) == set(LEGACY_EFFORT_BUDGETS), EFFORT_VALUES
