@@ -218,6 +218,27 @@ async def _anthropic_stream(
         yield {"_usage": anthropic_usage((await stream.get_final_message()).usage)}
 
 
+def openai_messages(messages: list[dict], responses: bool) -> list[dict]:
+    text_type = "input_text" if responses else "text"
+    image_type = "input_image" if responses else "image_url"
+    out = []
+    for message in messages:
+        content = message["content"]
+        if isinstance(content, str):
+            out.append(message)
+            continue
+        parts = []
+        for block in content:
+            if block["type"] == "text":
+                parts.append({"type": text_type, "text": block["text"]})
+            else:
+                source = block["source"]
+                url = f"data:{source['media_type']};base64,{source['data']}"
+                parts.append({"type": image_type, "image_url": url} if responses else {"type": image_type, "image_url": {"url": url}})
+        out.append({**message, "content": parts})
+    return out
+
+
 async def _responses_stream(
     provider: str,
     model: str,
@@ -227,7 +248,7 @@ async def _responses_stream(
     effort: str,
     temperature: float,
 ) -> AsyncIterator[dict]:
-    kwargs = {"model": model, "input": messages, "max_output_tokens": max_tokens, "stream": True}
+    kwargs = {"model": model, "input": openai_messages(messages, True), "max_output_tokens": max_tokens, "stream": True}
     if system:
         kwargs["instructions"] = join_system(system)
     if takes_reasoning(provider, model):
@@ -255,7 +276,7 @@ async def _chat_completions_stream(
     _effort: str,
     temperature: float,
 ) -> AsyncIterator[dict]:
-    kwargs = chat_completions_kwargs(model, messages, system, max_tokens, temperature)
+    kwargs = chat_completions_kwargs(model, openai_messages(messages, False), system, max_tokens, temperature)
     # WHY: opt into the OpenAI-standard usage-on-final-chunk flag, otherwise chat.completions pricing is permanently blind.
     # A strict OpenAI-compatible endpoint that rejects the param would 400 the whole stream; no key is available to verify one that does.
     kwargs["stream_options"] = {"include_usage": True}

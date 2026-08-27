@@ -10,16 +10,16 @@ The FastAPI server holds provider keys and the app password, relays model stream
 
 The production build includes a PWA manifest and service worker.
 
-Storage locations:
+Who ends up holding what:
 
 | What | In your browser | On the server |
 |------|-----------------|---------------|
-| Chat transcripts | IndexedDB | |
-| Cards, workspaces, documents, templates | IndexedDB | |
-| Finished research reports | IndexedDB, as documents | Run memory until collected, eviction, or restart |
-| Pages read during research | | Run memory while processed |
-| Provider API keys | | Environment variables |
-| App password | | Environment variable |
+| Every chat transcript and image | ✔️ | ❌ |
+| Cards, workspaces, documents, templates | ✔️ | ❌ |
+| A finished research report | ✔️ | 🟡 Until collected, eviction, or restart |
+| Your provider API key | ❌ | ✔️ (This is the whole reason it exists) |
+| The pages a research run reads | ❌ | 🟡 While processed, then forgotten |
+| Your password | ❌ | ✔️ (As the env var you set it to) |
 
 ## Run it
 
@@ -41,7 +41,9 @@ Set several to pick between their models per conversation.
 The model picker contains models from configured providers. A `MODELS` entry with incomplete provider configuration produces a banner on first load.
 
 Conversa supports Anthropic's Messages API, OpenAI's Responses API, and DeepSeek's Responses API.
-The `compatible` entry serves one chat.completions endpoint at a time. Set its key and base URL, then list models with the `compatible/` prefix. It sends text messages and reads text plus `reasoning_content`. Research through this entry uses Exa, Brave, or SearXNG.
+The `compatible` entry serves one chat.completions endpoint at a time. Set its key and base URL, then list models with the `compatible/` prefix. It sends text and image messages, and reads text plus `reasoning_content`. Research through this entry uses Exa, Brave, or SearXNG.
+
+Attach images from the picker, clipboard, or a drag-drop. Conversa keeps them in your browser, and sends them with the chat turn.
 
 ### Run it as a systemd service (Podman Quadlet)
 

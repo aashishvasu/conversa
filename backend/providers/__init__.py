@@ -11,6 +11,7 @@ from .dialects import (
     complete,
     field,
     join_system,
+    openai_messages,
     response_frame,
     responses_usage,
     stream_chat,

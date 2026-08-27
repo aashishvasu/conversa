@@ -11,6 +11,7 @@ const props = defineProps({
   windowStart: Boolean, // first message of the send window: renders the "sent from here" divider
   trace: { type: Array, default: null }, // live thinking/search steps while this message streams
   traceOpen: Boolean,
+  images: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['edit', 'cancel-edit', 'done-edit', 'delete', 'regenerate', 'activate', 'toggle-trace', 'promote'])
 
@@ -92,6 +93,9 @@ function promote() {
           <div class="mb-1 flex items-center gap-1 opacity-60">
             <component :is="ROLE_ICON[message.role]" :size="13" />
             <Pin v-if="message.pinned" :size="12" class="fill-current text-indigo-400" />
+          </div>
+          <div v-if="images.length" class="mb-2 flex gap-2 overflow-x-auto">
+            <img v-for="image in images" :key="image.id" :src="`data:${image.media_type};base64,${image.data}`" class="h-20 w-20 rounded object-cover" />
           </div>
           <div v-if="message.role === 'system'" class="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm" :class="!message.content && 'italic text-muted'">{{ message.content || 'You are a helpful assistant.' }}</div>
           <div v-else-if="message.content" class="md [overflow-wrap:anywhere]" v-html="renderMarkdown(message.content)"></div>

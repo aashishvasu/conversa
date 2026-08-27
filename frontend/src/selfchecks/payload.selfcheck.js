@@ -118,6 +118,12 @@ const holed = {
 const hp = buildPayload(holed, { model: 'm', max_tokens: 10, num_messages_to_send: 5, send_system_prompt: true })
 assert.deepEqual(hp.messages.map((m) => m.content), ['ask', 'follow-up'], 'empty turns are dropped from the payload')
 
+// Images become Anthropic blocks ahead of text; image-only turns remain valid.
+const image = { id: 'img', media_type: 'image/webp', data: 'BASE64' }
+const vision = buildPayload({ scanAssistant: false, cards: [], messages: [{ id: 'i', role: 'user', content: 'describe this', imageIds: ['img'] }, { id: 'only', role: 'user', content: '', imageIds: ['img'] }] }, { model: 'm', max_tokens: 10, num_messages_to_send: 5, send_system_prompt: true }, null, [], [image])
+assert.deepEqual(vision.messages[0].content, [{ type: 'image', source: { type: 'base64', media_type: 'image/webp', data: 'BASE64' } }, { type: 'text', text: 'describe this' }], 'images lead text')
+assert.deepEqual(vision.messages[1].content, [{ type: 'image', source: { type: 'base64', media_type: 'image/webp', data: 'BASE64' } }], 'image-only turn remains')
+
 // stopwords/short words alone never trigger recall ("what was the..." matches nothing)
 const noSignal = recallMessages(recallConvo, [{ id: 'q', role: 'user', content: 'what was the it?' }])
 assert.deepEqual(noSignal, [])

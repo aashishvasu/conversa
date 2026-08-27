@@ -156,7 +156,7 @@ Covered by `python -m selfchecks.providers`.
 
 ### How a request is assembled (`frontend/src/prompt/cards.js`)
 
-`buildPayload(convo, settings, workspace, docs)` assembles the provider request; the two call sites (ChatPane, DebugPanel) resolve `workspace` with `workspaceOf(convo)` and `docs` with `attachedDocs(convo)`.
+`buildPayload(convo, settings, workspace, docs, images)` assembles the provider request; ChatPane and DebugPanel resolve `workspace` with `workspaceOf(convo)`, `docs` with `attachedDocs(convo)`, and image records from the store.
 
 - **`system` param** gets the workspace's shared prompt (if `send_system_prompt`), then all system messages (same gate), the attached documents in full, the memory summary (if `use_memory`), and the content of any triggered cards.
   The card scan runs over workspace cards and convo cards together, workspace first (`effectiveCards`).
@@ -164,7 +164,7 @@ Covered by `python -m selfchecks.providers`.
   Card triggers are comma-separated clauses (comma = OR, `&` inside a clause = AND).
   Each card is prefixed with the clause that triggered it (`phrase: content`); force-include cards with no matching clause send bare content.
 - **`messages` array** gets pinned turns first (deduped), then the *send window* (the last `num_messages_to_send` turns; with memory on, everything past the summary's coverage, floored at `num_messages_to_send`).
-  This array contains user and assistant turns; system content uses the separate `system` field.
+  This array contains user and assistant turns; system content uses the separate `system` field. A turn with `imageIds` becomes Anthropic base64 image blocks followed by its text block; ordinary turns remain strings.
 - **recall** (if `use_recall`) also rides in `system`: the top `RECALL_COUNT` (3) *dropped* turns (neither pinned nor in the window), scored by stopword-filtered token overlap with the latest user message, normalized by sqrt(length), returned chronologically.
   Recall selects original turns on each request, so later edits and deletions affect its results.
 - **model / temperature / max_tokens / effort** are passed through from the effective settings.
@@ -182,7 +182,7 @@ Messages stay uncached because the send window drops turns off the front as it s
 A workspace is `{ id, name, systemPrompt, cards, docIds }` in its own IndexedDB key, persisted through the same debounced save as conversations.
 A conversation joins by setting `convo.workspaceId`; `workspaceOf(convo)` resolves it (null for a missing or deleted workspace, which degrades to plain-convo behavior everywhere).
 The merge into the request happens at read time in `buildPayload`, so joining, leaving, and deleting a workspace touch only that pointer.
-Full export is a versioned snapshot (`SNAPSHOT_VERSION` in `store.js`) carrying everything IndexedDB holds that is the user's rather than the deployment's: conversations, workspaces, docs, runs, saved settings, the usage ledger, and UI prefs. The models cache is excluded on purpose (server-owned, refetched after login) and the auth token never enters a snapshot at all. A snapshot from an older version still restores; a field that version never had (the usage ledger, before usage.md) is left untouched rather than wiped, since replace-all only replaces what the snapshot actually claims to hold, and pre-v3 snapshots that held docs inline on workspaces have them hoisted into the doc store on restore. Merge import also accepts the older bare-array format, keeps local workspaces and docs on id collision so existing links stay resolvable, and ignores snapshot-only settings, usage, and prefs. Restore replaces every collection after an explicit confirmation.
+Full export is a version-2 snapshot (`SNAPSHOT_VERSION` in `store.js`) carrying conversations, workspaces, docs, images, runs, saved settings, the usage ledger, and UI prefs. The models cache is server-owned and the auth token is deployment-bound, so neither enters a snapshot. V1 exports still import as their older bare-array or `{conversations, workspaces}` forms. Merge import keeps local workspaces, docs, and images on id collision, and ignores snapshot-only settings, usage, and prefs. Restore replaces every collection after an explicit confirmation.
 
 ### Documents (`frontend/src/state/store.js`)
 
@@ -193,6 +193,10 @@ Removing a ref (`removeDocRef`) deletes the doc once no workspace or conversatio
 Docs enter the store four ways: workspace upload (WorkspacePanel), a finished research turn (`finishRun`, the report tagged with its run, conversation, and message), promoting an assistant reply (MessageBubble's save-as-document action), and revision (DocRow's utility-model revise, which pushes the prior text onto `versions`, capped at 10 because `flush()` snapshots the whole archive per write).
 Docs are plain text sent whole per request; chunked retrieval (the recall scorer fits) is the upgrade path if attached docs outgrow the context window.
 A single-conversation export carries the docs it references; importing merges them with the same keep-local collision rule.
+
+### Images (`frontend/src/state/store.js`, `frontend/src/views/ChatPane.vue`)
+
+The composer accepts JPEG, PNG, GIF, and WebP through its picker, paste, and drop paths. Each image is oriented and limited to a 2000 px long edge through canvas, then stored as a sub-1 MB PNG or WebP 0.85 with a JPEG fallback. Image records use individual `conversa_img:<id>` IndexedDB keys; messages hold `imageIds`, and unused records are deleted when their final message reference disappears. Pending and sent images render from data URLs. Attachment failures use a warning toast; browser-storage failures retain the existing sticky backup notification.
 
 ### Memory / compression (`frontend/src/jobs/memory.js`)
 
@@ -207,7 +211,7 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 
 | File | Responsibility |
 |------|----------------|
-| `state/store.js` | Reactive conversation, workspace, document and research-run state, IndexedDB persistence, versioned export/import, and replace-all snapshot restore. A run is a research turn's client record, linked to its conversation and messages; `finishRun` lands the final frame (report doc, links, one spend fold). Also `downloadText()`, the one way a doc leaves the browser as a file. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write raises a notification with an export offer while the data is still intact in memory. |
+| `state/store.js` | Reactive conversation, workspace, document, image, and research-run state; IndexedDB persistence; versioned export/import; and replace-all snapshot restore. A run is a research turn's client record, linked to its conversation and messages; `finishRun` lands the final frame (report doc, links, one spend fold). Also `downloadText()`, the one way a doc leaves the browser as a file. Image bytes use individual keys so archive flushes never rewrite them. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write raises a notification with an export offer while the data is still intact in memory. |
 | `state/settings.js` | The settings surface: `SETTING_KEYS` (what a conversation may override), `RESEARCH_KEYS` (what a run may override, rendered in ResearchBlock's models-and-depth section), and `EFFORT_LEVELS`, the single definition of the thinking-effort lever. `effectiveSettings(owner, keys)` resolves either list against the global defaults. |
 | `api/client.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`clarifyResearch`, `startResearch`, `streamResearch`, `discardResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
 | `prompt/cards.js` | Pure card concerns: trigger matching, force overrides, `effectiveCards`, and the card builder's parsing half: `CARDGEN_SYSTEM` (the prompt that teaches the trigger syntax) and `parseGeneratedCards()` (fence- and prose-tolerant JSON parsing, strict on shape). Vue-free, so it runs in Node. |
@@ -223,8 +227,8 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `utils/prefs.js` | Frontend-only UI prefs (font scale, Enter-to-send), persisted to localStorage. |
 | `utils/confirm.js` | Promise-based confirm: `await confirmDelete(msg)`, backed by one `ConfirmModal` at app root. |
 | `utils/notify.js` | Reactive app-wide notification queue with keyed dedupe and dismissal; `selfchecks/notify.selfcheck.js` checks its contract. |
-| `views/ChatPane.vue` | The chat window: message list, composer, toolbar (model + thinking-effort pickers + the Research mode toggle), and the stream loop. A research-mode send appends the request, its linked run, and the placeholder ResearchBlock renders; a running run blocks further sends in that conversation only. Renders the last `PAGE_SIZE` (100) messages with "Load more" (display-only, and separate from what's sent), and marks the send-window start with a divider. |
-| `components/MessageBubble.vue` | One message: view/edit bubble, pin/copy/delete/regenerate/save-as-document actions, and the live thinking/search trace while it streams (ephemeral, dropped on reload). List and stream mutations stay in ChatPane, behind events. |
+| `views/ChatPane.vue` | The chat window: message list, image-capable composer, toolbar (model + thinking-effort pickers + the Research mode toggle), and the stream loop. A research-mode send appends the request, its linked run, and the placeholder ResearchBlock renders; a running run blocks further sends in that conversation only. Renders the last `PAGE_SIZE` (100) messages with "Load more" (display-only, and separate from what's sent), and marks the send-window start with a divider. |
+| `components/MessageBubble.vue` | One message: image thumbnails, view/edit bubble, pin/copy/delete/regenerate/save-as-document actions, and the live thinking/search trace while it streams (ephemeral, dropped on reload). List and stream mutations stay in ChatPane, behind events. |
 | `components/ModelSelect.vue` | The one model dropdown, rendered in five places. Groups models by provider with native `<optgroup>`. |
 | `views/Login.vue` | Password prompt shown until a token exists. |
 | `components/ContextPanel.vue` | Edits system + pinned messages together. Also the URL fetch box: a fetched page lands as a system message, so it edits, deletes and sends like any other context. Also the document picker: attach any stored doc to the conversation, detach it, or delete it from the store. |

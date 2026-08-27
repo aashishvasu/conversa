@@ -18,6 +18,7 @@ from providers import (
     field,
     join_model,
     join_system,
+    openai_messages,
     parse_models,
     resolve_model,
     response_frame,
@@ -86,6 +87,9 @@ assert chat["messages"][0] == {"role": "system", "content": "stable\n\nvolatile"
 assert chat["messages"][1]["content"] == "hi" and chat["temperature"] == 0.3, chat
 assert "temperature" not in chat_completions_kwargs("some-model", [], None, 2048)
 assert join_system(["stable", ""]) == "stable" and join_system("plain") == "plain"
+vision = [{"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/webp", "data": "DATA"}}, {"type": "text", "text": "look"}]}]
+assert openai_messages(vision, True)[0]["content"] == [{"type": "input_image", "image_url": "data:image/webp;base64,DATA"}, {"type": "input_text", "text": "look"}]
+assert openai_messages(vision, False)[0]["content"] == [{"type": "image_url", "image_url": {"url": "data:image/webp;base64,DATA"}}, {"type": "text", "text": "look"}]
 
 assert anthropic_frame(Obj(type="content_block_delta", delta=Obj(type="text_delta", text="hello"))) == {"text": "hello"}
 assert anthropic_frame(Obj(type="content_block_delta", delta=Obj(type="thinking_delta", thinking="hmm"))) == {"think": "hmm"}

@@ -26,7 +26,7 @@ async function onImportFile(e) {
   e.target.value = '' // so picking the same file again re-fires @change
   if (!file) return
   try {
-    const n = importData(JSON.parse(await file.text()))
+    const n = await importData(JSON.parse(await file.text()))
     importMsg.value = n ? `Imported ${n} conversation${n === 1 ? '' : 's'}` : 'Nothing new to import'
   } catch (err) {
     importMsg.value = `Import failed: ${err.message}`
@@ -42,7 +42,7 @@ async function onRestoreFile(e) {
     const info = snapshotInfo(data)
     if (!info) throw new Error('Choose a full conversa snapshot')
     const date = info.exportedAt ? new Date(info.exportedAt).toLocaleString() : 'an unknown date'
-    if (!await confirmDelete(`Restore ${info.conversations} conversations, ${info.workspaces} workspaces, ${info.docs} documents, and ${info.runs} research runs from ${date}? This replaces this browser's data.`, 'Restore')) return
+    if (!await confirmDelete(`Restore ${info.conversations} conversations, ${info.workspaces} workspaces, ${info.docs} documents, ${info.images} images, and ${info.runs} research runs from ${date}? This replaces this browser's data.`, 'Restore')) return
     const prefs = await restoreData(data)
     restorePrefs(prefs)
     restoreTheme(prefs.theme)

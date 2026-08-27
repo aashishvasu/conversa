@@ -2,13 +2,13 @@
 import { computed } from 'vue'
 import { buildPayload } from '../prompt/payload.js'
 import { effectiveSettings } from '../state/settings.js'
-import { attachedDocs, workspaceOf } from '../state/store.js'
+import { attachedDocs, images, workspaceOf } from '../state/store.js'
 
 const props = defineProps({ convo: Object })
 
 // Live: recomputes as messages, cards, settings, or memory change, so it is exactly what the next send builds.
 // The memory summary refreshes in the background after each reply, and this preview shows its current state.
-const payload = computed(() => buildPayload(props.convo, effectiveSettings(props.convo), workspaceOf(props.convo), attachedDocs(props.convo)))
+const payload = computed(() => buildPayload(props.convo, effectiveSettings(props.convo), workspaceOf(props.convo), attachedDocs(props.convo), images.value))
 </script>
 
 <template>

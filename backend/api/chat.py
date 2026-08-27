@@ -1,6 +1,7 @@
 """Settings, models, and the chat completion stream."""
 
 import os
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -26,9 +27,25 @@ DEFAULT_USE_CACHE = os.environ.get("DEFAULT_USE_CACHE", "false").lower() == "tru
 router = APIRouter()
 
 
+class TextBlock(BaseModel):
+    type: Literal["text"]
+    text: str
+
+
+class ImageSource(BaseModel):
+    type: Literal["base64"]
+    media_type: Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
+    data: str
+
+
+class ImageBlock(BaseModel):
+    type: Literal["image"]
+    source: ImageSource
+
+
 class Msg(BaseModel):
     role: str  # user | assistant (system goes in the top-level `system` field)
-    content: str
+    content: str | list[TextBlock | ImageBlock]
 
 
 class ChatRequest(BaseModel):

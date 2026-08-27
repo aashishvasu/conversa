@@ -1,4 +1,4 @@
-import { get, set } from 'idb-keyval'
+import { delMany, get, getMany, keys, set, setMany } from 'idb-keyval'
 import { computed, reactive, ref, watch } from 'vue'
 import { foldRunUsage, replaceUsage, usageDays } from './usage.js'
 import { dismiss, notify } from '../utils/notify.js'
@@ -12,9 +12,11 @@ const WORKSPACES_KEY = 'conversa_workspaces'
 const MODELS_KEY = 'conversa_models'
 const RUNS_KEY = 'conversa_runs'
 const DOCS_KEY = 'conversa_docs'
+const IMAGE_KEY_PREFIX = 'conversa_img:'
+const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
 const GLOBAL_KEY = 'conversa_global' // user edits to the global defaults, persisted client-side
 
-const state = reactive({ conversations: [], workspaces: [], runs: [], docs: [] })
+const state = reactive({ conversations: [], workspaces: [], runs: [], docs: [], images: [] })
 export const currentId = ref(null)
 // The selected sidebar tab: 'chat' | 'workspaces' | 'usage'.
 // It scopes the sidebar sublist and picks the main pane (UsagePane for 'usage', ChatPane otherwise), as a Reka Tabs value shared through the TabsRoot App.vue wraps around Sidebar and the panes.
@@ -35,6 +37,8 @@ export async function initStore() {
   state.workspaces = (await get(WORKSPACES_KEY)) || []
   state.runs = ((await get(RUNS_KEY)) || []).filter(validRun)
   state.docs = (await get(DOCS_KEY)) || []
+  const imageKeys = (await keys()).filter((key) => typeof key === 'string' && key.startsWith(IMAGE_KEY_PREFIX))
+  state.images = (await getMany(imageKeys)).filter(validImage)
   models.value = (await get(MODELS_KEY)) || []
   savedGlobal = (await get(GLOBAL_KEY)) || null
   // Backfill missing message ids in stored conversations.
@@ -42,6 +46,7 @@ export async function initStore() {
     for (const m of c.messages) if (!m.id) m.id = crypto.randomUUID()
   }
   hoistInlineDocs(state.workspaces, state.docs)
+  gcImages()
   loaded = true
   // Persist on any change, debounced so token-by-token streaming doesn't thrash IDB.
   watch(() => state.conversations, save, { deep: true })
@@ -59,22 +64,23 @@ function save() {
 
 // Snapshot inside flush, not in save(), because save() runs on every mutation, meaning every streamed token.
 // The JSON round-trip strips the Vue reactive proxy so structured-clone can store it, and it costs the whole archive each time.
+function storageFailure(e) {
+  notify({
+    key: 'storage',
+    sticky: true,
+    text: 'Saving to browser storage is failing. Changes exist only in memory until it recovers, so download a backup now.',
+    detail: String(e?.stack || e),
+    action: { label: 'Download backup', fn: downloadExport },
+  })
+}
+
 function flush() {
   return Promise.all([
     set(STORE_KEY, JSON.parse(JSON.stringify(state.conversations))),
     set(WORKSPACES_KEY, JSON.parse(JSON.stringify(state.workspaces))),
     set(RUNS_KEY, JSON.parse(JSON.stringify(state.runs))),
     set(DOCS_KEY, JSON.parse(JSON.stringify(state.docs))),
-  ]).then(
-    () => dismiss('storage'),
-    (e) => notify({
-      key: 'storage',
-      sticky: true,
-      text: 'Saving to browser storage is failing. Changes exist only in memory until it recovers, so download a backup now.',
-      detail: String(e?.stack || e),
-      action: { label: 'Download backup', fn: downloadExport },
-    }),
-  )
+  ]).then(() => dismiss('storage'), storageFailure)
 }
 
 // Write immediately, bypassing the debounce.
@@ -168,6 +174,7 @@ export function deleteConversation(id) {
   state.runs = state.runs.filter((r) => r.convoId !== id)
   if (currentId.value === id) currentId.value = state.conversations[0]?.id || null
   gcDocs(gone?.docIds)
+  gcImages(gone?.messages.flatMap((m) => m.imageIds || []))
 }
 
 export function selectConversation(id) {
@@ -281,6 +288,34 @@ export function workspaceOf(convo) {
 // source records where it came from: { kind: 'upload' | 'research' | 'chat' | 'revise', runId?, convoId?, messageId? }.
 
 export const docs = computed(() => state.docs)
+export const images = computed(() => state.images)
+
+function validImage(image) {
+  return Boolean(image?.id && typeof image.data === 'string' && IMAGE_TYPES.has(image.media_type))
+}
+
+export async function createImage(image) {
+  if (!validImage(image)) throw new Error('Invalid image')
+  await set(`${IMAGE_KEY_PREFIX}${image.id}`, image).then(() => dismiss('storage'), (e) => { storageFailure(e); throw e })
+  state.images.push(image)
+  return image
+}
+
+export function imagesOf(message) {
+  return (message?.imageIds || []).map((id) => state.images.find((image) => image.id === id)).filter(Boolean)
+}
+
+function gcImages(ids) {
+  const referenced = new Set(state.conversations.flatMap((c) => c.messages.flatMap((m) => m.imageIds || [])))
+  const doomed = (ids || state.images.map((image) => image.id)).filter((id) => !referenced.has(id))
+  if (!doomed.length) return
+  state.images = state.images.filter((image) => !doomed.includes(image.id))
+  delMany(doomed.map((id) => `${IMAGE_KEY_PREFIX}${id}`)).then(() => dismiss('storage'), storageFailure)
+}
+
+export function releaseImages(ids) {
+  gcImages(ids)
+}
 
 export function createDoc({ name, text, source }) {
   const d = { id: crypto.randomUUID(), name, text, createdAt: Date.now(), updatedAt: Date.now(), source, versions: [] }
@@ -374,7 +409,7 @@ export function persistGlobal() {
   set(GLOBAL_KEY, savedGlobal)
 }
 
-const SNAPSHOT_VERSION = 3
+const SNAPSHOT_VERSION = 2
 
 function wire(value) {
   return JSON.parse(JSON.stringify(value))
@@ -393,9 +428,10 @@ export function exportData(id) {
     version: SNAPSHOT_VERSION,
     exportedAt: new Date().toISOString(),
     conversations,
-    ...(id ? { docs: docsOf(conversations[0]) } : {
+    ...(id ? { docs: docsOf(conversations[0]), images: state.images.filter((image) => conversations[0]?.messages.some((m) => m.imageIds?.includes(image.id))) } : {
       workspaces: state.workspaces,
       docs: state.docs,
+      images: state.images,
       runs: state.runs,
       settings: savedGlobal,
       usage: usageDays(),
@@ -415,6 +451,7 @@ export function snapshotInfo(data) {
     runs: Array.isArray(data.runs) ? data.runs.length : 0,
     // Pre-v3 snapshots hold docs inline on workspaces, so count both places.
     docs: (Array.isArray(data.docs) ? data.docs.length : 0) + data.workspaces.reduce((n, w) => n + (w.docs?.length || 0), 0),
+    images: Array.isArray(data.images) ? data.images.length : 0,
   }
 }
 
@@ -458,12 +495,16 @@ function addMissing(target, values) {
 }
 
 // Merge import accepts legacy arrays and ignores snapshot-only settings and prefs.
-export function importData(data) {
+export async function importData(data) {
   const list = Array.isArray(data) ? data : data?.conversations
   if (!Array.isArray(list)) throw new Error('Not a conversa export')
   const extras = Array.isArray(data) ? {} : data
   const incomingDocs = Array.isArray(extras.docs) ? [...extras.docs] : []
   hoistInlineDocs(Array.isArray(extras.workspaces) ? extras.workspaces : [], incomingDocs)
+  const incomingImages = Array.isArray(extras.images) ? extras.images.filter(validImage) : []
+  const newImages = incomingImages.filter((image) => !state.images.some((local) => local.id === image.id))
+  if (newImages.length) await setMany(newImages.map((image) => [`${IMAGE_KEY_PREFIX}${image.id}`, image]))
+  state.images.push(...newImages)
   let changed = addMissing(state.docs, incomingDocs)
   changed += addMissing(state.workspaces, extras.workspaces)
   changed += addMissing(state.runs, Array.isArray(extras.runs) ? extras.runs.filter(validRun) : [])
@@ -475,7 +516,7 @@ export function importData(data) {
     have.add(c.id)
     added++
   }
-  if (changed || added) persistNow()
+  if (changed || added || newImages.length) persistNow()
   return added
 }
 
@@ -488,6 +529,13 @@ export async function restoreData(data) {
   state.runs = (Array.isArray(restored.runs) ? restored.runs : []).filter(validRun)
   // A pre-v3 snapshot carries its docs inline on workspaces; the hoist turns them into the replacing doc set.
   state.docs = (Array.isArray(restored.docs) ? restored.docs : []).filter((d) => d?.id)
+  const restoredImages = (Array.isArray(restored.images) ? restored.images : state.images).filter(validImage)
+  if (loaded) {
+    await setMany(restoredImages.map((image) => [`${IMAGE_KEY_PREFIX}${image.id}`, image]))
+    const staleImageKeys = (await keys()).filter((key) => typeof key === 'string' && key.startsWith(IMAGE_KEY_PREFIX) && !restoredImages.some((image) => `${IMAGE_KEY_PREFIX}${image.id}` === key))
+    if (staleImageKeys.length) await delMany(staleImageKeys)
+  }
+  state.images = restoredImages
   hoistInlineDocs(state.workspaces, state.docs)
   savedGlobal = restored.settings && typeof restored.settings === 'object' ? restored.settings : null
   if (globalSettings.value) globalSettings.value = { ...globalSettings.value, ...(savedGlobal || {}) }

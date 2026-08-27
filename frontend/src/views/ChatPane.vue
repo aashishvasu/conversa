@@ -1,5 +1,5 @@
 <script setup>
-import { Bot, Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Plus, RotateCcw, Send, SlidersHorizontal, Square, Telescope } from '@lucide/vue'
+import { Bot, Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Paperclip, Plus, RotateCcw, Send, SlidersHorizontal, Square, Telescope, X } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { streamChat } from '../api/client.js'
 import { useStreamGuard } from '../composables/useStreamGuard.js'
@@ -8,7 +8,7 @@ import { notify } from '../utils/notify.js'
 import { buildPayload, sendWindow } from '../prompt/payload.js'
 import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
 import { addConvoUsage, recordUsage } from '../state/usage.js'
-import { activeRunOf, attachedDocs, createDoc, createRun, currentConversation, persistNow, sidebarOpen, workspaceOf } from '../state/store.js'
+import { activeRunOf, attachedDocs, createDoc, createImage, createRun, currentConversation, images, imagesOf, persistNow, releaseImages, sidebarOpen, workspaceOf } from '../state/store.js'
 import { generateTitle } from '../jobs/titles.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { CHECK_SVG, COPY_SVG } from '../utils/md.js'
@@ -25,6 +25,8 @@ import SettingsPanel from '../components/SettingsPanel.vue'
 
 const convo = currentConversation
 const input = ref('')
+const pendingImages = ref([])
+const imageInput = ref(null)
 const streaming = ref(false)
 const titling = ref(false)
 const panel = ref(null)
@@ -68,6 +70,13 @@ function setModel(id) {
 function setThinking(v) {
   convo.value.settings.effort = v
 }
+function toggleResearch() {
+  if (pendingImages.value.length) {
+    notify({ key: 'image:attach', severity: 'warning', text: 'Send or remove images before starting research' })
+    return
+  }
+  convo.value.mode = researchMode.value ? 'chat' : 'research'
+}
 
 function addMessage() {
   const m = { id: crypto.randomUUID(), role: 'user', content: '', createdAt: Date.now() }
@@ -85,7 +94,9 @@ function cancelEdit(m) {
   editingId.value = null
 }
 function removeMessage(id) {
+  const message = convo.value.messages.find((m) => m.id === id)
   convo.value.messages = convo.value.messages.filter((m) => m.id !== id)
+  releaseImages(message?.imageIds)
   if (editingId.value === id) editingId.value = null
 }
 // Trash button: confirm first.
@@ -139,7 +150,7 @@ async function runCompletion(c) {
   guard.start()
   let assistant = null
   try {
-    const payload = buildPayload(c, settings, workspaceOf(c), attachedDocs(c)) // built BEFORE the empty assistant placeholder
+    const payload = buildPayload(c, settings, workspaceOf(c), attachedDocs(c), images.value) // built BEFORE the empty assistant placeholder
     c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() })
     assistant = c.messages.at(-1) // the reactive proxy, so streamed tokens render live
     liveTrace.value = []
@@ -213,8 +224,11 @@ const researchMode = computed(() => convo.value?.mode === 'research')
 
 async function send() {
   const text = input.value.trim()
-  if (!text || streaming.value || runActive.value || !convo.value) return
+  if ((!text && !pendingImages.value.length) || streaming.value || runActive.value || !convo.value) return
   const c = convo.value
+  if (researchMode.value && !text) return
+  const imageIds = pendingImages.value.map((image) => image.id)
+  pendingImages.value = []
   input.value = ''
   // Sending is an explicit jump to the present: follow the new turn even if the user had scrolled up, and re-arm the streaming autoscroll below.
   atBottom.value = true
@@ -223,7 +237,7 @@ async function send() {
     scrollDown()
     return
   }
-  c.messages.push({ id: crypto.randomUUID(), role: 'user', content: text, mode: 'chat', createdAt: Date.now() })
+  c.messages.push({ id: crypto.randomUUID(), role: 'user', content: text, imageIds, mode: 'chat', createdAt: Date.now() })
   scrollDown()
   runCompletion(c)
 }
@@ -253,8 +267,61 @@ function regenerate(m) {
     while (cut >= 0 && c.messages[cut].role !== 'user') cut--
     if (cut < 0) return // no user turn before it, so nothing to regenerate from
   }
+  const removed = c.messages.slice(cut + 1).flatMap((x) => x.imageIds || [])
   c.messages = c.messages.filter((x, i) => i <= cut || x.role === 'system')
+  releaseImages(removed)
   runCompletion(c)
+}
+
+async function attachImages(files) {
+  for (const file of files) {
+    try {
+      if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) throw new Error(`${file.name || 'File'} is not a supported image`)
+      const bitmap = await createImageBitmap(file)
+      const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height))
+      const width = Math.round(bitmap.width * scale)
+      const height = Math.round(bitmap.height * scale)
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const context = canvas.getContext('2d')
+      if (!context) {
+        bitmap.close()
+        throw new Error('Could not process image')
+      }
+      context.drawImage(bitmap, 0, 0, width, height)
+      bitmap.close()
+      const encode = (type) => new Promise((resolve) => canvas.toBlob(resolve, type, 0.85))
+      let blob = file.type === 'image/png' ? await encode('image/png') : null
+      if (!blob || blob.size > 1024 * 1024) blob = await encode('image/webp')
+      if (!blob || blob.type !== 'image/webp') blob = await encode('image/jpeg')
+      if (!blob) throw new Error(`Could not encode ${file.name || 'image'}`)
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      let binary = ''
+      for (const byte of bytes) binary += String.fromCharCode(byte)
+      const data = btoa(binary)
+      if (data.length > 10 * 1024 * 1024) throw new Error(`${file.name || 'Image'} is over the 10 MB limit after compression`)
+      pendingImages.value.push(await createImage({ id: crypto.randomUUID(), media_type: blob.type, width, height, data, createdAt: Date.now() }))
+    } catch (e) {
+      notify({ key: 'image:attach', severity: 'warning', text: e.message })
+    }
+  }
+}
+
+function onImageInput(e) {
+  attachImages(e.target.files)
+  e.target.value = ''
+}
+function onPaste(e) {
+  if (e.clipboardData.files.length) attachImages(e.clipboardData.files)
+}
+function onDrop(e) {
+  e.preventDefault()
+  attachImages(e.dataTransfer.files)
+}
+function removePending(image) {
+  pendingImages.value = pendingImages.value.filter((x) => x.id !== image.id)
+  releaseImages([image.id])
 }
 
 function stop() {
@@ -316,6 +383,7 @@ async function regenTitle() {
             :window-start="windowStartId === m.id"
             :trace="m.id === streamId ? liveTrace : null"
             :trace-open="liveOpen"
+            :images="imagesOf(m)"
             @activate="activeId = m.id"
             @edit="startEdit(m)"
             @cancel-edit="cancelEdit(m)"
@@ -369,7 +437,7 @@ async function regenTitle() {
           class="flex items-center gap-1 rounded px-2 py-1 text-xs"
           :class="researchMode ? 'bg-indigo-600 text-white' : 'bg-surface2 text-muted hover:text-base'"
           :title="researchMode ? 'Sends start research runs; click for normal chat' : 'Sends chat normally; click to make them research runs'"
-          @click="convo.mode = researchMode ? 'chat' : 'research'"
+          @click="toggleResearch"
         >
           <Telescope :size="14" /> Research
         </button>
@@ -384,8 +452,16 @@ async function regenTitle() {
           <button class="rounded p-1.5 opacity-50 hover:bg-surface2 hover:opacity-100" title="Debug: live system prompt" @click="panel = 'debug'"><Bug :size="16" /></button>
         </div>
       </div>
-      <div class="flex items-stretch gap-2 px-3 pb-3">
-        <textarea
+      <div class="flex items-stretch gap-2 px-3 pb-3" @dragover.prevent @drop="!researchMode && onDrop($event)">
+        <div class="flex min-w-0 flex-1 flex-col gap-2">
+          <div v-if="pendingImages.length" class="flex gap-2 overflow-x-auto">
+            <div v-for="image in pendingImages" :key="image.id" class="relative shrink-0">
+              <img :src="`data:${image.media_type};base64,${image.data}`" class="h-16 w-16 rounded object-cover" />
+              <button class="absolute -right-1 -top-1 rounded-full bg-surface p-0.5" title="Remove image" @click="removePending(image)"><X :size="12" /></button>
+            </div>
+          </div>
+          <div class="flex items-stretch gap-2">
+            <textarea
           ref="composerEl"
           v-model="input"
           rows="2"
@@ -393,7 +469,12 @@ async function regenTitle() {
           :disabled="runActive"
           class="min-h-16 max-h-40 flex-1 resize-none rounded bg-surface2 px-3 py-2 outline-none disabled:opacity-60"
           @keydown="onComposerKeydown"
+          @paste="onPaste"
         ></textarea>
+            <input ref="imageInput" type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp" class="hidden" @change="onImageInput" />
+            <button class="rounded bg-surface2 px-3 text-muted hover:text-base disabled:opacity-50" title="Attach images" :disabled="researchMode" @click="imageInput.click()"><Paperclip :size="18" /></button>
+          </div>
+        </div>
         <button v-if="!streaming" class="flex items-center justify-center rounded bg-indigo-600 px-4 text-white hover:bg-indigo-500 disabled:opacity-50" :title="researchMode ? 'Start research' : 'Send'" :disabled="runActive" @click="send">
           <Telescope v-if="researchMode" :size="18" />
           <Send v-else :size="18" />

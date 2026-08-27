@@ -4,21 +4,21 @@ import { activePane, activeRunOf, attachedDocs, conversations, createConversatio
 // recordUsage/usageDays operate on in-memory state; initUsage() itself needs a real IndexedDB and is not called here, the same reason this file never calls initStore() either.
 import { recordUsage, usageDays } from '../state/usage.js'
 
-assert.equal(importData([{ id: 'a', title: 'A', messages: [] }]), 1, 'adds new conversation')
-assert.equal(importData([{ id: 'a', title: 'A2', messages: [{ id: 'm', role: 'user', content: 'hi' }] }]), 1)
+assert.equal(await importData([{ id: 'a', title: 'A', messages: [] }]), 1, 'adds new conversation')
+assert.equal(await importData([{ id: 'a', title: 'A2', messages: [{ id: 'm', role: 'user', content: 'hi' }] }]), 1)
 let all = exportData()
 assert.equal(all.conversations.length, 2, 'collision added a copy, nothing overwritten')
 assert.equal(new Set(all.conversations.map((c) => c.id)).size, 2, 'copy got fresh conversation id')
 const copy = all.conversations.find((c) => c.title === 'A2')
 assert.notEqual(copy.messages[0].id, 'm', 'copy got fresh message ids')
 
-assert.equal(importData([{ id: 'x' }, { messages: [] }, null]), 0, 'rejects malformed entries')
-assert.throws(() => importData({ not: 'a list' }), /Not a conversa export/, 'rejects non-array')
+assert.equal(await importData([{ id: 'x' }, { messages: [] }, null]), 0, 'rejects malformed entries')
+await assert.rejects(() => importData({ not: 'a list' }), /Not a conversa export/, 'rejects non-array')
 assert.deepEqual(exportData('a').conversations.map((c) => c.id), ['a'], 'single export is versioned')
 
 const w = createWorkspace('W1')
 assert.equal(exportData().workspaces.length, 1, 'workspace included in full export')
-importData({ conversations: [], workspaces: [{ id: w.id, name: 'clobber?' }, { id: 'w2', name: 'W2' }], runs: [{ id: 'r1', convoId: 'a' }, { id: 'orphan' }] })
+await importData({ conversations: [], workspaces: [{ id: w.id, name: 'clobber?' }, { id: 'w2', name: 'W2' }], runs: [{ id: 'r1', convoId: 'a' }, { id: 'orphan' }] })
 const wss = exportData().workspaces
 assert.equal(wss.length, 2, 'new workspace added')
 assert.equal(wss.find((x) => x.id === w.id).name, 'W1', 'existing workspace not overwritten')
@@ -40,7 +40,7 @@ assert.equal(t.workspaceId, null, 'member template left the deleted workspace')
 setGlobalSettings({ temperature: 0.7 })
 recordUsage('chat', { model: 'claude-sonnet-5', input: 100, output: 50, cache_read: 0, cache_write: 0, usd: 0.01 })
 const snapshot = exportData()
-assert.equal(snapshot.version, 3, 'full export is versioned')
+assert.equal(snapshot.version, 2, 'full export is versioned')
 assert.ok(snapshot.exportedAt, 'full export is dated')
 assert.equal(snapshotInfo(snapshot)?.runs, 1, 'snapshot reports run count')
 assert.ok(Array.isArray(snapshot.docs), 'the doc store joins the full export')
@@ -77,7 +77,7 @@ assert.equal(snapshotInfo({ ...v1, version: 999 }), null, 'a snapshot from a new
 
 // --- Documents ---
 // A legacy export with inline workspace docs hoists them into the doc store as refs.
-importData({ conversations: [], workspaces: [{ id: 'lw', name: 'Legacy', docs: [{ id: 'ld', name: 'lore.md', text: 'LORE' }] }] })
+await importData({ conversations: [], workspaces: [{ id: 'lw', name: 'Legacy', docs: [{ id: 'ld', name: 'lore.md', text: 'LORE' }] }] })
 const lw = workspaceOf({ workspaceId: 'lw' })
 assert.deepEqual(lw.docIds, ['ld'], 'inline docs became refs on import')
 assert.ok(!lw.docs, 'the inline list is gone after the hoist')
@@ -90,7 +90,7 @@ assert.deepEqual(docsOf(looseConvo).map((d) => d.id), [doc2.id, 'ld'], 'dangling
 assert.deepEqual(attachedDocs(looseConvo).map((d) => d.id), ['ld', doc2.id], 'workspace docs lead, shared ids deduped')
 
 // Removing a ref deletes the doc only once no workspace or conversation references it.
-importData({ conversations: [{ id: 'dc', title: 'D', messages: [], workspaceId: 'lw', docIds: ['ld'] }] })
+await importData({ conversations: [{ id: 'dc', title: 'D', messages: [], workspaceId: 'lw', docIds: ['ld'] }] })
 const dc = conversations.value.find((c) => c.id === 'dc')
 removeDocRef(dc, 'ld')
 assert.ok(exportData().docs.some((d) => d.id === 'ld'), 'doc survives while the workspace still references it')
@@ -116,7 +116,7 @@ assert.equal(vd.versions.length, 9)
 // A single-conversation export carries the docs it references; re-importing keeps local copies on collision.
 dc.docIds = [doc2.id]
 assert.deepEqual(exportData('dc').docs.map((d) => d.id), [doc2.id], 'single-convo export carries its referenced docs')
-importData({ conversations: [{ id: 'dc2', title: 'D2', messages: [] }], docs: [{ id: doc2.id, name: 'clobber.md', text: 'X' }, { id: 'nd', name: 'new.md', text: 'N' }] })
+await importData({ conversations: [{ id: 'dc2', title: 'D2', messages: [] }], docs: [{ id: doc2.id, name: 'clobber.md', text: 'X' }, { id: 'nd', name: 'new.md', text: 'N' }] })
 assert.equal(exportData().docs.find((d) => d.id === doc2.id).name, 'notes.md', 'doc collision keeps the local copy')
 assert.ok(exportData().docs.some((d) => d.id === 'nd'), 'new docs merge in')
 
@@ -128,9 +128,9 @@ deleteWorkspace(gw.id)
 assert.ok(!exportData().docs.some((d) => d.id === gd.id), 'a doc only the deleted workspace held is gone')
 assert.ok(exportData().docs.some((d) => d.id === doc2.id), 'a doc still attached to a conversation survives the workspace delete')
 
-// Restoring a pre-v3 snapshot hoists its inline docs into the replacing doc set.
+// A version-2 snapshot hoists inline docs into the replacing doc set.
 const v2 = { version: 2, exportedAt: 'x', conversations: [], workspaces: [{ id: 'rw2', name: 'R2', docs: [{ id: 'rd', name: 'r.md', text: 'R' }] }], runs: [], settings: {}, prefs: {} }
-assert.equal(snapshotInfo(v2)?.docs, 1, 'pre-v3 snapshots count inline docs')
+assert.equal(snapshotInfo(v2)?.docs, 1, 'version-2 snapshots count inline docs')
 await restoreData(v2)
 assert.deepEqual(exportData().docs.map((d) => d.id), ['rd'], 'restore hoists inline docs into the store')
 assert.deepEqual(exportData().workspaces[0].docIds, ['rd'], 'the restored workspace references them')
