@@ -95,10 +95,10 @@ export const CARDGEN_SYSTEM =
 export function parseGeneratedCards(text) {
   const start = text.indexOf('[')
   const end = text.lastIndexOf(']')
-  if (start === -1 || end <= start) throw new Error('No card list in model output')
+  if (start === -1 || end <= start) throw new Error('card_list_missing')
   const cards = JSON.parse(text.slice(start, end + 1))
     .filter((c) => c && typeof c.triggers === 'string' && typeof c.content === 'string' && c.content.trim())
     .map((c) => ({ triggers: c.triggers.trim(), content: c.content.trim() }))
-  if (!cards.length) throw new Error('No usable cards in model output')
+  if (!cards.length) throw new Error('cards_unusable')
   return cards
 }

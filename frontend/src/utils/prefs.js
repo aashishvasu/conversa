@@ -12,6 +12,12 @@ export const fontScale = ref(1) // root font-size multiplier; Tailwind is rem-ba
 export const enterToSend = ref(true) // false: Enter makes a newline and Shift+Enter sends
 export const locale = ref('en-GB')
 
+function browserLocale(value) {
+  if (LOCALES.has(value)) return value
+  const language = value?.split('-')[0]
+  return language === 'en' ? 'en-GB' : LOCALES.has(language) ? language : 'en-GB'
+}
+
 function applyFontScale() {
   document.documentElement.style.fontSize = `${fontScale.value * 100}%`
 }
@@ -29,7 +35,7 @@ export function initPrefs() {
   if (f) fontScale.value = f
   if (localStorage.getItem(ENTER_KEY) !== null) enterToSend.value = localStorage.getItem(ENTER_KEY) === 'true'
   const savedLocale = localStorage.getItem(LOCALE_KEY)
-  locale.value = LOCALES.has(savedLocale) ? savedLocale : LOCALES.has(navigator.language) ? navigator.language : 'en-GB'
+  locale.value = LOCALES.has(savedLocale) ? savedLocale : browserLocale(navigator.language)
   applyFontScale()
   watch(fontScale, (v) => {
     localStorage.setItem(FONT_KEY, String(v))

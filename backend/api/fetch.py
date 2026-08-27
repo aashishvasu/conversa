@@ -20,4 +20,4 @@ async def fetch_url(req: FetchRequest, _=Depends(require_auth)):
     try:
         return await fetcher.fetch(req.url, req.topic)
     except fetcher.FetchError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, {"code": "fetch_failed", "message": str(e)})

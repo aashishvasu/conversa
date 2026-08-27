@@ -14,12 +14,12 @@ Who ends up holding what:
 
 | What | In your browser | On the server |
 |------|-----------------|---------------|
-| Every chat transcript and image | ✔️ | ❌ |
-| Cards, workspaces, documents, templates | ✔️ | ❌ |
-| A finished research report | ✔️ | 🟡 Until collected, eviction, or restart |
-| Your provider API key | ❌ | ✔️ (This is the whole reason it exists) |
-| The pages a research run reads | ❌ | 🟡 While processed, then forgotten |
-| Your password | ❌ | ✔️ (As the env var you set it to) |
+| Every chat transcript and image | | |
+| Cards, workspaces, documents, templates | | |
+| A finished research report | | Until collected, eviction, or restart |
+| Your provider API key | | (This is the whole reason it exists) |
+| The pages a research run reads | | While processed, then forgotten |
+| Your password | | (As the env var you set it to) |
 
 ## Run it
 
@@ -224,10 +224,16 @@ Ask "what was the dragon called again?" 200 messages later and the turn that nam
 
 Recall returns the original turns word for word, where memory summarizes.
 
+### Languages
+
+The interface is available in British English, French, Italian, German, and Spanish. Pick one at the top of **Global settings**; conversa remembers it in this browser and includes it in full backups.
+
+Conversation content, model replies, documents, and research reports stay in the language they were written in.
+
 ### Models
 
 The model picker in the composer toolbar (also in **Conversation settings** and **Global settings**) groups models under their provider.
-Every feature works the same on either: cards, memory, recall, workspaces, templates, thinking effort, web search, research, and the utility model that writes titles and memory summaries.
+Cards, memory, recall, workspaces, templates, and the utility model work across providers. Provider-specific controls are disabled when the selected model cannot use them.
 You can point the utility model at one provider while chatting with another.
 
 ### Thinking effort
@@ -272,16 +278,16 @@ The save-as-document button on any assistant reply turns that reply into a docum
 Every document row has a **Revise** box: describe a change, and the utility model rewrites the document in place.
 The previous text is kept (the last ten revisions), and the undo button restores it.
 
-### Prompt caching: reduce repeated workspace input
+### Prompt caching: reuse stable context
 
-Turn on **Cache the workspace prompt & docs** and the provider caches the workspace prompt, system messages, and workspace documents. The initial request pays the cache-write rate; matching follow-ups pay the lower cache-read rate until expiry.
+For Anthropic models, turn on **Cache stable prompt context** to cache the workspace prompt, system messages, and attached documents. The initial request pays Anthropic's cache-write rate; matching follow-ups pay its lower cache-read rate until expiry.
 
-It is off by default because it is a bet. A cache write costs 25% more than an ordinary one and expires after a few minutes, so it wants a lot of stable text and a steady back-and-forth.
+It is off by default because a short conversation can cost more with caching. Anthropic charges 25% extra for a cache write, so caching suits a large stable prompt followed by several turns.
 
-Caching is prefix-match: change one byte and everything after it is re-billed. That makes conversa's own assembly order the thing that decides what you actually save.
+Caching is prefix-match: change one byte and everything after it is re-billed. That makes conversa's assembly order the thing that decides what stays cached.
 
 > [!TIP]
-> Cards cost you nothing here. They are assembled last, after the cache breakpoint, so a card firing on turn seven rewrites only the uncached tail while the workspace prompt and documents above it stay cached.
+> Cards are assembled after the cache breakpoint. A card firing on turn seven changes the uncached tail while the workspace prompt and documents above it stay cached.
 
 > [!NOTE]
 > Memory and recall occupy the volatile prompt block. The summary changes after replies, and recall selects turns for each request, so both are billed each turn.

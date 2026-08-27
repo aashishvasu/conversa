@@ -150,47 +150,47 @@ onUnmounted(() => abort?.abort())
     <div class="flex items-center gap-2">
       <Telescope :size="14" class="shrink-0" :class="running ? 'text-indigo-500' : 'text-muted'" />
       <span class="min-w-0 flex-1 truncate text-xs uppercase tracking-wide text-muted">
-        {{ running ? run.phase || 'starting' : run.status === 'draft' ? 'research' : run.status }}
+        {{ running ? run.phase || $t('research.statusStarting') : run.status === 'draft' ? $t('research.statusResearch') : $t(`research.status.${run.status}`) }}
         <template v-if="spend.calls">· <SpendBadge :spend="spend" /></template>
       </span>
       <button v-if="running" class="flex shrink-0 items-center gap-1 rounded bg-surface2 px-2 py-1 text-xs hover:text-red-500" @click="stopRun">
-        <Ban :size="12" /> Stop
+        <Ban :size="12" /> {{ $t('common.stop') }}
       </button>
     </div>
 
     <!-- Scope confirmation: clarifying questions, per-run models, and the explicit start -->
     <div v-if="run.status === 'draft'" class="mt-2 space-y-2">
-      <p v-if="busy === 'clarify'" class="text-muted">Checking what the brief leaves open…</p>
+      <p v-if="busy === 'clarify'" class="text-muted">{{ $t('research.checkingBrief') }}</p>
       <template v-else-if="run.questions.length">
         <ul class="space-y-1">
           <li v-for="q in run.questions" :key="q" class="text-muted">{{ q }}</li>
         </ul>
         <textarea
           v-model="run.answers" rows="3"
-          placeholder="Answer what matters, skip the rest. This goes to the planner with the request."
+          :placeholder="$t('research.answersPlaceholder')"
           class="w-full rounded bg-surface2 px-2 py-2 outline-none"
         ></textarea>
       </template>
-      <p v-else-if="run.clarified" class="text-muted">The request is specific enough to run as is.</p>
+      <p v-else-if="run.clarified" class="text-muted">{{ $t('research.ready') }}</p>
 
       <details class="rounded border border-edge">
-        <summary class="cursor-pointer list-none px-2 py-1.5 text-xs uppercase tracking-wide text-muted [&::-webkit-details-marker]:hidden">Models &amp; depth</summary>
+        <summary class="cursor-pointer list-none px-2 py-1.5 text-xs uppercase tracking-wide text-muted [&::-webkit-details-marker]:hidden">{{ $t('research.modelsDepth') }}</summary>
         <div class="space-y-2 border-t border-edge p-2">
           <div v-for="f in [
-            { key: 'research_search_model', label: 'Search' },
-            { key: 'research_note_model', label: 'Note-taking (most of the tokens)' },
-            { key: 'research_report_model', label: 'Plan & report' },
+            { key: 'research_search_model', label: $t('research.searchModel') },
+            { key: 'research_note_model', label: $t('research.notesModel') },
+            { key: 'research_report_model', label: $t('research.reportModel') },
           ]" :key="f.key">
             <label class="mb-1 flex items-center gap-1 text-xs text-muted">
               {{ f.label }}
-              <button v-if="overridden(f.key)" class="text-indigo-500" title="Back to the global default" @click="reset(f.key)"><RotateCcw :size="11" /></button>
+              <button v-if="overridden(f.key)" class="text-indigo-500" :title="$t('research.globalDefault')" @click="reset(f.key)"><RotateCcw :size="11" /></button>
             </label>
             <ModelSelect :model-value="eff(f.key)" class="w-full rounded bg-surface2 px-2 py-1 text-xs" @update:model-value="setOv(f.key, $event)" />
           </div>
           <div>
             <label class="mb-1 flex items-center gap-1 text-xs text-muted">
-              Sources per subquestion
-              <button v-if="overridden('research_depth')" class="text-indigo-500" title="Back to the global default" @click="reset('research_depth')"><RotateCcw :size="11" /></button>
+              {{ $t('research.sourcesPerQuestion') }}
+              <button v-if="overridden('research_depth')" class="text-indigo-500" :title="$t('research.globalDefault')" @click="reset('research_depth')"><RotateCcw :size="11" /></button>
             </label>
             <input type="number" min="1" max="12" :value="eff('research_depth')" class="w-full rounded bg-surface2 px-2 py-1 text-xs" @input="setOv('research_depth', Number($event.target.value))" />
           </div>
@@ -202,7 +202,7 @@ onUnmounted(() => abort?.abort())
         :disabled="busy !== ''"
         @click="start"
       >
-        <Play :size="14" /> Start research
+        <Play :size="14" /> {{ $t('research.start') }}
       </button>
     </div>
 
@@ -210,7 +210,7 @@ onUnmounted(() => abort?.abort())
     <CollapsibleRoot v-if="subquestions.length" v-model:open="traceOpen" class="mt-2">
       <CollapsibleTrigger class="flex w-full items-center gap-1 text-xs uppercase tracking-wide text-muted hover:text-base">
         <ChevronRight :size="12" class="transition-transform" :class="traceOpen && 'rotate-90'" />
-        {{ subquestions.length }} subquestions · {{ read }} of {{ sources.length }} sources read
+        {{ $t('research.subquestions', subquestions.length, { count: subquestions.length }) }} · {{ $t('research.sourcesRead', { read, total: sources.length }) }}
       </CollapsibleTrigger>
       <CollapsibleContent class="mt-1 space-y-2 border-l-2 border-indigo-500/40 pl-2">
         <div v-for="(q, i) in subquestions" :key="q" class="flex gap-2 text-xs">
@@ -229,13 +229,13 @@ onUnmounted(() => abort?.abort())
     <CollapsibleRoot v-if="reportText" v-model:open="reportOpen" class="mt-2">
       <CollapsibleTrigger class="flex w-full items-center gap-1 text-xs uppercase tracking-wide text-muted hover:text-base">
         <ChevronRight :size="12" class="transition-transform" :class="reportOpen && 'rotate-90'" />
-        Report · {{ (reportText.length / 1000).toFixed(1) }}k chars
+        {{ $t('research.report', { size: (reportText.length / 1000).toFixed(1) }) }}
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div class="md mt-1 max-h-[32rem] overflow-y-auto rounded border border-edge p-3 [overflow-wrap:anywhere]" v-html="renderMarkdown(reportText)"></div>
       </CollapsibleContent>
     </CollapsibleRoot>
-    <p v-if="reportDoc" class="mt-1 text-xs text-muted">Attached to this conversation as "{{ reportDoc.name }}" (Context editor to detach).</p>
+    <p v-if="reportDoc" class="mt-1 text-xs text-muted">{{ $t('research.attached', { name: reportDoc.name }) }}</p>
 
     <p v-if="error" class="mt-2 text-xs text-red-500">{{ error }}</p>
     <button
@@ -243,12 +243,12 @@ onUnmounted(() => abort?.abort())
       class="mt-2 flex items-center gap-1.5 rounded bg-surface2 px-2.5 py-1.5 text-xs hover:opacity-80"
       @click="start"
     >
-      <Play :size="12" /> Run again
+      <Play :size="12" /> {{ $t('research.runAgain') }}
     </button>
   </div>
   <!-- The run record is gone (imported conversation without its runs, or a deleted run); the turn stays honest about it. -->
   <div v-else class="max-w-2xl rounded-lg border border-edge bg-surface px-4 py-3 text-xs text-muted">
-    <Telescope :size="12" class="mr-1 inline" /> Research turn without its run record.
-    <template v-if="reportDoc">The report survives as "{{ reportDoc.name }}".</template>
+    <Telescope :size="12" class="mr-1 inline" /> {{ $t('research.missingRun') }}
+    <template v-if="reportDoc">{{ $t('research.reportSurvives', { name: reportDoc.name }) }}</template>
   </div>
 </template>

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
 import { globalSettings, modelSupportsCache, saveAsTemplate, workspaces } from '../state/store.js'
 import { confirmDelete } from '../utils/confirm.js'
+import { tr } from '../i18n.js'
 import ModelSelect from './ModelSelect.vue'
 
 const props = defineProps({ convo: Object })
@@ -25,7 +26,7 @@ function makeTemplate() {
 }
 
 async function clearMemory() {
-  if (!(await confirmDelete('Clear the memory summary? It will be rebuilt from history.', 'Clear'))) return
+  if (!(await confirmDelete(tr('confirm.clearMemory'), tr('common.clear')))) return
   props.convo.memory = ''
   props.convo.memoryCount = 0
 }
@@ -35,26 +36,26 @@ async function clearMemory() {
   <div class="space-y-4 text-sm">
     <!-- Joining or leaving sets only this pointer; the conversation's own cards, messages, and settings stay as they are. -->
     <div v-if="workspaces.length">
-      <label class="mb-1 block text-muted">Workspace (shared chat prompt, cards &amp; docs)</label>
+      <label class="mb-1 block text-muted">{{ $t('settings.workspaceHelp') }}</label>
       <select :value="convo.workspaceId || ''" class="w-full rounded bg-surface2 px-2 py-1" @change="convo.workspaceId = $event.target.value || null">
-        <option value="">None</option>
+        <option value="">{{ $t('common.none') }}</option>
         <option v-for="w in workspaces" :key="w.id" :value="w.id">{{ w.name }}</option>
       </select>
     </div>
 
     <div>
-      <label class="mb-1 block text-muted">Model</label>
+      <label class="mb-1 block text-muted">{{ $t('common.model') }}</label>
       <ModelSelect :model-value="eff('model')" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setOv('model', $event)" />
     </div>
 
     <div>
-      <label class="mb-1 block text-muted">Utility model (titles, memory, cards &amp; revisions)</label>
+      <label class="mb-1 block text-muted">{{ $t('settings.utilityModel') }}</label>
       <ModelSelect :model-value="eff('utility_model')" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setOv('utility_model', $event)" />
     </div>
 
     <div>
       <label class="mb-1 block text-muted">
-        Temperature: {{ eff('temperature') }}
+        {{ $t('settings.temperature', { value: eff('temperature') }) }}
         <button v-if="overridden('temperature')" class="ml-1 text-indigo-500" @click="reset('temperature')">↺</button>
       </label>
       <input type="range" min="0" max="1" step="0.1" :value="eff('temperature')" class="w-full" @input="setOv('temperature', Number($event.target.value))" />
@@ -62,7 +63,7 @@ async function clearMemory() {
 
     <div>
       <label class="mb-1 block text-muted">
-        Messages to send: {{ eff('num_messages_to_send') }}
+        {{ $t('settings.messagesToSendValue', { value: eff('num_messages_to_send') }) }}
         <button v-if="overridden('num_messages_to_send')" class="ml-1 text-indigo-500" @click="reset('num_messages_to_send')">↺</button>
       </label>
       <input type="number" min="1" :value="eff('num_messages_to_send')" class="w-full rounded bg-surface2 px-2 py-1" @input="setOv('num_messages_to_send', Number($event.target.value))" />
@@ -70,7 +71,7 @@ async function clearMemory() {
 
     <div>
       <label class="mb-1 block text-muted">
-        Max tokens: {{ eff('max_tokens') }}
+        {{ $t('settings.maxTokensValue', { value: eff('max_tokens') }) }}
         <button v-if="overridden('max_tokens')" class="ml-1 text-indigo-500" @click="reset('max_tokens')">↺</button>
       </label>
       <input type="number" min="1" :value="eff('max_tokens')" class="w-full rounded bg-surface2 px-2 py-1" @input="setOv('max_tokens', Number($event.target.value))" />
@@ -78,17 +79,17 @@ async function clearMemory() {
 
     <div>
       <label class="mb-1 block text-muted">
-        Thinking effort
+        {{ $t('settings.thinkingEffort') }}
         <button v-if="overridden('effort')" class="ml-1 text-indigo-500" @click="reset('effort')">↺</button>
       </label>
       <select :value="eff('effort') || ''" class="w-full rounded bg-surface2 px-2 py-1" @change="setOv('effort', $event.target.value)">
-        <option v-for="l in EFFORT_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
+        <option v-for="level in EFFORT_LEVELS" :key="level" :value="level">{{ $t(`effort.${level || 'off'}`) }}</option>
       </select>
     </div>
 
     <label class="flex items-center gap-2">
       <input type="checkbox" :checked="eff('send_system_prompt')" @change="setOv('send_system_prompt', $event.target.checked)" />
-      Send saved system messages and workspace prompt
+      {{ $t('settings.sendSystem') }}
       <button v-if="overridden('send_system_prompt')" class="text-indigo-500" @click="reset('send_system_prompt')">↺</button>
     </label>
 
@@ -96,13 +97,13 @@ async function clearMemory() {
 
     <label class="flex items-center gap-2">
       <input type="checkbox" :checked="eff('use_memory')" @change="setOv('use_memory', $event.target.checked)" />
-      Compress chat history into memory
+      {{ $t('settings.compressHistory') }}
       <button v-if="overridden('use_memory')" class="text-indigo-500" @click="reset('use_memory')">↺</button>
     </label>
 
     <div>
       <label class="mb-1 block text-muted">
-        Chat messages to summarize (above send window): {{ eff('summarize_n') }}
+        {{ $t('settings.messagesToSummariseValue', { value: eff('summarize_n') }) }}
         <button v-if="overridden('summarize_n')" class="ml-1 text-indigo-500" @click="reset('summarize_n')">↺</button>
       </label>
       <input type="number" min="1" step="1" :value="eff('summarize_n')" class="w-full rounded bg-surface2 px-2 py-1" @input="setOv('summarize_n', Number($event.target.value))" />
@@ -110,34 +111,34 @@ async function clearMemory() {
 
     <label class="flex items-center gap-2">
       <input type="checkbox" :checked="eff('use_recall')" @change="setOv('use_recall', $event.target.checked)" />
-      Recall relevant old chat messages
+      {{ $t('settings.recall') }}
       <button v-if="overridden('use_recall')" class="text-indigo-500" @click="reset('use_recall')">↺</button>
     </label>
 
-    <label class="flex items-center gap-2" :class="!cacheSupported && 'opacity-50'" :title="cacheSupported ? '' : `${eff('model')} does not support prompt caching`">
+    <label class="flex items-center gap-2" :class="!cacheSupported && 'opacity-50'" :title="cacheSupported ? '' : $t('settings.cacheUnsupported', { model: eff('model') })">
       <input type="checkbox" :checked="eff('use_cache')" :disabled="!cacheSupported" @change="setOv('use_cache', $event.target.checked)" />
-      Cache stable prompt context
+      {{ $t('settings.cache') }}
       <button v-if="overridden('use_cache')" class="text-indigo-500" @click="reset('use_cache')">↺</button>
     </label>
-    <p class="-mt-2 text-xs text-muted">Reuses the workspace prompt, system messages, and attached documents across chat turns. Pricing varies by provider.</p>
+    <p class="-mt-2 text-xs text-muted">{{ $t('settings.cacheHelp') }}</p>
 
     <div v-if="eff('use_memory')">
       <label class="mb-1 flex items-center justify-between text-muted">
-        <span>Memory (auto-refreshes after each chat reply)</span>
-        <button class="text-indigo-500" @click="clearMemory">Clear</button>
+        <span>{{ $t('settings.memory') }}</span>
+        <button class="text-indigo-500" @click="clearMemory">{{ $t('common.clear') }}</button>
       </label>
-      <textarea v-model="convo.memory" rows="4" placeholder="(empty; builds automatically as the conversation grows)" class="w-full rounded bg-surface2 px-2 py-1 text-xs"></textarea>
+      <textarea v-model="convo.memory" rows="4" :placeholder="$t('settings.memoryEmpty')" class="w-full rounded bg-surface2 px-2 py-1 text-xs"></textarea>
     </div>
 
     <hr class="border-edge" />
 
     <label class="flex items-center gap-2">
       <input type="checkbox" v-model="convo.scanAssistant" />
-      Scan assistant messages for card triggers
+      {{ $t('settings.scanAssistant') }}
     </label>
 
     <button class="w-full rounded bg-surface2 py-2 hover:opacity-80" @click="makeTemplate">
-      {{ templateSaved ? '✓ Template created' : 'Save as template (copy)' }}
+      {{ templateSaved ? `✓ ${$t('settings.templateCreated')}` : $t('settings.saveTemplate') }}
     </button>
   </div>
 </template>

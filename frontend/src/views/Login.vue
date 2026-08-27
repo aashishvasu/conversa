@@ -31,7 +31,7 @@ async function submit() {
       <input
         v-model="pw"
         type="password"
-        placeholder="Password"
+        :placeholder="$t('login.password')"
         autofocus
         class="w-full rounded bg-surface2 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
       />
@@ -41,7 +41,7 @@ async function submit() {
         :disabled="busy"
         class="w-full rounded bg-indigo-600 py-2 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
       >
-        {{ busy ? 'Checking…' : 'Unlock' }}
+        {{ busy ? $t('login.checking') : $t('login.unlock') }}
       </button>
     </form>
   </div>

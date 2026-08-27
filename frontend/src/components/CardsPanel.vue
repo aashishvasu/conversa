@@ -6,6 +6,7 @@ import { CARDGEN_SYSTEM, effectiveCards, matchedCardIds, parseGeneratedCards } f
 import { effectiveSettings } from '../state/settings.js'
 import { workspaceOf } from '../state/store.js'
 import { confirmDelete } from '../utils/confirm.js'
+import { tr } from '../i18n.js'
 
 // Also reused by WorkspacePanel with a workspace as `convo`; workspaces have cards but no messages, settings, or workspaceId, so those reads are guarded below.
 const props = defineProps({ convo: Object })
@@ -137,13 +138,14 @@ async function generate() {
     }
     genText.value = ''
   } catch (e) {
-    genError.value = String(e?.message || e)
+    const key = { card_list_missing: 'cards.errorNoList', cards_unusable: 'cards.errorNoUsable' }[e?.message]
+    genError.value = key ? tr(key) : String(e?.message || e)
   } finally {
     genBusy.value = false
   }
 }
 async function removeCard(id) {
-  if (await confirmDelete('Delete this card?')) {
+  if (await confirmDelete(tr('confirm.deleteCard'))) {
     props.convo.cards = props.convo.cards.filter((c) => c.id !== id)
   }
 }
@@ -151,18 +153,18 @@ async function removeCard(id) {
 
 <template>
   <div class="space-y-2 text-sm">
-    <p class="text-muted">Trigger phrases: comma = OR, &amp; = AND ("dragon &amp; red, wyrm" fires on wyrm, or on dragon and red together). When a clause matches the recent chat window, its text joins the next chat request. Click a card to expand.</p>
+    <p class="text-muted">{{ $t('cards.help') }}</p>
 
     <!-- Shared cards, read-only here: editing one affects every conversation in the workspace, so edits go through the workspace editor in the sidebar. -->
     <template v-if="ws">
-      <p class="px-1 text-xs uppercase text-muted">Workspace cards · {{ ws.name }} (edit in workspace; include/exclude is per-conversation)</p>
-      <p v-if="!ws.cards.length" class="px-1 text-xs italic text-muted">No workspace cards.</p>
+      <p class="px-1 text-xs uppercase text-muted">{{ $t('cards.workspaceCards', { name: ws.name }) }}</p>
+      <p v-if="!ws.cards.length" class="px-1 text-xs italic text-muted">{{ $t('cards.noWorkspaceCards') }}</p>
       <details v-for="c in ws.cards" :key="c.id" class="rounded border" :class="overrideOf(c.id) === 'skip' ? 'border-yellow-500' : active.has(c.id) ? 'border-green-500' : 'border-edge'">
         <summary class="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 [&::-webkit-details-marker]:hidden">
-          <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(c.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(c.id) ? 'Active for next chat' : 'Inactive'"></span>
-          <span class="flex-1 truncate text-muted">{{ c.triggers || 'No triggers' }}</span>
-          <button class="shrink-0" :class="overrideOf(c.id) === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" title="Always include in this conversation's chats" @click.stop.prevent="toggleOverride($event, c.id, 'include')"><CircleCheck :size="14" /></button>
-          <button class="shrink-0" :class="overrideOf(c.id) === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" title="Exclude from this conversation's chats" @click.stop.prevent="toggleOverride($event, c.id, 'skip')"><Ban :size="14" /></button>
+          <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(c.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(c.id) ? $t('cards.active') : $t('common.inactive')"></span>
+          <span class="flex-1 truncate text-muted">{{ c.triggers || $t('cards.noTriggers') }}</span>
+          <button class="shrink-0" :class="overrideOf(c.id) === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" :title="$t('cards.alwaysConversation')" @click.stop.prevent="toggleOverride($event, c.id, 'include')"><CircleCheck :size="14" /></button>
+          <button class="shrink-0" :class="overrideOf(c.id) === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" :title="$t('cards.excludeConversation')" @click.stop.prevent="toggleOverride($event, c.id, 'skip')"><Ban :size="14" /></button>
         </summary>
         <div class="whitespace-pre-wrap border-t border-edge p-2 text-muted">{{ c.content }}</div>
       </details>
@@ -180,28 +182,28 @@ async function removeCard(id) {
         :class="[row.card.force === 'skip' ? 'border-yellow-500' : active.has(row.card.id) ? 'border-green-500' : 'border-edge', dragId === row.card.id ? 'opacity-50' : '', dragId && dragId !== row.card.id && overId === row.card.id ? 'border-t-2 border-t-blue-500' : '']"
       >
         <summary class="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 [&::-webkit-details-marker]:hidden">
-          <span class="shrink-0 cursor-grab touch-none text-muted active:cursor-grabbing" title="Drag to reorder or move folder" @click.stop.prevent @pointerdown="onPointerDown($event, row.card.id)" @pointermove="onPointerMove" @pointerup="onPointerUp"><GripVertical :size="14" /></span>
-          <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(row.card.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(row.card.id) ? 'Active for next chat' : 'Inactive'"></span>
-          <span class="flex-1 truncate text-muted">{{ row.card.triggers || 'No triggers' }}</span>
-          <button class="shrink-0" :class="row.card.force === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" title="Always include this card in chats" @click.stop.prevent="toggleForce($event, row.card, 'include')"><CircleCheck :size="14" /></button>
-          <button class="shrink-0" :class="row.card.force === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" title="Exclude this card from chats" @click.stop.prevent="toggleForce($event, row.card, 'skip')"><Ban :size="14" /></button>
-          <button class="shrink-0 border-l border-edge pl-2 text-muted hover:text-red-500" title="Delete card" @click.stop.prevent="removeCard(row.card.id)"><X :size="14" /></button>
+          <span class="shrink-0 cursor-grab touch-none text-muted active:cursor-grabbing" :title="$t('cards.drag')" @click.stop.prevent @pointerdown="onPointerDown($event, row.card.id)" @pointermove="onPointerMove" @pointerup="onPointerUp"><GripVertical :size="14" /></span>
+          <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(row.card.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(row.card.id) ? $t('cards.active') : $t('common.inactive')"></span>
+          <span class="flex-1 truncate text-muted">{{ row.card.triggers || $t('cards.noTriggers') }}</span>
+          <button class="shrink-0" :class="row.card.force === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" :title="$t('cards.always')" @click.stop.prevent="toggleForce($event, row.card, 'include')"><CircleCheck :size="14" /></button>
+          <button class="shrink-0" :class="row.card.force === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" :title="$t('cards.exclude')" @click.stop.prevent="toggleForce($event, row.card, 'skip')"><Ban :size="14" /></button>
+          <button class="shrink-0 border-l border-edge pl-2 text-muted hover:text-red-500" :title="$t('cards.delete')" @click.stop.prevent="removeCard(row.card.id)"><X :size="14" /></button>
         </summary>
         <div class="space-y-2 border-t border-edge p-2">
-          <input v-model="row.card.path" list="folder-paths" placeholder="Folder (optional)" class="w-full rounded bg-surface2 px-2 py-1 text-xs text-muted" />
-          <input v-model="row.card.triggers" placeholder="dragon &amp; red, wyrm, ancient lizard" class="w-full rounded bg-surface2 px-2 py-1" />
-          <textarea v-model="row.card.content" rows="4" placeholder="What this card adds when triggered…" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
+          <input v-model="row.card.path" list="folder-paths" :placeholder="$t('cards.folder')" class="w-full rounded bg-surface2 px-2 py-1 text-xs text-muted" />
+          <input v-model="row.card.triggers" :placeholder="$t('cards.triggerExample')" class="w-full rounded bg-surface2 px-2 py-1" />
+          <textarea v-model="row.card.content" rows="4" :placeholder="$t('cards.contentPlaceholder')" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
         </div>
       </details>
     </template>
 
-    <button class="w-full rounded bg-surface2 py-2 hover:opacity-80" @click="addCard()">+ Add card</button>
+    <button class="w-full rounded bg-surface2 py-2 hover:opacity-80" @click="addCard()">{{ $t('cards.add') }}</button>
 
     <details class="rounded border border-edge">
-      <summary class="cursor-pointer list-none px-2 py-1.5 text-muted [&::-webkit-details-marker]:hidden">Generate cards from text</summary>
+      <summary class="cursor-pointer list-none px-2 py-1.5 text-muted [&::-webkit-details-marker]:hidden">{{ $t('cards.generateHeading') }}</summary>
       <div class="space-y-2 border-t border-edge p-2">
-        <textarea v-model="genText" rows="5" placeholder="Paste text (a large system prompt, lore, notes…); the utility model splits it into trigger cards you can edit above." class="w-full rounded bg-surface2 px-2 py-1"></textarea>
-        <button class="w-full rounded bg-surface2 py-2 hover:opacity-80 disabled:opacity-50" :disabled="genBusy || !genText.trim()" @click="generate()">{{ genBusy ? 'Generating…' : 'Generate' }}</button>
+        <textarea v-model="genText" rows="5" :placeholder="$t('cards.generatePlaceholder')" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
+        <button class="w-full rounded bg-surface2 py-2 hover:opacity-80 disabled:opacity-50" :disabled="genBusy || !genText.trim()" @click="generate()">{{ genBusy ? $t('cards.generating') : $t('cards.generate') }}</button>
         <p v-if="genError" class="text-xs text-red-500">{{ genError }}</p>
       </div>
     </details>

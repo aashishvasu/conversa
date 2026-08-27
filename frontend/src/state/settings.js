@@ -30,12 +30,7 @@ export const RESEARCH_KEYS = [
 // Values go to the API as output_config.effort, and the backend maps them to token budgets for pre-4.6 models.
 // Adding a level here (Anthropic also has 'xhigh' and 'max') surfaces it in all three places.
 // Values stored under the legacy thinking_budget key are ignored.
-export const EFFORT_LEVELS = [
-  { label: 'Off', value: '' },
-  { label: 'Low', value: 'low' },
-  { label: 'Medium', value: 'medium' },
-  { label: 'High', value: 'high' },
-]
+export const EFFORT_LEVELS = ['', 'low', 'medium', 'high']
 
 // A per-owner override falls back to the global default per key.
 // `??` so an explicit false/0 override is respected; only null/undefined inherits.

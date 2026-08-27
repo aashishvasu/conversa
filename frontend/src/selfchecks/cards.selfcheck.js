@@ -37,7 +37,7 @@ assert.deepEqual(matchCards(andCards, [{ role: 'user', content: 'a wyrm' }], fal
 const gen = parseGeneratedCards('```json\n[{"triggers": "a, b", "content": " X "}, {"triggers": "c", "content": ""}]\n```')
 assert.deepEqual(gen, [{ triggers: 'a, b', content: 'X' }], 'trims fields, drops empty-content cards')
 assert.deepEqual(parseGeneratedCards('Here you go: [{"triggers": "t", "content": "body [1]"}] hope that helps'), [{ triggers: 't', content: 'body [1]' }], 'survives surrounding prose and brackets in content')
-assert.throws(() => parseGeneratedCards('no json here'), /No card list/)
-assert.throws(() => parseGeneratedCards('[{"triggers": 1, "content": 2}]'), /No usable cards/)
+assert.throws(() => parseGeneratedCards('no json here'), /card_list_missing/)
+assert.throws(() => parseGeneratedCards('[{"triggers": 1, "content": 2}]'), /cards_unusable/)
 
 console.log('cards selfcheck OK')

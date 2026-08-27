@@ -5,6 +5,7 @@ import { streamChat } from '../api/client.js'
 import { useStreamGuard } from '../composables/useStreamGuard.js'
 import { refreshMemory } from '../jobs/memory.js'
 import { notify } from '../utils/notify.js'
+import { tr } from '../i18n.js'
 import { buildPayload, sendWindow } from '../prompt/payload.js'
 import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
 import { addConvoUsage, recordUsage } from '../state/usage.js'
@@ -72,7 +73,7 @@ function setThinking(v) {
 }
 function toggleResearch() {
   if (pendingImages.value.length) {
-    notify({ key: 'image:attach', severity: 'warning', text: 'Send or remove images before starting research' })
+    notify({ key: 'image:attach', severity: 'warning', text: tr('chat.sendImagesFirst') })
     return
   }
   convo.value.mode = researchMode.value ? 'chat' : 'research'
@@ -102,7 +103,7 @@ function removeMessage(id) {
 // Trash button: confirm first.
 // (cancelEdit calls removeMessage directly, since discarding a blank new message needs no confirmation.)
 async function confirmRemoveMessage(id) {
-  if (await confirmDelete('Delete this message?')) removeMessage(id)
+  if (await confirmDelete(tr('confirm.deleteMessage'))) removeMessage(id)
 }
 
 // Promote a reply into the doc store, where any conversation or workspace can attach it (ContextPanel, WorkspacePanel).
@@ -169,12 +170,12 @@ async function runCompletion(c) {
       addConvoUsage(c, usage)
       recordUsage('chat', usage)
     })
-    if (c.title === 'New conversation') {
+    if (c.title === tr('sidebar.newConversation')) {
       try {
         const t = await generateTitle(c, settings.utility_model)
         if (t) c.title = t
       } catch (e) {
-        notify({ key: 'utility:title', severity: 'warning', text: `Title generation failed: ${e.message}` })
+        notify({ key: 'utility:title', severity: 'warning', text: tr('chat.titleFailed', { error: e.message }) })
       }
     }
   } catch (e) {
@@ -188,16 +189,14 @@ async function runCompletion(c) {
     guard.end()
     // Refresh the memory summary in the background, off the send path.
     // The key dedupes: this fires after every reply, so a persistently failing utility model refreshes one toast instead of stacking.
-    refreshMemory(c, settings).catch((e) => notify({ key: 'utility:memory', severity: 'warning', text: `Memory summary failed: ${e.message}` }))
+    refreshMemory(c, settings).catch((e) => notify({ key: 'utility:memory', severity: 'warning', text: tr('chat.memoryFailed', { error: e.message }) }))
     persistNow() // don't let a quick reload lose the completed message
   }
 }
 
 // Enter behaviour is a frontend pref: by default Enter sends and Shift+Enter makes a newline; flip enterToSend and they swap.
 // Let the textarea insert the newline itself.
-const composerHint = computed(() => enterToSend.value
-  ? 'Enter to send, Shift+Enter for newline'
-  : 'Shift+Enter to send, Enter for newline')
+const composerHint = computed(() => tr(enterToSend.value ? 'chat.enterHint' : 'chat.shiftEnterHint'))
 function onComposerKeydown(e) {
   if (e.key !== 'Enter' || e.isComposing) return // don't fire mid-IME-composition
   const isSend = enterToSend.value ? !e.shiftKey : e.shiftKey
@@ -249,7 +248,7 @@ function sendResearch(c, text) {
   const r = createRun(c, user.id, placeholder.id, text)
   user.runId = placeholder.runId = r.id
   c.messages.push(user, placeholder)
-  if (c.title === 'New conversation') c.title = text.slice(0, 60)
+  if (c.title === tr('sidebar.newConversation')) c.title = text.slice(0, 60)
   persistNow()
 }
 
@@ -276,7 +275,7 @@ function regenerate(m) {
 async function attachImages(files) {
   for (const file of files) {
     try {
-      if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) throw new Error(`${file.name || 'File'} is not a supported image`)
+      if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) throw new Error(tr('chat.unsupportedImage', { name: file.name || tr('chat.file') }))
       const bitmap = await createImageBitmap(file)
       const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height))
       const width = Math.round(bitmap.width * scale)
@@ -287,7 +286,7 @@ async function attachImages(files) {
       const context = canvas.getContext('2d')
       if (!context) {
         bitmap.close()
-        throw new Error('Could not process image')
+        throw new Error(tr('chat.processImageFailed'))
       }
       context.drawImage(bitmap, 0, 0, width, height)
       bitmap.close()
@@ -295,12 +294,12 @@ async function attachImages(files) {
       let blob = file.type === 'image/png' ? await encode('image/png') : null
       if (!blob || blob.size > 1024 * 1024) blob = await encode('image/webp')
       if (!blob || blob.type !== 'image/webp') blob = await encode('image/jpeg')
-      if (!blob) throw new Error(`Could not encode ${file.name || 'image'}`)
+      if (!blob) throw new Error(tr('chat.encodeImageFailed', { name: file.name || tr('chat.image') }))
       const bytes = new Uint8Array(await blob.arrayBuffer())
       let binary = ''
       for (const byte of bytes) binary += String.fromCharCode(byte)
       const data = btoa(binary)
-      if (data.length > 10 * 1024 * 1024) throw new Error(`${file.name || 'Image'} is over the 10 MB limit after compression`)
+      if (data.length > 10 * 1024 * 1024) throw new Error(tr('chat.imageTooLarge', { name: file.name || tr('chat.image') }))
       pendingImages.value.push(await createImage({ id: crypto.randomUUID(), media_type: blob.type, width, height, data, createdAt: Date.now() }))
     } catch (e) {
       notify({ key: 'image:attach', severity: 'warning', text: e.message })
@@ -337,7 +336,7 @@ async function regenTitle() {
       convo.value.title = t
       await persistNow()
     } else {
-      notify({ key: 'title', text: 'Empty title returned', foreground: true })
+      notify({ key: 'title', text: tr('chat.emptyTitle'), foreground: true })
     }
   } catch (e) {
     notify({ key: 'title', text: e.message, foreground: true })
@@ -358,10 +357,10 @@ async function regenTitle() {
         v-model="convo.title"
         class="min-w-0 flex-1 truncate bg-transparent text-base font-semibold outline-none"
       />
-      <button class="rounded p-1.5 text-muted hover:bg-surface2 hover:text-base disabled:opacity-50" title="Regenerate title" :disabled="titling" @click="regenTitle">
+      <button class="rounded p-1.5 text-muted hover:bg-surface2 hover:text-base disabled:opacity-50" :title="$t('chat.regenerateTitle')" :disabled="titling" @click="regenTitle">
         <RotateCcw :size="15" :class="titling && 'animate-spin'" />
       </button>
-      <span v-if="convo.isTemplate" class="rounded bg-amber-600/20 px-1.5 py-0.5 text-[10px] uppercase text-amber-600">template</span>
+      <span v-if="convo.isTemplate" class="rounded bg-amber-600/20 px-1.5 py-0.5 text-[10px] uppercase text-amber-600">{{ $t('chat.template') }}</span>
     </header>
 
     <!-- Messages -->
@@ -369,7 +368,7 @@ async function regenTitle() {
       <div ref="scroller" class="h-full space-y-3 overflow-y-auto px-3 py-6 sm:px-4" @scroll="onScroll" @click="onContentClick">
         <div v-if="convo.messages.length > visibleCount" class="flex justify-center">
           <button class="rounded px-3 py-1 text-xs text-muted hover:bg-surface2 hover:text-base" @click="visibleCount += PAGE_SIZE">
-            Load {{ PAGE_SIZE }} more ({{ convo.messages.length - visibleCount }} older)
+            {{ $t('chat.loadMore', { count: PAGE_SIZE, older: convo.messages.length - visibleCount }) }}
           </button>
         </div>
         <!-- The component boundary scopes re-renders: streaming one message re-renders only its own bubble, so it doesn't re-parse markdown for every other visible message. -->
@@ -397,7 +396,7 @@ async function regenTitle() {
 
         <div class="flex justify-center">
           <button class="flex items-center gap-1 rounded px-3 py-1 text-xs text-muted hover:bg-surface2 hover:text-base" @click="addMessage">
-            <Plus :size="14" /> Add message
+            <Plus :size="14" /> {{ $t('chat.addMessage') }}
           </button>
         </div>
       </div>
@@ -405,7 +404,7 @@ async function regenTitle() {
       <button
         v-if="!atBottom"
         class="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-edge bg-surface p-2 text-muted shadow-lg hover:text-base"
-        title="Scroll to bottom"
+        :title="$t('chat.scrollBottom')"
         @click="scrollDown"
       >
         <ChevronDown :size="18" />
@@ -415,7 +414,7 @@ async function regenTitle() {
     <!-- Toolbar + composer -->
     <div class="border-t border-edge">
       <div class="flex items-center gap-2 px-3 py-1.5">
-        <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" title="Model">
+        <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" :title="$t('common.model')">
           <Bot :size="14" />
           <ModelSelect
             :model-value="effectiveSettings(convo).model"
@@ -423,33 +422,33 @@ async function regenTitle() {
             @update:model-value="setModel"
           />
         </div>
-        <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" title="Thinking effort">
+        <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" :title="$t('settings.thinkingEffort')">
           <Brain :size="14" />
           <select
             :value="effectiveSettings(convo).effort || ''"
             class="bg-transparent py-1 pr-1 text-xs text-base outline-none"
             @change="setThinking($event.target.value)"
           >
-            <option v-for="l in EFFORT_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
+            <option v-for="level in EFFORT_LEVELS" :key="level" :value="level">{{ $t(`effort.${level || 'off'}`) }}</option>
           </select>
         </div>
         <button
           class="flex items-center gap-1 rounded px-2 py-1 text-xs"
           :class="researchMode ? 'bg-indigo-600 text-white' : 'bg-surface2 text-muted hover:text-base'"
-          :title="researchMode ? 'Sends start research runs; click for normal chat' : 'Sends chat normally; click to make them research runs'"
+          :title="researchMode ? $t('chat.researchOn') : $t('chat.researchOff')"
           @click="toggleResearch"
         >
-          <Telescope :size="14" /> Research
+          <Telescope :size="14" /> {{ $t('chat.research') }}
         </button>
         <span v-if="convoSpend.calls" class="rounded bg-surface2 px-2 py-1 text-xs text-muted">
           <SpendBadge :spend="convoSpend" />
         </span>
         <div class="ml-auto flex gap-1">
-          <button class="rounded p-1.5 hover:bg-surface2" title="Context editor" @click="panel = 'context'"><NotebookText :size="16" /></button>
-          <button class="rounded p-1.5 hover:bg-surface2" title="Cards" @click="panel = 'cards'"><Layers :size="16" /></button>
-          <button class="rounded p-1.5 hover:bg-surface2" title="Conversation settings" @click="panel = 'settings'"><SlidersHorizontal :size="16" /></button>
+          <button class="rounded p-1.5 hover:bg-surface2" :title="$t('chat.contextEditor')" @click="panel = 'context'"><NotebookText :size="16" /></button>
+          <button class="rounded p-1.5 hover:bg-surface2" :title="$t('common.cards')" @click="panel = 'cards'"><Layers :size="16" /></button>
+          <button class="rounded p-1.5 hover:bg-surface2" :title="$t('chat.conversationSettings')" @click="panel = 'settings'"><SlidersHorizontal :size="16" /></button>
           <!-- debug peek, deliberately lighter weight than the real panels -->
-          <button class="rounded p-1.5 opacity-50 hover:bg-surface2 hover:opacity-100" title="Debug: live system prompt" @click="panel = 'debug'"><Bug :size="16" /></button>
+          <button class="rounded p-1.5 opacity-50 hover:bg-surface2 hover:opacity-100" :title="$t('debug.button')" @click="panel = 'debug'"><Bug :size="16" /></button>
         </div>
       </div>
       <div class="flex items-stretch gap-2 px-3 pb-3" @dragover.prevent @drop="!researchMode && onDrop($event)">
@@ -457,7 +456,7 @@ async function regenTitle() {
           <div v-if="pendingImages.length" class="flex gap-2 overflow-x-auto">
             <div v-for="image in pendingImages" :key="image.id" class="relative shrink-0">
               <img :src="`data:${image.media_type};base64,${image.data}`" class="h-16 w-16 rounded object-cover" />
-              <button class="absolute -right-1 -top-1 rounded-full bg-surface p-0.5" title="Remove image" @click="removePending(image)"><X :size="12" /></button>
+              <button class="absolute -right-1 -top-1 rounded-full bg-surface p-0.5" :title="$t('chat.removeImage')" @click="removePending(image)"><X :size="12" /></button>
             </div>
           </div>
           <div class="flex items-stretch gap-2">
@@ -465,41 +464,41 @@ async function regenTitle() {
           ref="composerEl"
           v-model="input"
           rows="2"
-          :placeholder="runActive ? 'Research is running in this conversation…' : `${researchMode ? 'What should the research find out?' : 'Message…'}  (${composerHint})`"
+          :placeholder="runActive ? $t('chat.researchRunning') : `${researchMode ? $t('chat.researchPrompt') : $t('chat.messagePlaceholder')}  (${composerHint})`"
           :disabled="runActive"
           class="min-h-16 max-h-40 flex-1 resize-none rounded bg-surface2 px-3 py-2 outline-none disabled:opacity-60"
           @keydown="onComposerKeydown"
           @paste="onPaste"
         ></textarea>
             <input ref="imageInput" type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp" class="hidden" @change="onImageInput" />
-            <button class="rounded bg-surface2 px-3 text-muted hover:text-base disabled:opacity-50" title="Attach images" :disabled="researchMode" @click="imageInput.click()"><Paperclip :size="18" /></button>
+            <button class="rounded bg-surface2 px-3 text-muted hover:text-base disabled:opacity-50" :title="$t('chat.attachImages')" :disabled="researchMode" @click="imageInput.click()"><Paperclip :size="18" /></button>
           </div>
         </div>
-        <button v-if="!streaming" class="flex items-center justify-center rounded bg-indigo-600 px-4 text-white hover:bg-indigo-500 disabled:opacity-50" :title="researchMode ? 'Start research' : 'Send'" :disabled="runActive" @click="send">
+        <button v-if="!streaming" class="flex items-center justify-center rounded bg-indigo-600 px-4 text-white hover:bg-indigo-500 disabled:opacity-50" :title="researchMode ? $t('chat.startResearch') : $t('common.send')" :disabled="runActive" @click="send">
           <Telescope v-if="researchMode" :size="18" />
           <Send v-else :size="18" />
         </button>
-        <button v-else class="flex items-center justify-center rounded bg-red-600 px-4 text-white hover:bg-red-500" title="Stop" @click="stop">
+        <button v-else class="flex items-center justify-center rounded bg-red-600 px-4 text-white hover:bg-red-500" :title="$t('common.stop')" @click="stop">
           <Square :size="18" />
         </button>
       </div>
     </div>
 
-    <Modal v-if="panel === 'context'" title="Context editor" @close="panel = null">
+    <Modal v-if="panel === 'context'" :title="$t('chat.contextEditor')" @close="panel = null">
       <ContextPanel :convo="convo" />
     </Modal>
-    <Modal v-if="panel === 'settings'" title="Conversation settings" @close="panel = null">
+    <Modal v-if="panel === 'settings'" :title="$t('chat.conversationSettings')" @close="panel = null">
       <SettingsPanel :convo="convo" />
     </Modal>
-    <Modal v-if="panel === 'cards'" title="Cards" @close="panel = null">
+    <Modal v-if="panel === 'cards'" :title="$t('common.cards')" @close="panel = null">
       <CardsPanel :convo="convo" />
     </Modal>
-    <Modal v-if="panel === 'debug'" title="System prompt (live)" @close="panel = null">
+    <Modal v-if="panel === 'debug'" :title="$t('debug.title')" @close="panel = null">
       <DebugPanel :convo="convo" />
     </Modal>
   </section>
 
   <section v-else class="flex flex-1 items-center justify-center bg-app text-muted">
-    Create a conversation to begin.
+    {{ $t('chat.createFirst') }}
   </section>
 </template>

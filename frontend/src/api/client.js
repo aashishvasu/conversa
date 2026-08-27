@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { tr } from '../i18n.js'
 
 // /api/login exchanges the password for the stored bearer token. A 401 clears it and returns to login.
 
@@ -19,13 +20,27 @@ function authHeaders(json = true) {
   return h
 }
 
-function check(res) {
+const ERROR_KEYS = { no_such_run: 'errors.noSuchRun', unknown_effort: 'errors.unknownEffort' }
+
+async function responseError(res) {
+  try {
+    const detail = (await res.json()).detail
+    if (detail && typeof detail === 'object') {
+      if (ERROR_KEYS[detail.code]) return tr(ERROR_KEYS[detail.code], detail)
+      if (typeof detail.message === 'string') return detail.message
+    }
+    if (typeof detail === 'string') return detail
+  } catch { /* use the status fallback */ }
+  return tr('errors.server', { status: res.status })
+}
+
+async function check(res) {
   if (res.status === 401) {
     logout()
-    throw new Error('Session expired')
+    throw new Error(tr('errors.sessionExpired'))
   }
-  if (!res.ok) throw new Error(`Server error ${res.status}`)
-  maybeRefresh() // fire-and-forget sliding renewal on any successful call
+  if (!res.ok) throw new Error(await responseError(res))
+  maybeRefresh()
   return res
 }
 
@@ -47,7 +62,7 @@ async function maybeRefresh() {
   }
   refreshing = true
   try {
-    const res = check(await fetch('/api/refresh', { method: 'POST', headers: authHeaders(false) }))
+    const res = await check(await fetch('/api/refresh', { method: 'POST', headers: authHeaders(false) }))
     localStorage.setItem(TOKEN_KEY, (await res.json()).token)
   } catch { /* keep the old token */ } finally {
     refreshing = false
@@ -62,18 +77,18 @@ export async function login(password) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
   })
-  if (res.status === 401) throw new Error('Wrong password')
-  if (!res.ok) throw new Error(`Server error ${res.status}`)
+  if (res.status === 401) throw new Error(tr('errors.wrongPassword'))
+  if (!res.ok) throw new Error(await responseError(res))
   const { token } = await res.json()
   localStorage.setItem(TOKEN_KEY, token)
 }
 
 export async function fetchSettings() {
-  return check(await fetch('/api/settings', { headers: authHeaders(false) })).json()
+  return (await check(await fetch('/api/settings', { headers: authHeaders(false) }))).json()
 }
 
 export async function fetchModels() {
-  return check(await fetch('/api/models', { headers: authHeaders(false) })).json()
+  return (await check(await fetch('/api/models', { headers: authHeaders(false) }))).json()
 }
 
 // Fetch a page as readable markdown.
@@ -85,15 +100,15 @@ export async function fetchUrl(url, topic) {
     headers: authHeaders(),
     body: JSON.stringify({ url, topic }),
   })
-  if (res.status === 400) throw new Error((await res.json()).detail)
-  return check(res).json()
+  if (res.status === 400) throw new Error(await responseError(res))
+  return (await check(res)).json()
 }
 
 // Streams assistant text.
 // Calls onText(chunk) per token; onTrace(type, value) for non-visible activity (type 'thinking' | 'search' -> string, 'results' -> [{title,url}]);
 // onUsage(usage) once per generation with {model, input, output, cache_read, cache_write, usd, unpriced}; resolves when done.
 export async function streamChat(payload, onText, signal, onTrace, onUsage) {
-  const res = check(
+  const res = await check(
     await fetch('/api/chat', {
       method: 'POST',
       headers: authHeaders(),
@@ -144,26 +159,26 @@ export async function clarifyResearch(brief, model, context = null) {
     headers: authHeaders(),
     body: JSON.stringify({ brief, model, context }),
   })
-  if (res.status === 400) throw new Error((await res.json()).detail)
-  return (await check(res).json()).questions
+  if (res.status === 400) throw new Error(await responseError(res))
+  return (await (await check(res)).json()).questions
 }
 
 export async function startResearch(body) {
   const res = await fetch('/api/research', { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) })
-  if (res.status === 400) throw new Error((await res.json()).detail)
-  return check(res).json()
+  if (res.status === 400) throw new Error(await responseError(res))
+  return (await check(res)).json()
 }
 
 // Done with this run.
 // A running one is cancelled and kept, so its stream can still deliver the final frame.
 // A finished one is forgotten, which is what saving the payload into a workspace triggers.
 export async function discardResearch(id) {
-  return check(await fetch(`/api/research/${id}`, { method: 'DELETE', headers: authHeaders(false) })).json()
+  return (await check(await fetch(`/api/research/${id}`, { method: 'DELETE', headers: authHeaders(false) }))).json()
 }
 
 // Tails a run until it ends. onEvent gets every event; the last one is kind 'final' and carries the payload.
 export async function streamResearch(id, after, onEvent, signal) {
-  const res = check(
+  const res = await check(
     await fetch(`/api/research/${id}/stream?after=${after || 0}`, { headers: authHeaders(false), signal }),
   )
   await readSSE(res, onEvent)

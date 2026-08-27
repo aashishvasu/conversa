@@ -9,16 +9,16 @@ import { TabsList, TabsTrigger } from 'reka-ui'
 <template>
   <TabsList class="flex flex-col gap-0.5 text-sm">
     <TabsTrigger value="chat" class="flex items-center gap-2 rounded px-2 py-1.5 text-muted outline-none hover:bg-surface2 data-[state=active]:bg-surface2 data-[state=active]:text-base">
-      <MessageSquare :size="14" /> Chat
+      <MessageSquare :size="14" /> {{ $t('sidebar.chat') }}
     </TabsTrigger>
     <TabsTrigger value="research" class="flex items-center gap-2 rounded px-2 py-1.5 text-muted outline-none hover:bg-surface2 data-[state=active]:bg-surface2 data-[state=active]:text-base">
-      <Telescope :size="14" /> Research
+      <Telescope :size="14" /> {{ $t('sidebar.research') }}
     </TabsTrigger>
     <TabsTrigger value="workspaces" class="flex items-center gap-2 rounded px-2 py-1.5 text-muted outline-none hover:bg-surface2 data-[state=active]:bg-surface2 data-[state=active]:text-base">
-      <Boxes :size="14" /> Workspaces
+      <Boxes :size="14" /> {{ $t('sidebar.workspaces') }}
     </TabsTrigger>
     <TabsTrigger value="usage" class="flex items-center gap-2 rounded px-2 py-1.5 text-muted outline-none hover:bg-surface2 data-[state=active]:bg-surface2 data-[state=active]:text-base">
-      <DollarSign :size="14" /> Usage
+      <DollarSign :size="14" /> {{ $t('sidebar.usage') }}
     </TabsTrigger>
   </TabsList>
 </template>

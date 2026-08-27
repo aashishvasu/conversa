@@ -4,6 +4,7 @@ import { foldRunUsage, replaceUsage, usageDays } from './usage.js'
 import { dismiss, notify } from '../utils/notify.js'
 import { enterToSend, fontScale, locale } from '../utils/prefs.js'
 import { isDark } from '../utils/theme.js'
+import { tr } from '../i18n.js'
 
 // All conversation state lives client-side in IndexedDB (via idb-keyval).
 
@@ -68,9 +69,9 @@ function storageFailure(e) {
   notify({
     key: 'storage',
     sticky: true,
-    text: 'Saving to browser storage is failing. Changes exist only in memory until it recovers, so download a backup now.',
+    text: tr('notification.storage'),
     detail: String(e?.stack || e),
-    action: { label: 'Download backup', fn: downloadExport },
+    action: { label: tr('notification.downloadBackup'), fn: downloadExport },
   })
 }
 
@@ -115,7 +116,7 @@ export const currentConversation = computed(() =>
 function blank(overrides = {}) {
   return {
     id: crypto.randomUUID(),
-    title: 'New conversation',
+    title: tr('sidebar.newConversation'),
     isTemplate: false,
     scanAssistant: false,
     workspaceId: null, // workspace membership is only this pointer
@@ -264,7 +265,7 @@ export function finishRun(run, frame) {
 
 export const workspaces = computed(() => state.workspaces)
 
-export function createWorkspace(name = 'New workspace') {
+export function createWorkspace(name = tr('sidebar.newWorkspace')) {
   const w = { id: crypto.randomUUID(), name, systemPrompt: '', cards: [], docIds: [] }
   state.workspaces.push(w)
   return w
@@ -295,7 +296,7 @@ function validImage(image) {
 }
 
 export async function createImage(image) {
-  if (!validImage(image)) throw new Error('Invalid image')
+  if (!validImage(image)) throw new Error(tr('errors.invalidImage'))
   await set(`${IMAGE_KEY_PREFIX}${image.id}`, image).then(() => dismiss('storage'), (e) => { storageFailure(e); throw e })
   state.images.push(image)
   return image
@@ -497,7 +498,7 @@ function addMissing(target, values) {
 // Merge import accepts legacy arrays and ignores snapshot-only settings and prefs.
 export async function importData(data) {
   const list = Array.isArray(data) ? data : data?.conversations
-  if (!Array.isArray(list)) throw new Error('Not a conversa export')
+  if (!Array.isArray(list)) throw new Error(tr('errors.notExport'))
   const extras = Array.isArray(data) ? {} : data
   const incomingDocs = Array.isArray(extras.docs) ? [...extras.docs] : []
   hoistInlineDocs(Array.isArray(extras.workspaces) ? extras.workspaces : [], incomingDocs)
@@ -522,7 +523,7 @@ export async function importData(data) {
 
 // Restore accepts only full versioned snapshots. Merge import remains the path for a partial export.
 export async function restoreData(data) {
-  if (!snapshotInfo(data)) throw new Error('Not a conversa snapshot')
+  if (!snapshotInfo(data)) throw new Error(tr('errors.notSnapshot'))
   const restored = structuredClone(data)
   state.conversations = restored.conversations.filter(validConversation)
   state.workspaces = restored.workspaces.filter((w) => w?.id)

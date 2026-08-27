@@ -65,17 +65,17 @@ async function onAuthed({ config_errors: errors, ...settings }) {
 <template>
   <ConfigProvider :locale="locale" :dir="['ar', 'he', 'fa', 'ur'].includes(locale.split('-')[0]) ? 'rtl' : 'ltr'">
   <div v-if="bootState === 'bootError'" class="flex h-dvh flex-col items-center justify-center gap-3 bg-app p-6 text-base">
-    <p class="text-sm">Stored data could not be read from this browser.</p>
+    <p class="text-sm">{{ $t('app.storedDataUnreadable') }}</p>
     <pre class="max-h-[50vh] w-full max-w-2xl overflow-auto rounded-lg border border-edge bg-surface p-3 text-xs">{{ bootErrorMessage }}</pre>
-    <button class="rounded bg-surface2 px-3 py-1.5 text-sm hover:opacity-80" @click="reload">Retry</button>
+    <button class="rounded bg-surface2 px-3 py-1.5 text-sm hover:opacity-80" @click="reload">{{ $t('app.retry') }}</button>
   </div>
   <div v-else-if="bootState === 'serverError'" class="flex h-dvh flex-col items-center justify-center gap-3 bg-app p-6 text-base">
-    <p class="text-sm">Could not reach the server.</p>
+    <p class="text-sm">{{ $t('app.serverUnavailable') }}</p>
     <pre class="max-h-[50vh] w-full max-w-2xl overflow-auto rounded-lg border border-edge bg-surface p-3 text-xs">{{ serverErrorMessage }}</pre>
-    <button class="rounded bg-surface2 px-3 py-1.5 text-sm hover:opacity-80" @click="loadSettings">Retry</button>
+    <button class="rounded bg-surface2 px-3 py-1.5 text-sm hover:opacity-80" @click="loadSettings">{{ $t('app.retry') }}</button>
   </div>
   <div v-else-if="bootState === 'loading'" class="flex h-dvh items-center justify-center bg-app text-muted">
-    Loading…
+    {{ $t('app.loading') }}
   </div>
   <Login v-else-if="!authed" @authenticated="onAuthed" />
   <div v-else class="flex h-dvh flex-col">

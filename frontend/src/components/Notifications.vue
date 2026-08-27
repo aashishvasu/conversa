@@ -23,7 +23,7 @@ function classes(n) {
           <pre v-if="n.detail" class="overflow-x-auto rounded bg-surface p-2">{{ n.detail }}</pre>
         </div>
         <button v-if="n.action" class="shrink-0 rounded bg-surface2 px-2 py-1 hover:opacity-80" @click="n.action.fn">{{ n.action.label }}</button>
-        <button class="shrink-0 px-1 opacity-70 hover:opacity-100" title="Dismiss" @click="dismiss(n.id)">✕</button>
+        <button class="shrink-0 px-1 opacity-70 hover:opacity-100" :title="$t('common.dismiss')" @click="dismiss(n.id)">✕</button>
       </div>
     </div>
 
@@ -35,10 +35,10 @@ function classes(n) {
       :class="['rounded-lg border p-3 text-sm shadow-lg', classes(n)]"
       @update:open="(open) => !open && dismiss(n.id)"
     >
-      <ToastTitle class="font-medium">{{ n.severity === 'warning' ? 'Warning' : 'Error' }}</ToastTitle>
+      <ToastTitle class="font-medium">{{ n.severity === 'warning' ? $t('notification.warning') : $t('notification.error') }}</ToastTitle>
       <ToastDescription class="mt-1">{{ n.text }}<span v-if="n.count > 1"> ({{ n.count }})</span></ToastDescription>
       <ToastAction v-if="n.action" :alt-text="n.action.label" class="mt-2 mr-2 rounded bg-surface2 px-2 py-1 text-xs hover:opacity-80" @click="n.action.fn">{{ n.action.label }}</ToastAction>
-      <ToastClose class="mt-2 rounded px-2 py-1 text-xs hover:bg-surface2">Dismiss</ToastClose>
+      <ToastClose class="mt-2 rounded px-2 py-1 text-xs hover:bg-surface2">{{ $t('common.dismiss') }}</ToastClose>
     </ToastRoot>
     <ToastViewport class="fixed right-3 bottom-3 z-50 flex w-[min(24rem,calc(100vw-1.5rem))] flex-col-reverse gap-2 outline-none" />
   </ToastProvider>

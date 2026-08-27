@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "lint:i18n": "eslint src --ext .vue",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -25,8 +26,11 @@
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-vue": "^6.0.8",
     "eslint": "^10.9.1",
+    "jsonc-eslint-parser": "^3.3.0",
     "tailwindcss": "^4.3.3",
     "vite": "^8.2.1",
-    "vite-plugin-pwa": "^1.3.0"
+    "vite-plugin-pwa": "^1.3.0",
+    "vue-eslint-parser": "^10.4.1",
+    "yaml-eslint-parser": "^2.1.0"
   }
 }

@@ -47,7 +47,7 @@ async def research_state(run_id: str, after: int = 0, _=Depends(require_auth)):
     runs.evict()
     run = runs.RUNS.get(run_id)
     if not run:
-        raise HTTPException(404, "no such run, or it ended before you came back")
+        raise HTTPException(404, {"code": "no_such_run", "message": "no such run, or it ended before you came back"})
     return run.state(after)
 
 
@@ -60,7 +60,7 @@ async def research_stream(run_id: str, after: int = 0, _=Depends(require_auth)):
 
     run = runs.RUNS.get(run_id)
     if not run:
-        raise HTTPException(404, "no such run, or it ended before you came back")
+        raise HTTPException(404, {"code": "no_such_run", "message": "no such run, or it ended before you came back"})
 
     async def tail():
         seen = after
@@ -90,7 +90,7 @@ async def research_discard(run_id: str, _=Depends(require_auth)):
     """
     run = runs.RUNS.get(run_id)
     if not run:
-        raise HTTPException(404, "no such run")
+        raise HTTPException(404, {"code": "no_such_run", "message": "no such run"})
     if run.status == "running":
         if run.task:
             run.task.cancel()

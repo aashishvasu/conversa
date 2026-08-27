@@ -92,13 +92,13 @@ async def chat(req: ChatRequest, _=Depends(require_auth)):
     max_tokens = req.max_tokens or DEFAULT_MAX_TOKENS
     effort = req.effort if req.effort is not None else DEFAULT_EFFORT
     if effort and effort not in EFFORT_VALUES:
-        raise HTTPException(400, f"unknown effort level: {effort}")
+        raise HTTPException(400, {"code": "unknown_effort", "message": f"unknown effort level: {effort}", "effort": effort})
     try:
         provider, model = resolve_model(req.model or DEFAULT_MODEL)
     except LookupError as error:
-        raise HTTPException(400, str(error))
+        raise HTTPException(400, {"code": "invalid_model", "message": str(error)})
     except RuntimeError as error:
-        raise HTTPException(503, str(error))
+        raise HTTPException(503, {"code": "provider_unavailable", "message": str(error)})
     events = stream_chat(
         provider,
         model,

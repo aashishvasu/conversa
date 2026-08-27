@@ -22,6 +22,7 @@ import {
   workspaces,
 } from '../state/store.js'
 import { isDark, toggleTheme } from '../utils/theme.js'
+import { tr } from '../i18n.js'
 import GlobalSettings from '../components/GlobalSettings.vue'
 import Modal from '../components/Modal.vue'
 import RowActionsMenu from '../components/RowActionsMenu.vue'
@@ -35,7 +36,7 @@ function addWorkspace() {
   editingWs.value = createWorkspace()
 }
 async function removeWorkspace(w) {
-  if (await confirmDelete(`Delete workspace "${w.name}"? Its conversations are kept and just leave the workspace.`)) {
+  if (await confirmDelete(tr('confirm.deleteWorkspace', { name: w.name }))) {
     deleteWorkspace(w.id)
   }
 }
@@ -91,7 +92,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
     <div v-if="activePane === 'chat'" class="flex-1 overflow-y-auto p-2">
       <!-- Templates: click to edit in the chat window; copy to start a conversation; delete -->
       <template v-if="templates.length">
-        <p class="px-1 pb-1 text-xs uppercase text-muted">Templates</p>
+        <p class="px-1 pb-1 text-xs uppercase text-muted">{{ $t('sidebar.templates') }}</p>
         <div
           v-for="t in templates"
           :key="t.id"
@@ -101,16 +102,16 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
           <button class="w-full truncate px-2 py-1.5 pr-8 text-left text-sm" @click="pick(t.id)">{{ t.title }}</button>
           <div class="absolute right-1 top-1.5">
             <RowActionsMenu :actions="[
-              { label: 'New conversation from template', icon: CopyPlus, onSelect: () => createFromTemplate(t) },
-              { label: 'Delete template', icon: X, danger: true, onSelect: () => remove(t.id, 'Delete this template?') },
+              { label: tr('sidebar.newFromTemplate'), icon: CopyPlus, onSelect: () => createFromTemplate(t) },
+              { label: tr('sidebar.deleteTemplate'), icon: X, danger: true, onSelect: () => remove(t.id, tr('confirm.deleteTemplate')) },
             ]" />
           </div>
         </div>
       </template>
 
       <p class="flex items-center justify-between px-1 pb-1 text-xs uppercase text-muted" :class="templates.length && 'pt-2'">
-        Conversations
-        <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" title="New conversation" @click="newConversation"><Plus :size="14" /></button>
+        {{ $t('sidebar.conversations') }}
+        <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" :title="$t('sidebar.newConversation')" @click="newConversation"><Plus :size="14" /></button>
       </p>
       <div
         v-for="c in unassigned"
@@ -121,14 +122,14 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         <button class="w-full px-2 py-2 text-left" @click="pick(c.id)">
           <div class="truncate pr-8 text-sm">{{ c.title }}</div>
           <div class="mt-0.5 flex justify-between text-[10px] text-muted">
-            <span>{{ c.messages.length }} msgs</span>
+            <span>{{ $t('sidebar.messageCount', c.messages.length, { count: c.messages.length }) }}</span>
             <span>{{ formatShort(lastTs(c)) }}</span>
           </div>
         </button>
         <div class="absolute right-1 top-1.5">
           <RowActionsMenu :actions="[
-            { label: 'Export conversation', icon: Download, onSelect: () => downloadExport(c.id) },
-            { label: 'Delete', icon: X, danger: true, onSelect: () => remove(c.id, 'Delete this conversation? This cannot be undone.') },
+            { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => downloadExport(c.id) },
+            { label: tr('common.delete'), icon: X, danger: true, onSelect: () => remove(c.id, tr('confirm.deleteConversation')) },
           ]" />
         </div>
       </div>
@@ -137,8 +138,8 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
     <!-- Research tab: conversations whose composer defaults to research, wherever they live -->
     <div v-else-if="activePane === 'research'" class="flex-1 overflow-y-auto p-2">
       <p class="flex items-center justify-between px-1 pb-1 text-xs uppercase text-muted">
-        Research
-        <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" title="New research conversation" @click="newResearchConversation"><Plus :size="14" /></button>
+        {{ $t('sidebar.research') }}
+        <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" :title="$t('sidebar.newResearch')" @click="newResearchConversation"><Plus :size="14" /></button>
       </p>
       <div
         v-for="c in researchConvos"
@@ -149,36 +150,36 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         <button class="w-full px-2 py-2 text-left" @click="pickInPlace(c.id)">
           <div class="truncate pr-8 text-sm">{{ c.title }}</div>
           <div class="mt-0.5 flex justify-between text-[10px] text-muted">
-            <span>{{ c.messages.length }} msgs</span>
+            <span>{{ $t('sidebar.messageCount', c.messages.length, { count: c.messages.length }) }}</span>
             <span>{{ formatShort(lastTs(c)) }}</span>
           </div>
         </button>
         <div class="absolute right-1 top-1.5">
           <RowActionsMenu :actions="[
-            { label: 'Export conversation', icon: Download, onSelect: () => downloadExport(c.id) },
-            { label: 'Delete', icon: X, danger: true, onSelect: () => remove(c.id, 'Delete this conversation? This cannot be undone.') },
+            { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => downloadExport(c.id) },
+            { label: tr('common.delete'), icon: X, danger: true, onSelect: () => remove(c.id, tr('confirm.deleteConversation')) },
           ]" />
         </div>
       </div>
-      <p v-if="!researchConvos.length" class="px-1 text-xs italic text-muted">No research conversations yet.</p>
+      <p v-if="!researchConvos.length" class="px-1 text-xs italic text-muted">{{ $t('sidebar.noResearch') }}</p>
     </div>
 
     <!-- Workspaces tab: each row is the management surface, click to edit (name, shared prompt, docs, cards).
          Convos join a workspace via their settings panel. -->
     <div v-else-if="activePane === 'workspaces'" class="flex-1 overflow-y-auto p-2">
       <p class="flex items-center justify-between px-1 pb-1 text-xs uppercase text-muted">
-        Workspaces
-        <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" title="New workspace" @click="addWorkspace"><Plus :size="14" /></button>
+        {{ $t('sidebar.workspaces') }}
+        <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" :title="$t('sidebar.newWorkspace')" @click="addWorkspace"><Plus :size="14" /></button>
       </p>
       <template v-for="w in workspaces" :key="w.id">
         <div class="group relative rounded hover:bg-surface2">
-          <button class="flex w-full items-center gap-1.5 truncate px-2 py-1.5 pr-8 text-left text-sm font-medium" title="Edit workspace" @click="editingWs = w">
+          <button class="flex w-full items-center gap-1.5 truncate px-2 py-1.5 pr-8 text-left text-sm font-medium" :title="$t('sidebar.editWorkspace')" @click="editingWs = w">
             <Boxes :size="14" class="shrink-0 text-muted" />{{ w.name }}
           </button>
           <div class="absolute right-1 top-1.5">
             <RowActionsMenu :actions="[
-              { label: 'New conversation here', icon: MessageSquarePlus, onSelect: () => newWorkspaceConversation(w) },
-              { label: 'Delete workspace', icon: X, danger: true, onSelect: () => removeWorkspace(w) },
+              { label: tr('sidebar.newHere'), icon: MessageSquarePlus, onSelect: () => newWorkspaceConversation(w) },
+              { label: tr('sidebar.deleteWorkspace'), icon: X, danger: true, onSelect: () => removeWorkspace(w) },
             ]" />
           </div>
         </div>
@@ -191,32 +192,32 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
           <button class="w-full px-2 py-2 text-left" @click="pickInPlace(c.id)">
             <div class="truncate pr-8 text-sm">{{ c.title }}</div>
             <div class="mt-0.5 flex justify-between text-[10px] text-muted">
-              <span>{{ c.messages.length }} msgs</span>
+              <span>{{ $t('sidebar.messageCount', c.messages.length, { count: c.messages.length }) }}</span>
               <span>{{ formatShort(lastTs(c)) }}</span>
             </div>
           </button>
           <div class="absolute right-1 top-1.5">
             <RowActionsMenu :actions="[
-              { label: 'Export conversation', icon: Download, onSelect: () => downloadExport(c.id) },
-              { label: 'Delete', icon: X, danger: true, onSelect: () => remove(c.id, 'Delete this conversation? This cannot be undone.') },
+              { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => downloadExport(c.id) },
+              { label: tr('common.delete'), icon: X, danger: true, onSelect: () => remove(c.id, tr('confirm.deleteConversation')) },
             ]" />
           </div>
         </div>
       </template>
-      <p v-if="!workspaces.length" class="px-1 text-xs italic text-muted">No workspaces yet.</p>
+      <p v-if="!workspaces.length" class="px-1 text-xs italic text-muted">{{ $t('sidebar.noWorkspaces') }}</p>
     </div>
 
     <div v-else class="flex-1"></div>
 
     <div class="flex items-center gap-1 border-t border-edge p-2">
       <button class="flex flex-1 items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-surface2" @click="showGlobal = true">
-        <SlidersHorizontal :size="16" /> Global settings
+        <SlidersHorizontal :size="16" /> {{ $t('sidebar.globalSettings') }}
       </button>
-      <button class="rounded p-2 hover:bg-surface2" :title="isDark ? 'Switch to light' : 'Switch to dark'" @click="toggleTheme">
+      <button class="rounded p-2 hover:bg-surface2" :title="isDark ? $t('sidebar.light') : $t('sidebar.dark')" @click="toggleTheme">
         <Sun v-if="isDark" :size="16" />
         <Moon v-else :size="16" />
       </button>
-      <button class="rounded p-2 hover:bg-surface2 hover:text-red-500" title="Log out" @click="logout">
+      <button class="rounded p-2 hover:bg-surface2 hover:text-red-500" :title="$t('sidebar.logOut')" @click="logout">
         <LogOut :size="16" />
       </button>
     </div>
@@ -228,11 +229,11 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
       class="block border-t border-edge px-3 py-1.5 text-center text-[10px] text-muted hover:text-base"
     >conversa{{ version ? ` ${version}` : '' }}</a>
 
-    <Modal v-if="showGlobal" title="Global settings" @close="showGlobal = false">
+    <Modal v-if="showGlobal" :title="$t('sidebar.globalSettings')" @close="showGlobal = false">
       <GlobalSettings />
     </Modal>
     <!-- Flush on close so quitting right after an edit can't outrun the debounce. -->
-    <Modal v-if="editingWs" title="Workspace" @close="editingWs = null; persistNow()">
+    <Modal v-if="editingWs" :title="$t('common.workspace')" @close="editingWs = null; persistNow()">
       <WorkspacePanel :workspace="editingWs" />
     </Modal>
   </aside>

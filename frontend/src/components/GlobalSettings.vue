@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { EFFORT_LEVELS } from '../state/settings.js'
 import { downloadExport, globalSettings, importData, modelSupportsCache, persistGlobal, restoreData, snapshotInfo } from '../state/store.js'
 import { enterToSend, fontScale, locale, restorePrefs } from '../utils/prefs.js'
-import { locales, setLocale } from '../i18n.js'
+import { locales, setLocale, tr } from '../i18n.js'
 import { restoreTheme } from '../utils/theme.js'
 import { confirmDelete } from '../utils/confirm.js'
 import ModelSelect from './ModelSelect.vue'
@@ -27,9 +27,9 @@ async function onImportFile(e) {
   if (!file) return
   try {
     const n = await importData(JSON.parse(await file.text()))
-    importMsg.value = n ? `Imported ${n} conversation${n === 1 ? '' : 's'}` : 'Nothing new to import'
+    importMsg.value = n ? tr('import.imported', n, { count: n }) : tr('import.nothing')
   } catch (err) {
-    importMsg.value = `Import failed: ${err.message}`
+    importMsg.value = tr('import.importFailed', { error: err.message })
   }
 }
 
@@ -40,15 +40,15 @@ async function onRestoreFile(e) {
   try {
     const data = JSON.parse(await file.text())
     const info = snapshotInfo(data)
-    if (!info) throw new Error('Choose a full conversa snapshot')
-    const date = info.exportedAt ? new Date(info.exportedAt).toLocaleString() : 'an unknown date'
-    if (!await confirmDelete(`Restore ${info.conversations} conversations, ${info.workspaces} workspaces, ${info.docs} documents, ${info.images} images, and ${info.runs} research runs from ${date}? This replaces this browser's data.`, 'Restore')) return
+    if (!info) throw new Error(tr('import.chooseSnapshot'))
+    const date = info.exportedAt ? new Date(info.exportedAt).toLocaleString(locale.value) : tr('import.unknownDate')
+    if (!await confirmDelete(tr('confirm.restore', { ...info, date }), tr('common.restore'))) return
     const prefs = await restoreData(data)
     restorePrefs(prefs)
     restoreTheme(prefs.theme)
-    importMsg.value = 'Snapshot restored'
+    importMsg.value = tr('import.snapshotRestored')
   } catch (err) {
-    importMsg.value = `Restore failed: ${err.message}`
+    importMsg.value = tr('import.restoreFailed', { error: err.message })
   }
 }
 </script>
@@ -56,26 +56,26 @@ async function onRestoreFile(e) {
 <template>
   <div class="space-y-4 text-sm">
     <div>
-      <label class="mb-1 block text-muted">{{ $t('settings.language') }}</label>
+      <label class="mb-1 block text-muted">{{ $t('common.language') }}</label>
       <select :value="locale" class="w-full rounded bg-surface2 px-2 py-1" @change="setLocale($event.target.value)">
         <option v-for="(label, id) in locales" :key="id" :value="id">{{ label }}</option>
       </select>
     </div>
 
-    <p class="text-muted">Conversations inherit these defaults unless they override them. Saved in this browser.</p>
+    <p class="text-muted">{{ $t('settings.intro') }}</p>
 
     <div>
-      <label class="mb-1 block text-muted">Model</label>
+      <label class="mb-1 block text-muted">{{ $t('common.model') }}</label>
       <ModelSelect :model-value="g.model" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setGlobal('model', $event)" />
     </div>
 
     <div>
-      <label class="mb-1 block text-muted">Utility model (titles, memory, cards &amp; revisions)</label>
+      <label class="mb-1 block text-muted">{{ $t('settings.utilityModel') }}</label>
       <ModelSelect :model-value="g.utility_model" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setGlobal('utility_model', $event)" />
     </div>
 
     <div>
-      <label class="mb-1 block text-muted">Temperature: {{ g.temperature }}</label>
+      <label class="mb-1 block text-muted">{{ $t('settings.temperature', { value: g.temperature }) }}</label>
       <input
         v-model.number="g.temperature" type="range" min="0" max="1" step="0.1"
         class="w-full" @change="persistGlobal"
@@ -83,7 +83,7 @@ async function onRestoreFile(e) {
     </div>
 
     <div>
-      <label class="mb-1 block text-muted">Messages to send</label>
+      <label class="mb-1 block text-muted">{{ $t('settings.messagesToSend') }}</label>
       <input
         v-model.number="g.num_messages_to_send" type="number" min="1"
         class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal"
@@ -91,7 +91,7 @@ async function onRestoreFile(e) {
     </div>
 
     <div>
-      <label class="mb-1 block text-muted">Max tokens</label>
+      <label class="mb-1 block text-muted">{{ $t('settings.maxTokens') }}</label>
       <input
         v-model.number="g.max_tokens" type="number" min="1"
         class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal"
@@ -99,61 +99,61 @@ async function onRestoreFile(e) {
     </div>
 
     <div>
-      <label class="mb-1 block text-muted">Thinking effort</label>
+      <label class="mb-1 block text-muted">{{ $t('settings.thinkingEffort') }}</label>
       <select v-model="g.effort" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal">
-        <option v-for="l in EFFORT_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
+        <option v-for="level in EFFORT_LEVELS" :key="level" :value="level">{{ $t(`effort.${level || 'off'}`) }}</option>
       </select>
     </div>
 
     <label class="flex items-center gap-2">
       <input v-model="g.send_system_prompt" type="checkbox" @change="persistGlobal" />
-      Send saved system messages and workspace prompt
+      {{ $t('settings.sendSystem') }}
     </label>
 
     <label class="flex items-center gap-2">
       <input v-model="g.use_memory" type="checkbox" @change="persistGlobal" />
-      Compress chat history into memory
+      {{ $t('settings.compressHistory') }}
     </label>
 
     <div>
-      <label class="mb-1 block text-muted">Chat messages to summarize (above send window)</label>
+      <label class="mb-1 block text-muted">{{ $t('settings.messagesToSummarise') }}</label>
       <input v-model.number="g.summarize_n" type="number" min="1" step="1" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal" />
     </div>
 
     <label class="flex items-center gap-2">
       <input v-model="g.use_recall" type="checkbox" @change="persistGlobal" />
-      Recall relevant old chat messages
+      {{ $t('settings.recall') }}
     </label>
 
-    <label class="flex items-center gap-2" :class="!cacheSupported && 'opacity-50'" :title="cacheSupported ? '' : `${g.model} does not support prompt caching`">
+    <label class="flex items-center gap-2" :class="!cacheSupported && 'opacity-50'" :title="cacheSupported ? '' : $t('settings.cacheUnsupported', { model: g.model })">
       <input v-model="g.use_cache" type="checkbox" :disabled="!cacheSupported" @change="persistGlobal" />
-      Cache stable prompt context
+      {{ $t('settings.cache') }}
     </label>
 
     <hr class="border-edge" />
-    <p class="text-muted">Appearance &amp; input. Applies to this browser only.</p>
+    <p class="text-muted">{{ $t('settings.appearance') }}</p>
 
     <div>
-      <label class="mb-1 block text-muted">Font size: {{ Math.round(fontScale * 100) }}%</label>
+      <label class="mb-1 block text-muted">{{ $t('settings.fontSize', { size: Math.round(fontScale * 100) }) }}</label>
       <input v-model.number="fontScale" type="range" min="0.8" max="1.4" step="0.05" class="w-full" />
     </div>
 
     <label class="flex items-center gap-2">
       <input v-model="enterToSend" type="checkbox" />
-      Enter sends message (off: Shift+Enter sends, Enter makes a newline)
+      {{ $t('settings.enterSends') }}
     </label>
 
     <div>
-      <label class="mb-1 block text-muted">Backup (full app snapshot)</label>
+      <label class="mb-1 block text-muted">{{ $t('settings.backup') }}</label>
       <div class="flex gap-2">
-        <button class="flex-1 rounded bg-surface2 py-2 hover:opacity-80" @click="downloadExport()">Export</button>
+        <button class="flex-1 rounded bg-surface2 py-2 hover:opacity-80" @click="downloadExport()">{{ $t('common.export') }}</button>
         <!-- native file input, hidden inside the label so the button triggers the picker -->
         <label class="flex-1 cursor-pointer rounded bg-surface2 py-2 text-center hover:opacity-80">
-          Import
+          {{ $t('common.import') }}
           <input type="file" accept=".json,application/json" class="hidden" @change="onImportFile" />
         </label>
         <label class="flex-1 cursor-pointer rounded bg-surface2 py-2 text-center hover:opacity-80">
-          Restore
+          {{ $t('common.restore') }}
           <input type="file" accept=".json,application/json" class="hidden" @change="onRestoreFile" />
         </label>
       </div>

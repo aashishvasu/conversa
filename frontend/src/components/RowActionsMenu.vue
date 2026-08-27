@@ -11,7 +11,7 @@ defineProps({ actions: { type: Array, required: true } })
   <DropdownMenuRoot>
     <DropdownMenuTrigger
       class="rounded p-1 text-muted opacity-40 hover:bg-surface2 hover:text-base group-hover:opacity-100 pointer-coarse:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-surface2"
-      title="Actions"
+      :title="$t('common.actions')"
     >
       <EllipsisVertical :size="14" />
     </DropdownMenuTrigger>

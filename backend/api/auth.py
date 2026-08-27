@@ -34,11 +34,11 @@ def mint_token():
 
 def require_auth(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "missing token")
+        raise HTTPException(401, {"code": "missing_token", "message": "missing token"})
     try:
         jwt.decode(authorization[7:], JWT_SECRET, algorithms=["HS256"])
     except jwt.InvalidTokenError:  # covers expired and tampered tokens
-        raise HTTPException(401, "invalid or expired token")
+        raise HTTPException(401, {"code": "invalid_token", "message": "invalid or expired token"})
 
 
 class LoginBody(BaseModel):
@@ -50,9 +50,9 @@ def login(body: LoginBody):
     # Single shared secret, constant-time compare.
     # Add a per-IP attempt limiter here if brute force becomes a concern.
     if not APP_PASSWORD:
-        raise HTTPException(503, "server password not configured")
+        raise HTTPException(503, {"code": "password_unconfigured", "message": "server password not configured"})
     if not hmac.compare_digest(body.password, APP_PASSWORD):
-        raise HTTPException(401, "bad password")
+        raise HTTPException(401, {"code": "bad_password", "message": "bad password"})
     return {"token": mint_token()}
 
 

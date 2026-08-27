@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { createDoc, docsOf, removeDocRef } from '../state/store.js'
 import { confirmDelete } from '../utils/confirm.js'
+import { tr } from '../i18n.js'
 import CardsPanel from './CardsPanel.vue'
 import DocRow from './DocRow.vue'
 
@@ -19,7 +20,7 @@ async function addDocs(e) {
 }
 
 async function removeDoc(id) {
-  if (await confirmDelete('Remove this document from the workspace?', 'Remove')) {
+  if (await confirmDelete(tr('confirm.removeWorkspaceDoc'), tr('common.remove'))) {
     removeDocRef(props.workspace, id)
   }
 }
@@ -28,27 +29,27 @@ async function removeDoc(id) {
 <template>
   <div class="space-y-4 text-sm">
     <div>
-      <label class="mb-1 block text-muted">Name</label>
+      <label class="mb-1 block text-muted">{{ $t('common.name') }}</label>
       <input v-model="workspace.name" class="w-full rounded bg-surface2 px-2 py-1" />
     </div>
 
     <div>
-      <label class="mb-1 block text-muted">Shared chat system prompt</label>
-      <textarea v-model="workspace.systemPrompt" rows="4" placeholder="Used by workspace conversations in chat mode" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
+      <label class="mb-1 block text-muted">{{ $t('workspace.sharedPrompt') }}</label>
+      <textarea v-model="workspace.systemPrompt" rows="4" :placeholder="$t('workspace.promptPlaceholder')" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
     </div>
 
     <div>
-      <label class="mb-1 block text-muted">Documents (plain text / markdown, sent whole with every chat request)</label>
+      <label class="mb-1 block text-muted">{{ $t('workspace.documents') }}</label>
       <DocRow v-for="d in docs" :key="d.id" :doc="d" :owner="workspace" @remove="removeDoc(d.id)" />
       <label class="mt-1 block w-full cursor-pointer rounded bg-surface2 py-2 text-center hover:opacity-80">
-        + Add documents
+        {{ $t('workspace.addDocuments') }}
         <input type="file" multiple accept=".txt,.md,text/*" class="hidden" @change="addDocs" />
       </label>
     </div>
 
     <hr class="border-edge" />
 
-    <p class="text-xs uppercase text-muted">Shared chat cards</p>
+    <p class="text-xs uppercase text-muted">{{ $t('workspace.sharedCards') }}</p>
     <CardsPanel :convo="workspace" />
   </div>
 </template>

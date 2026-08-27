@@ -19,7 +19,7 @@ For what the app does and how to run the released container, see the [README](RE
 
 ## Architecture
 
-IndexedDB stores messages, settings, cards, templates, and memory.
+IndexedDB stores conversations, settings, cards, templates, documents, images, research records, and usage.
 FastAPI authenticates requests, reads provider keys from its environment, relays model streams, and holds active research runs in process memory. A process restart ends those runs.
 
 ```
@@ -207,6 +207,14 @@ The summary is stateless (the window is re-read in full each refresh), so messag
 
 Turns older than `summarize_n` + the send window drop out of context entirely; recall (above) retrieves them on demand.
 
+### Localisation (`frontend/src/i18n.js`, `frontend/src/locales/`)
+
+vue-i18n uses precompiled JSON catalogs through `@intlify/unplugin-vue-i18n`'s petite module. EFIGS ships as `en-GB`, `fr`, `it`, `de`, and `es`; British English is the fallback. The selected locale is a browser preference in `utils/prefs.js`, appears first in Global settings, and joins full snapshot prefs. `i18n.js` also binds the active locale and text direction to Reka's root `ConfigProvider` and the document element. `utils/format.js` passes it to native `Intl` for timestamps.
+
+UI strings live in the catalogs. Conversation content, model output, documents, research notes and reports, model-facing prompts, operator configuration errors, and backend logs remain untranslated. Backend HTTP errors carry `{code, message}` details; `api/client.js` translates known codes and displays `message` for unknown codes.
+
+`pnpm lint:i18n` runs Intlify's `no-raw-text` rule over Vue templates. `tools/check.py` runs it before the module self-checks.
+
 ### Frontend module map (`frontend/src/`)
 
 | File | Responsibility |
@@ -222,9 +230,10 @@ Turns older than `summarize_n` + the send window drop out of context entirely; r
 | `state/usage.js` | Client-side usage ledger: day/model/kind buckets, `convo.usage`, IndexedDB-persisted; joins the full snapshot export/restore. |
 | `composables/useStreamGuard.js` | Holds a screen wake lock while streaming and aborts a stream after `STALL_MS` (60s) of silence when the tab returns to the foreground. The abort uses the normal stop path. |
 | `utils/md.js` | Markdown in, sanitized and highlighted HTML out. |
-| `utils/format.js` | Timestamp formatting (native `Intl`). |
+| `i18n.js` / `locales/` | vue-i18n setup, locale catalog, Reka/document locale binding, and EFIGS messages. |
+| `utils/format.js` | Timestamp formatting with native `Intl` and the selected UI locale. |
 | `utils/theme.js` | Light/dark toggle. |
-| `utils/prefs.js` | Frontend-only UI prefs (font scale, Enter-to-send), persisted to localStorage. |
+| `utils/prefs.js` | Frontend-only UI prefs (locale, font scale, Enter-to-send), persisted to localStorage and included in full snapshots. |
 | `utils/confirm.js` | Promise-based confirm: `await confirmDelete(msg)`, backed by one `ConfirmModal` at app root. |
 | `utils/notify.js` | Reactive app-wide notification queue with keyed dedupe and dismissal; `selfchecks/notify.selfcheck.js` checks its contract. |
 | `views/ChatPane.vue` | The chat window: message list, image-capable composer, toolbar (model + thinking-effort pickers + the Research mode toggle), and the stream loop. A research-mode send appends the request, its linked run, and the placeholder ResearchBlock renders; a running run blocks further sends in that conversation only. Renders the last `PAGE_SIZE` (100) messages with "Load more" (display-only, and separate from what's sent), and marks the send-window start with a divider. |
@@ -281,6 +290,8 @@ Each source root keeps them in a `selfchecks/` folder, one runnable file per che
 
 ```sh
 cd frontend
+pnpm lint:i18n
+node src/selfchecks/i18n.selfcheck.js
 node src/selfchecks/cards.selfcheck.js
 node src/selfchecks/payload.selfcheck.js
 node src/selfchecks/confirm.selfcheck.js
