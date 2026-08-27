@@ -104,7 +104,7 @@ async function addPage() {
 
     <hr class="border-edge" />
 
-    <p class="text-muted">Attached documents are sent whole with every request, alongside any workspace documents.</p>
+    <p class="text-muted">Attached documents are sent whole with every chat request, alongside any workspace documents.</p>
     <DocRow v-for="d in attached" :key="d.id" :doc="d" :owner="convo" @remove="detach(d.id)" />
     <p v-if="!attached.length" class="text-xs italic text-muted">No documents attached.</p>
 

@@ -1,4 +1,5 @@
 import vue from '@vitejs/plugin-vue'
+import VueI18nPlugin from '@intlify/unplugin-vue-i18n/vite'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -7,6 +8,7 @@ import pkg from './package.json' with { type: 'json' }
 export default defineConfig({
   plugins: [
     vue(),
+    VueI18nPlugin({ include: './src/locales/**', module: 'petite-vue-i18n' }),
     tailwindcss(),
     // WHY: vite-plugin-pwa emits the manifest and app-shell service worker; Vite has neither.
     VitePWA({

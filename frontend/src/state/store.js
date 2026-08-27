@@ -2,7 +2,7 @@ import { delMany, get, getMany, keys, set, setMany } from 'idb-keyval'
 import { computed, reactive, ref, watch } from 'vue'
 import { foldRunUsage, replaceUsage, usageDays } from './usage.js'
 import { dismiss, notify } from '../utils/notify.js'
-import { enterToSend, fontScale } from '../utils/prefs.js'
+import { enterToSend, fontScale, locale } from '../utils/prefs.js'
 import { isDark } from '../utils/theme.js'
 
 // All conversation state lives client-side in IndexedDB (via idb-keyval).
@@ -403,7 +403,7 @@ export function setGlobalSettings(serverDefaults) {
   if (!currentId.value) createConversation()
 }
 
-// Persist the current global settings as the user's defaults for new conversations.
+// Persist the global settings inherited by conversations without an override.
 export function persistGlobal() {
   savedGlobal = { ...globalSettings.value }
   set(GLOBAL_KEY, savedGlobal)
@@ -416,7 +416,7 @@ function wire(value) {
 }
 
 function snapshotPrefs() {
-  return { theme: isDark.value ? 'dark' : 'light', fontScale: fontScale.value, enterToSend: enterToSend.value }
+  return { theme: isDark.value ? 'dark' : 'light', fontScale: fontScale.value, enterToSend: enterToSend.value, locale: locale.value }
 }
 
 // Everything IndexedDB holds that is the user's, not the deployment's: conversations, workspaces, docs, runs, edited settings, and the usage ledger.

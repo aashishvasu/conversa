@@ -5,9 +5,12 @@ import { ref, watch } from 'vue'
 
 const FONT_KEY = 'conversa_font_scale'
 const ENTER_KEY = 'conversa_enter_to_send'
+const LOCALE_KEY = 'conversa_locale'
+const LOCALES = new Set(['de', 'en-GB', 'es', 'fr', 'it'])
 
 export const fontScale = ref(1) // root font-size multiplier; Tailwind is rem-based, so this zooms the whole UI
 export const enterToSend = ref(true) // false: Enter makes a newline and Shift+Enter sends
+export const locale = ref('en-GB')
 
 function applyFontScale() {
   document.documentElement.style.fontSize = `${fontScale.value * 100}%`
@@ -18,16 +21,20 @@ function applyFontScale() {
 export function restorePrefs(prefs) {
   if (typeof prefs.fontScale === 'number' && prefs.fontScale >= 0.8 && prefs.fontScale <= 1.4) fontScale.value = prefs.fontScale
   if (typeof prefs.enterToSend === 'boolean') enterToSend.value = prefs.enterToSend
+  if (LOCALES.has(prefs.locale)) locale.value = prefs.locale
 }
 
 export function initPrefs() {
   const f = parseFloat(localStorage.getItem(FONT_KEY))
   if (f) fontScale.value = f
   if (localStorage.getItem(ENTER_KEY) !== null) enterToSend.value = localStorage.getItem(ENTER_KEY) === 'true'
+  const savedLocale = localStorage.getItem(LOCALE_KEY)
+  locale.value = LOCALES.has(savedLocale) ? savedLocale : LOCALES.has(navigator.language) ? navigator.language : 'en-GB'
   applyFontScale()
   watch(fontScale, (v) => {
     localStorage.setItem(FONT_KEY, String(v))
     applyFontScale()
   })
   watch(enterToSend, (v) => localStorage.setItem(ENTER_KEY, String(v)))
+  watch(locale, (v) => localStorage.setItem(LOCALE_KEY, v))
 }

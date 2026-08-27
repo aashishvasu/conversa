@@ -2,13 +2,13 @@
 import { computed, ref } from 'vue'
 import { EFFORT_LEVELS } from '../state/settings.js'
 import { downloadExport, globalSettings, importData, modelSupportsCache, persistGlobal, restoreData, snapshotInfo } from '../state/store.js'
-import { enterToSend, fontScale, restorePrefs } from '../utils/prefs.js'
+import { enterToSend, fontScale, locale, restorePrefs } from '../utils/prefs.js'
+import { locales, setLocale } from '../i18n.js'
 import { restoreTheme } from '../utils/theme.js'
 import { confirmDelete } from '../utils/confirm.js'
 import ModelSelect from './ModelSelect.vue'
 
-// Edits the global defaults (absolute values, no inherit).
-// New conversations copy these.
+// Edits the global defaults inherited by conversations without an override.
 const g = globalSettings // ref auto-unwraps in template
 const cacheSupported = computed(() => modelSupportsCache(g.value.model))
 
@@ -55,7 +55,14 @@ async function onRestoreFile(e) {
 
 <template>
   <div class="space-y-4 text-sm">
-    <p class="text-muted">Defaults applied to new conversations. Saved in this browser.</p>
+    <div>
+      <label class="mb-1 block text-muted">{{ $t('settings.language') }}</label>
+      <select :value="locale" class="w-full rounded bg-surface2 px-2 py-1" @change="setLocale($event.target.value)">
+        <option v-for="(label, id) in locales" :key="id" :value="id">{{ label }}</option>
+      </select>
+    </div>
+
+    <p class="text-muted">Conversations inherit these defaults unless they override them. Saved in this browser.</p>
 
     <div>
       <label class="mb-1 block text-muted">Model</label>
@@ -63,7 +70,7 @@ async function onRestoreFile(e) {
     </div>
 
     <div>
-      <label class="mb-1 block text-muted">Utility model (titles &amp; compression)</label>
+      <label class="mb-1 block text-muted">Utility model (titles, memory, cards &amp; revisions)</label>
       <ModelSelect :model-value="g.utility_model" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setGlobal('utility_model', $event)" />
     </div>
 
@@ -100,27 +107,27 @@ async function onRestoreFile(e) {
 
     <label class="flex items-center gap-2">
       <input v-model="g.send_system_prompt" type="checkbox" @change="persistGlobal" />
-      Send system prompt
+      Send saved system messages and workspace prompt
     </label>
 
     <label class="flex items-center gap-2">
       <input v-model="g.use_memory" type="checkbox" @change="persistGlobal" />
-      Compress history into memory
+      Compress chat history into memory
     </label>
 
     <div>
-      <label class="mb-1 block text-muted">Messages to summarize (above send window)</label>
+      <label class="mb-1 block text-muted">Chat messages to summarize (above send window)</label>
       <input v-model.number="g.summarize_n" type="number" min="1" step="1" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal" />
     </div>
 
     <label class="flex items-center gap-2">
       <input v-model="g.use_recall" type="checkbox" @change="persistGlobal" />
-      Recall relevant old messages
+      Recall relevant old chat messages
     </label>
 
     <label class="flex items-center gap-2" :class="!cacheSupported && 'opacity-50'" :title="cacheSupported ? '' : `${g.model} does not support prompt caching`">
       <input v-model="g.use_cache" type="checkbox" :disabled="!cacheSupported" @change="persistGlobal" />
-      Cache the workspace prompt &amp; docs
+      Cache stable prompt context
     </label>
 
     <hr class="border-edge" />

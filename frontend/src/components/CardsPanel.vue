@@ -151,11 +151,7 @@ async function removeCard(id) {
 
 <template>
   <div class="space-y-2 text-sm">
-    <p class="text-muted">
-      Trigger phrases: comma = OR, &amp; = AND ("dragon &amp; red, wyrm" fires on wyrm, or on
-      dragon and red together). When a clause matches the last messages sent, the card's
-      text is added to the system prompt. Click a card to expand.
-    </p>
+    <p class="text-muted">Trigger phrases: comma = OR, &amp; = AND ("dragon &amp; red, wyrm" fires on wyrm, or on dragon and red together). When a clause matches the recent chat window, its text joins the next chat request. Click a card to expand.</p>
 
     <!-- Shared cards, read-only here: editing one affects every conversation in the workspace, so edits go through the workspace editor in the sidebar. -->
     <template v-if="ws">
@@ -163,10 +159,10 @@ async function removeCard(id) {
       <p v-if="!ws.cards.length" class="px-1 text-xs italic text-muted">No workspace cards.</p>
       <details v-for="c in ws.cards" :key="c.id" class="rounded border" :class="overrideOf(c.id) === 'skip' ? 'border-yellow-500' : active.has(c.id) ? 'border-green-500' : 'border-edge'">
         <summary class="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 [&::-webkit-details-marker]:hidden">
-          <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(c.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(c.id) ? 'Active for next send' : 'Inactive'"></span>
+          <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(c.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(c.id) ? 'Active for next chat' : 'Inactive'"></span>
           <span class="flex-1 truncate text-muted">{{ c.triggers || 'No triggers' }}</span>
-          <button class="shrink-0" :class="overrideOf(c.id) === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" title="Include in this conversation: always send" @click.stop.prevent="toggleOverride($event, c.id, 'include')"><CircleCheck :size="14" /></button>
-          <button class="shrink-0" :class="overrideOf(c.id) === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" title="Exclude from this conversation: never send" @click.stop.prevent="toggleOverride($event, c.id, 'skip')"><Ban :size="14" /></button>
+          <button class="shrink-0" :class="overrideOf(c.id) === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" title="Always include in this conversation's chats" @click.stop.prevent="toggleOverride($event, c.id, 'include')"><CircleCheck :size="14" /></button>
+          <button class="shrink-0" :class="overrideOf(c.id) === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" title="Exclude from this conversation's chats" @click.stop.prevent="toggleOverride($event, c.id, 'skip')"><Ban :size="14" /></button>
         </summary>
         <div class="whitespace-pre-wrap border-t border-edge p-2 text-muted">{{ c.content }}</div>
       </details>
@@ -185,10 +181,10 @@ async function removeCard(id) {
       >
         <summary class="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 [&::-webkit-details-marker]:hidden">
           <span class="shrink-0 cursor-grab touch-none text-muted active:cursor-grabbing" title="Drag to reorder or move folder" @click.stop.prevent @pointerdown="onPointerDown($event, row.card.id)" @pointermove="onPointerMove" @pointerup="onPointerUp"><GripVertical :size="14" /></span>
-          <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(row.card.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(row.card.id) ? 'Active for next send' : 'Inactive'"></span>
+          <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(row.card.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(row.card.id) ? 'Active for next chat' : 'Inactive'"></span>
           <span class="flex-1 truncate text-muted">{{ row.card.triggers || 'No triggers' }}</span>
-          <button class="shrink-0" :class="row.card.force === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" title="Force include: always send this card" @click.stop.prevent="toggleForce($event, row.card, 'include')"><CircleCheck :size="14" /></button>
-          <button class="shrink-0" :class="row.card.force === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" title="Force skip: never send this card" @click.stop.prevent="toggleForce($event, row.card, 'skip')"><Ban :size="14" /></button>
+          <button class="shrink-0" :class="row.card.force === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" title="Always include this card in chats" @click.stop.prevent="toggleForce($event, row.card, 'include')"><CircleCheck :size="14" /></button>
+          <button class="shrink-0" :class="row.card.force === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" title="Exclude this card from chats" @click.stop.prevent="toggleForce($event, row.card, 'skip')"><Ban :size="14" /></button>
           <button class="shrink-0 border-l border-edge pl-2 text-muted hover:text-red-500" title="Delete card" @click.stop.prevent="removeCard(row.card.id)"><X :size="14" /></button>
         </summary>
         <div class="space-y-2 border-t border-edge p-2">

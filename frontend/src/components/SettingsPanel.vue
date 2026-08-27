@@ -35,7 +35,7 @@ async function clearMemory() {
   <div class="space-y-4 text-sm">
     <!-- Joining or leaving sets only this pointer; the conversation's own cards, messages, and settings stay as they are. -->
     <div v-if="workspaces.length">
-      <label class="mb-1 block text-muted">Workspace (shared prompt, cards &amp; docs)</label>
+      <label class="mb-1 block text-muted">Workspace (shared chat prompt, cards &amp; docs)</label>
       <select :value="convo.workspaceId || ''" class="w-full rounded bg-surface2 px-2 py-1" @change="convo.workspaceId = $event.target.value || null">
         <option value="">None</option>
         <option v-for="w in workspaces" :key="w.id" :value="w.id">{{ w.name }}</option>
@@ -48,7 +48,7 @@ async function clearMemory() {
     </div>
 
     <div>
-      <label class="mb-1 block text-muted">Utility model (titles &amp; compression)</label>
+      <label class="mb-1 block text-muted">Utility model (titles, memory, cards &amp; revisions)</label>
       <ModelSelect :model-value="eff('utility_model')" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setOv('utility_model', $event)" />
     </div>
 
@@ -88,7 +88,7 @@ async function clearMemory() {
 
     <label class="flex items-center gap-2">
       <input type="checkbox" :checked="eff('send_system_prompt')" @change="setOv('send_system_prompt', $event.target.checked)" />
-      Send system prompt
+      Send saved system messages and workspace prompt
       <button v-if="overridden('send_system_prompt')" class="text-indigo-500" @click="reset('send_system_prompt')">↺</button>
     </label>
 
@@ -96,13 +96,13 @@ async function clearMemory() {
 
     <label class="flex items-center gap-2">
       <input type="checkbox" :checked="eff('use_memory')" @change="setOv('use_memory', $event.target.checked)" />
-      Compress history into memory
+      Compress chat history into memory
       <button v-if="overridden('use_memory')" class="text-indigo-500" @click="reset('use_memory')">↺</button>
     </label>
 
     <div>
       <label class="mb-1 block text-muted">
-        Messages to summarize (above send window): {{ eff('summarize_n') }}
+        Chat messages to summarize (above send window): {{ eff('summarize_n') }}
         <button v-if="overridden('summarize_n')" class="ml-1 text-indigo-500" @click="reset('summarize_n')">↺</button>
       </label>
       <input type="number" min="1" step="1" :value="eff('summarize_n')" class="w-full rounded bg-surface2 px-2 py-1" @input="setOv('summarize_n', Number($event.target.value))" />
@@ -110,23 +110,20 @@ async function clearMemory() {
 
     <label class="flex items-center gap-2">
       <input type="checkbox" :checked="eff('use_recall')" @change="setOv('use_recall', $event.target.checked)" />
-      Recall relevant old messages
+      Recall relevant old chat messages
       <button v-if="overridden('use_recall')" class="text-indigo-500" @click="reset('use_recall')">↺</button>
     </label>
 
     <label class="flex items-center gap-2" :class="!cacheSupported && 'opacity-50'" :title="cacheSupported ? '' : `${eff('model')} does not support prompt caching`">
       <input type="checkbox" :checked="eff('use_cache')" :disabled="!cacheSupported" @change="setOv('use_cache', $event.target.checked)" />
-      Cache the workspace prompt &amp; docs
+      Cache stable prompt context
       <button v-if="overridden('use_cache')" class="text-indigo-500" @click="reset('use_cache')">↺</button>
     </label>
-    <p class="-mt-2 text-xs text-muted">
-      Pays off in a long conversation with big shared context. A short one pays the 25%
-      write premium for nothing.
-    </p>
+    <p class="-mt-2 text-xs text-muted">Reuses the workspace prompt, system messages, and attached documents across chat turns. Pricing varies by provider.</p>
 
     <div v-if="eff('use_memory')">
       <label class="mb-1 flex items-center justify-between text-muted">
-        <span>Memory (auto-refreshes after each reply)</span>
+        <span>Memory (auto-refreshes after each chat reply)</span>
         <button class="text-indigo-500" @click="clearMemory">Clear</button>
       </label>
       <textarea v-model="convo.memory" rows="4" placeholder="(empty; builds automatically as the conversation grows)" class="w-full rounded bg-surface2 px-2 py-1 text-xs"></textarea>

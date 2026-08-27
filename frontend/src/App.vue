@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
-import { TabsContent, TabsRoot } from 'reka-ui'
+import { ConfigProvider, TabsContent, TabsRoot } from 'reka-ui'
+import { locale } from './utils/prefs.js'
 import { authed, fetchModels, fetchSettings, getToken, logout } from './api/client.js'
 import { activePane, cacheModels, initStore, setGlobalSettings } from './state/store.js'
 import { initUsage } from './state/usage.js'
@@ -62,8 +63,9 @@ async function onAuthed({ config_errors: errors, ...settings }) {
 </script>
 
 <template>
+  <ConfigProvider :locale="locale" :dir="['ar', 'he', 'fa', 'ur'].includes(locale.split('-')[0]) ? 'rtl' : 'ltr'">
   <div v-if="bootState === 'bootError'" class="flex h-dvh flex-col items-center justify-center gap-3 bg-app p-6 text-base">
-    <p class="text-sm">Stored conversations could not be read from this browser.</p>
+    <p class="text-sm">Stored data could not be read from this browser.</p>
     <pre class="max-h-[50vh] w-full max-w-2xl overflow-auto rounded-lg border border-edge bg-surface p-3 text-xs">{{ bootErrorMessage }}</pre>
     <button class="rounded bg-surface2 px-3 py-1.5 text-sm hover:opacity-80" @click="reload">Retry</button>
   </div>
@@ -91,4 +93,5 @@ async function onAuthed({ config_errors: errors, ...settings }) {
     </TabsRoot>
   </div>
   <ConfirmModal />
+  </ConfigProvider>
 </template>

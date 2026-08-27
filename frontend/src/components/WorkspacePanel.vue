@@ -9,7 +9,7 @@ const props = defineProps({ workspace: Object })
 
 const docs = computed(() => docsOf(props.workspace))
 
-// Plain-text docs only (.txt/.md), sent whole with every request in the workspace.
+// Plain-text docs only (.txt/.md), sent whole with every chat request in the workspace.
 // PDF needs pdf.js; add if it's ever wanted.
 async function addDocs(e) {
   for (const f of e.target.files) {
@@ -33,12 +33,12 @@ async function removeDoc(id) {
     </div>
 
     <div>
-      <label class="mb-1 block text-muted">Shared system prompt (leads every conversation's system prompt)</label>
-      <textarea v-model="workspace.systemPrompt" rows="4" placeholder="(empty: conversations use only their own system prompt)" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
+      <label class="mb-1 block text-muted">Shared chat system prompt</label>
+      <textarea v-model="workspace.systemPrompt" rows="4" placeholder="Used by workspace conversations in chat mode" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
     </div>
 
     <div>
-      <label class="mb-1 block text-muted">Documents (plain text / markdown, sent whole with every request)</label>
+      <label class="mb-1 block text-muted">Documents (plain text / markdown, sent whole with every chat request)</label>
       <DocRow v-for="d in docs" :key="d.id" :doc="d" :owner="workspace" @remove="removeDoc(d.id)" />
       <label class="mt-1 block w-full cursor-pointer rounded bg-surface2 py-2 text-center hover:opacity-80">
         + Add documents
@@ -48,7 +48,7 @@ async function removeDoc(id) {
 
     <hr class="border-edge" />
 
-    <p class="text-xs uppercase text-muted">Shared cards</p>
+    <p class="text-xs uppercase text-muted">Shared chat cards</p>
     <CardsPanel :convo="workspace" />
   </div>
 </template>
