@@ -1,14 +1,17 @@
 <script setup>
-import { Bot, Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Plus, RotateCcw, Send, SlidersHorizontal, Square } from '@lucide/vue'
+import { Bot, Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Paperclip, Plus, RotateCcw, Send, SlidersHorizontal, Square, Telescope, X } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { streamChat } from '../api.js'
+import { EditableArea, EditableInput, EditablePreview, EditableRoot, Toggle, ToolbarRoot } from 'reka-ui'
+import { streamChat } from '../api/client.js'
 import { useStreamGuard } from '../composables/useStreamGuard.js'
-import { refreshMemory } from '../memory.js'
+import { refreshMemory } from '../jobs/memory.js'
 import { notify } from '../utils/notify.js'
-import { buildPayload, sendWindow } from '../payload.js'
-import { effectiveSettings, EFFORT_LEVELS } from '../settings.js'
-import { currentConversation, persistNow, sidebarOpen, workspaceOf } from '../store.js'
-import { generateTitle } from '../titles.js'
+import { tr } from '../i18n.js'
+import { buildPayload, sendWindow } from '../prompt/payload.js'
+import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
+import { addConvoUsage, recordUsage } from '../state/usage.js'
+import { activeRunOf, attachedDocs, createDoc, createImage, createRun, currentConversation, images, imagesOf, persistNow, releaseImages, sidebarOpen, workspaceOf } from '../state/store.js'
+import { generateTitle } from '../jobs/titles.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { CHECK_SVG, COPY_SVG } from '../utils/md.js'
 import { enterToSend, fontScale } from '../utils/prefs.js'
@@ -16,12 +19,20 @@ import CardsPanel from '../components/CardsPanel.vue'
 import DebugPanel from '../components/DebugPanel.vue'
 import MessageBubble from '../components/MessageBubble.vue'
 import ModelSelect from '../components/ModelSelect.vue'
+import ResearchBlock from '../components/ResearchBlock.vue'
 import Modal from '../components/Modal.vue'
+import SpendBadge from '../components/SpendBadge.vue'
+import UiButton from '../components/ui/UiButton.vue'
+import UiIconButton from '../components/ui/UiIconButton.vue'
+import UiSelect from '../components/ui/UiSelect.vue'
+import UiToolbarButton from '../components/ui/UiToolbarButton.vue'
 import ContextPanel from '../components/ContextPanel.vue'
 import SettingsPanel from '../components/SettingsPanel.vue'
 
 const convo = currentConversation
 const input = ref('')
+const pendingImages = ref([])
+const imageInput = ref(null)
 const streaming = ref(false)
 const titling = ref(false)
 const panel = ref(null)
@@ -56,11 +67,21 @@ const windowStartId = computed(() =>
   convo.value ? sendWindow(convo.value, effectiveSettings(convo.value))[0]?.id : null,
 )
 
+// This conversation's running spend.
+const convoSpend = computed(() => convo.value?.usage || { calls: 0, input: 0, output: 0, usd: 0, unpriced: 0 })
+
 function setModel(id) {
   convo.value.settings.model = id
 }
 function setThinking(v) {
   convo.value.settings.effort = v
+}
+function toggleResearch() {
+  if (pendingImages.value.length) {
+    notify({ key: 'image:attach', severity: 'warning', text: tr('chat.sendImagesFirst') })
+    return
+  }
+  convo.value.mode = researchMode.value ? 'chat' : 'research'
 }
 
 function addMessage() {
@@ -79,13 +100,22 @@ function cancelEdit(m) {
   editingId.value = null
 }
 function removeMessage(id) {
+  const message = convo.value.messages.find((m) => m.id === id)
   convo.value.messages = convo.value.messages.filter((m) => m.id !== id)
+  releaseImages(message?.imageIds)
   if (editingId.value === id) editingId.value = null
 }
 // Trash button: confirm first.
 // (cancelEdit calls removeMessage directly, since discarding a blank new message needs no confirmation.)
 async function confirmRemoveMessage(id) {
-  if (await confirmDelete('Delete this message?')) removeMessage(id)
+  if (await confirmDelete(tr('confirm.deleteMessage'))) removeMessage(id)
+}
+
+// Promote a reply into the doc store, where any conversation or workspace can attach it (ContextPanel, WorkspacePanel).
+// Deliberately not attached here: the text is already in this transcript, and attaching would resend it with every request.
+function promoteToDoc(m) {
+  const name = m.content.match(/^#+\s+(.+)$/m)?.[1] || convo.value.title
+  createDoc({ name, text: m.content, source: { kind: 'chat', convoId: convo.value.id, messageId: m.id } })
 }
 
 // Delegated handler for every code-block Copy button (markdown is v-html).
@@ -126,7 +156,7 @@ async function runCompletion(c) {
   guard.start()
   let assistant = null
   try {
-    const payload = buildPayload(c, settings, workspaceOf(c)) // built BEFORE the empty assistant placeholder
+    const payload = buildPayload(c, settings, workspaceOf(c), attachedDocs(c), images.value) // built BEFORE the empty assistant placeholder
     c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() })
     assistant = c.messages.at(-1) // the reactive proxy, so streamed tokens render live
     liveTrace.value = []
@@ -141,12 +171,17 @@ async function runCompletion(c) {
       if (type === 'thinking' && last?.type === 'thinking') last.text += value
       else if (type === 'results') liveTrace.value.push({ type, links: value })
       else liveTrace.value.push({ type, text: value })
+    }, (usage) => {
+      addConvoUsage(c, usage)
+      recordUsage('chat', usage)
     })
-    if (c.title === 'New conversation') {
+    if (c.title === tr('sidebar.newConversation')) {
       try {
         const t = await generateTitle(c, settings.utility_model)
         if (t) c.title = t
-      } catch { /* best-effort */ }
+      } catch (e) {
+        notify({ key: 'utility:title', severity: 'warning', text: tr('chat.titleFailed', { error: e.message }) })
+      }
     }
   } catch (e) {
     if (e.name !== 'AbortError' && assistant) {
@@ -158,16 +193,15 @@ async function runCompletion(c) {
     streaming.value = false
     guard.end()
     // Refresh the memory summary in the background, off the send path.
-    refreshMemory(c, settings).catch(() => {})
+    // The key dedupes: this fires after every reply, so a persistently failing utility model refreshes one toast instead of stacking.
+    refreshMemory(c, settings).catch((e) => notify({ key: 'utility:memory', severity: 'warning', text: tr('chat.memoryFailed', { error: e.message }) }))
     persistNow() // don't let a quick reload lose the completed message
   }
 }
 
 // Enter behaviour is a frontend pref: by default Enter sends and Shift+Enter makes a newline; flip enterToSend and they swap.
 // Let the textarea insert the newline itself.
-const composerHint = computed(() => enterToSend.value
-  ? 'Enter to send, Shift+Enter for newline'
-  : 'Shift+Enter to send, Enter for newline')
+const composerHint = computed(() => tr(enterToSend.value ? 'chat.enterHint' : 'chat.shiftEnterHint'))
 function onComposerKeydown(e) {
   if (e.key !== 'Enter' || e.isComposing) return // don't fire mid-IME-composition
   const isSend = enterToSend.value ? !e.shiftKey : e.shiftKey
@@ -188,23 +222,47 @@ watch([input, fontScale], () => {
   el.style.height = `${el.scrollHeight}px`
 }, { flush: 'post' })
 
+// The first cut allows one generation per conversation: a running research turn blocks new sends here while other conversations stay free.
+const runActive = computed(() => !!activeRunOf(convo.value?.id))
+const researchMode = computed(() => convo.value?.mode === 'research')
+
 async function send() {
   const text = input.value.trim()
-  if (!text || streaming.value || !convo.value) return
+  if ((!text && !pendingImages.value.length) || streaming.value || runActive.value || !convo.value) return
   const c = convo.value
-  c.messages.push({ id: crypto.randomUUID(), role: 'user', content: text, createdAt: Date.now() })
+  if (researchMode.value && !text) return
+  const imageIds = pendingImages.value.map((image) => image.id)
+  pendingImages.value = []
   input.value = ''
   // Sending is an explicit jump to the present: follow the new turn even if the user had scrolled up, and re-arm the streaming autoscroll below.
   atBottom.value = true
+  if (researchMode.value) {
+    sendResearch(c, text)
+    scrollDown()
+    return
+  }
+  c.messages.push({ id: crypto.randomUUID(), role: 'user', content: text, imageIds, mode: 'chat', createdAt: Date.now() })
   scrollDown()
   runCompletion(c)
+}
+
+// A research send appends the request, its linked run, and the assistant placeholder ResearchBlock renders the lifecycle in.
+function sendResearch(c, text) {
+  const user = { id: crypto.randomUUID(), role: 'user', content: text, mode: 'research', createdAt: Date.now() }
+  const placeholder = { id: crypto.randomUUID(), role: 'assistant', content: '', mode: 'research', createdAt: Date.now() }
+  const r = createRun(c, user.id, placeholder.id, text)
+  user.runId = placeholder.runId = r.id
+  c.messages.push(user, placeholder)
+  if (c.title === tr('sidebar.newConversation')) c.title = text.slice(0, 60)
+  persistNow()
 }
 
 // Regenerate: re-stream from a message, discarding everything after it.
 // From an assistant turn, the turn itself is discarded too, back to the last user turn, which is kept.
 // System messages are never discarded (they're standing instructions).
 function regenerate(m) {
-  if (streaming.value || !convo.value) return
+  // A research turn regenerates through its block's Run again, never through the chat completion path.
+  if (streaming.value || m.runId || !convo.value) return
   const c = convo.value
   const idx = c.messages.findIndex((x) => x.id === m.id)
   if (idx < 0) return
@@ -213,8 +271,61 @@ function regenerate(m) {
     while (cut >= 0 && c.messages[cut].role !== 'user') cut--
     if (cut < 0) return // no user turn before it, so nothing to regenerate from
   }
+  const removed = c.messages.slice(cut + 1).flatMap((x) => x.imageIds || [])
   c.messages = c.messages.filter((x, i) => i <= cut || x.role === 'system')
+  releaseImages(removed)
   runCompletion(c)
+}
+
+async function attachImages(files) {
+  for (const file of files) {
+    try {
+      if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) throw new Error(tr('chat.unsupportedImage', { name: file.name || tr('chat.file') }))
+      const bitmap = await createImageBitmap(file)
+      const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height))
+      const width = Math.round(bitmap.width * scale)
+      const height = Math.round(bitmap.height * scale)
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const context = canvas.getContext('2d')
+      if (!context) {
+        bitmap.close()
+        throw new Error(tr('chat.processImageFailed'))
+      }
+      context.drawImage(bitmap, 0, 0, width, height)
+      bitmap.close()
+      const encode = (type) => new Promise((resolve) => canvas.toBlob(resolve, type, 0.85))
+      let blob = file.type === 'image/png' ? await encode('image/png') : null
+      if (!blob || blob.size > 1024 * 1024) blob = await encode('image/webp')
+      if (!blob || blob.type !== 'image/webp') blob = await encode('image/jpeg')
+      if (!blob) throw new Error(tr('chat.encodeImageFailed', { name: file.name || tr('chat.image') }))
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      let binary = ''
+      for (const byte of bytes) binary += String.fromCharCode(byte)
+      const data = btoa(binary)
+      if (data.length > 10 * 1024 * 1024) throw new Error(tr('chat.imageTooLarge', { name: file.name || tr('chat.image') }))
+      pendingImages.value.push(await createImage({ id: crypto.randomUUID(), media_type: blob.type, width, height, data, createdAt: Date.now() }))
+    } catch (e) {
+      notify({ key: 'image:attach', severity: 'warning', text: e.message })
+    }
+  }
+}
+
+function onImageInput(e) {
+  attachImages(e.target.files)
+  e.target.value = ''
+}
+function onPaste(e) {
+  if (e.clipboardData.files.length) attachImages(e.clipboardData.files)
+}
+function onDrop(e) {
+  e.preventDefault()
+  attachImages(e.dataTransfer.files)
+}
+function removePending(image) {
+  pendingImages.value = pendingImages.value.filter((x) => x.id !== image.id)
+  releaseImages([image.id])
 }
 
 function stop() {
@@ -230,7 +341,7 @@ async function regenTitle() {
       convo.value.title = t
       await persistNow()
     } else {
-      notify({ key: 'title', text: 'Empty title returned', foreground: true })
+      notify({ key: 'title', text: tr('chat.emptyTitle'), foreground: true })
     }
   } catch (e) {
     notify({ key: 'title', text: e.message, foreground: true })
@@ -244,125 +355,157 @@ async function regenTitle() {
   <section v-if="convo" class="flex flex-1 flex-col overflow-hidden bg-app text-base">
     <!-- Top bar -->
     <header class="flex items-center gap-2 border-b border-edge px-3 py-2.5">
-      <button class="rounded p-1.5 hover:bg-surface2 md:hidden" @click="sidebarOpen = true">
-        <Menu :size="18" />
-      </button>
-      <input
-        v-model="convo.title"
-        class="min-w-0 flex-1 truncate bg-transparent text-base font-semibold outline-none"
-      />
-      <button class="rounded p-1.5 text-muted hover:bg-surface2 hover:text-base disabled:opacity-50" title="Regenerate title" :disabled="titling" @click="regenTitle">
+      <UiIconButton class="md:hidden" :label="$t('sidebar.menu')" @click="sidebarOpen = true"><Menu :size="18" /></UiIconButton>
+      <EditableRoot v-model="convo.title" activation-mode="focus" submit-mode="both" select-on-focus class="min-w-0 flex-1">
+        <EditableArea class="rounded-sm focus-within:ring-2 focus-within:ring-focus">
+          <EditablePreview class="block truncate rounded-sm text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-focus" />
+          <EditableInput :aria-label="$t('chat.conversationTitle')" class="w-full bg-transparent text-base font-semibold outline-none" />
+        </EditableArea>
+      </EditableRoot>
+      <UiIconButton :label="$t('chat.regenerateTitle')" :disabled="titling" @click="regenTitle">
         <RotateCcw :size="15" :class="titling && 'animate-spin'" />
-      </button>
-      <span v-if="convo.isTemplate" class="rounded bg-amber-600/20 px-1.5 py-0.5 text-[10px] uppercase text-amber-600">template</span>
+      </UiIconButton>
+      <span v-if="convo.isTemplate" class="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] uppercase text-warning">{{ $t('chat.template') }}</span>
     </header>
 
     <!-- Messages -->
     <div class="relative flex-1 overflow-hidden">
       <div ref="scroller" class="h-full space-y-3 overflow-y-auto px-3 py-6 sm:px-4" @scroll="onScroll" @click="onContentClick">
         <div v-if="convo.messages.length > visibleCount" class="flex justify-center">
-          <button class="rounded px-3 py-1 text-xs text-muted hover:bg-surface2 hover:text-base" @click="visibleCount += PAGE_SIZE">
-            Load {{ PAGE_SIZE }} more ({{ convo.messages.length - visibleCount }} older)
-          </button>
+          <UiButton size="compact" variant="ghost" @click="visibleCount += PAGE_SIZE">
+            {{ $t('chat.loadMore', { count: PAGE_SIZE, older: convo.messages.length - visibleCount }) }}
+          </UiButton>
         </div>
         <!-- The component boundary scopes re-renders: streaming one message re-renders only its own bubble, so it doesn't re-parse markdown for every other visible message. -->
-        <MessageBubble
-          v-for="m in visibleMessages"
-          :key="m.id"
-          :message="m"
-          :editing="editingId === m.id"
-          :active="activeId === m.id"
-          :window-start="windowStartId === m.id"
-          :trace="m.id === streamId ? liveTrace : null"
-          :trace-open="liveOpen"
-          @activate="activeId = m.id"
-          @edit="startEdit(m)"
-          @cancel-edit="cancelEdit(m)"
-          @done-edit="editingId = null"
-          @delete="confirmRemoveMessage(m.id)"
-          @regenerate="regenerate(m)"
-          @toggle-trace="liveOpen = !liveOpen"
-        />
+        <template v-for="m in visibleMessages" :key="m.id">
+          <ResearchBlock v-if="m.role === 'assistant' && m.runId" :message="m" :convo="convo" />
+          <MessageBubble
+            v-else
+            :message="m"
+            :editing="editingId === m.id"
+            :active="activeId === m.id"
+            :window-start="windowStartId === m.id"
+            :trace="m.id === streamId ? liveTrace : null"
+            :trace-open="liveOpen"
+            :images="imagesOf(m)"
+            @activate="activeId = m.id"
+            @edit="startEdit(m)"
+            @cancel-edit="cancelEdit(m)"
+            @done-edit="editingId = null"
+            @delete="confirmRemoveMessage(m.id)"
+            @regenerate="regenerate(m)"
+            @toggle-trace="liveOpen = !liveOpen"
+            @promote="promoteToDoc(m)"
+          />
+        </template>
 
         <div class="flex justify-center">
-          <button class="flex items-center gap-1 rounded px-3 py-1 text-xs text-muted hover:bg-surface2 hover:text-base" @click="addMessage">
-            <Plus :size="14" /> Add message
-          </button>
+          <UiButton size="compact" variant="ghost" @click="addMessage">
+            <Plus :size="14" /> {{ $t('chat.addMessage') }}
+          </UiButton>
         </div>
       </div>
 
-      <button
+      <UiIconButton
         v-if="!atBottom"
-        class="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-edge bg-surface p-2 text-muted shadow-lg hover:text-base"
-        title="Scroll to bottom"
+        class="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-edge bg-surface shadow-lg"
+        :label="$t('chat.scrollBottom')"
         @click="scrollDown"
       >
         <ChevronDown :size="18" />
-      </button>
+      </UiIconButton>
     </div>
 
     <!-- Toolbar + composer -->
     <div class="border-t border-edge">
       <div class="flex items-center gap-2 px-3 py-1.5">
-        <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" title="Model">
-          <Bot :size="14" />
+        <div class="flex min-w-0 items-center gap-1 text-muted">
+          <Bot :size="14" class="shrink-0" />
           <ModelSelect
             :model-value="effectiveSettings(convo).model"
-            class="max-w-[9rem] bg-transparent py-1 pr-1 text-xs text-base outline-none"
+            :label="$t('common.model')"
+            class="max-w-[9rem]"
+            compact
             @update:model-value="setModel"
           />
         </div>
-        <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" title="Thinking effort">
-          <Brain :size="14" />
-          <select
-            :value="effectiveSettings(convo).effort || ''"
-            class="bg-transparent py-1 pr-1 text-xs text-base outline-none"
-            @change="setThinking($event.target.value)"
-          >
-            <option v-for="l in EFFORT_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
-          </select>
+        <div class="flex items-center gap-1 text-muted">
+          <Brain :size="14" class="shrink-0" />
+          <UiSelect
+            :model-value="effectiveSettings(convo).effort || ''"
+            :aria-label="$t('settings.thinkingEffort')"
+            :options="EFFORT_LEVELS.map(value => ({ value, label: $t(`effort.${value || 'off'}`) }))"
+            compact
+            class="!w-24"
+            @update:model-value="setThinking"
+          />
         </div>
-        <div class="ml-auto flex gap-1">
-          <button class="rounded p-1.5 hover:bg-surface2" title="Context editor" @click="panel = 'context'"><NotebookText :size="16" /></button>
-          <button class="rounded p-1.5 hover:bg-surface2" title="Cards" @click="panel = 'cards'"><Layers :size="16" /></button>
-          <button class="rounded p-1.5 hover:bg-surface2" title="Conversation settings" @click="panel = 'settings'"><SlidersHorizontal :size="16" /></button>
-          <!-- debug peek, deliberately lighter weight than the real panels -->
-          <button class="rounded p-1.5 opacity-50 hover:bg-surface2 hover:opacity-100" title="Debug: live system prompt" @click="panel = 'debug'"><Bug :size="16" /></button>
-        </div>
+        <Toggle
+          :model-value="researchMode"
+          class="flex h-8 items-center gap-1 rounded-md border border-edge bg-surface2 px-2 text-xs text-muted outline-none transition-colors hover:bg-edge hover:text-base data-[state=on]:border-accent data-[state=on]:bg-accent data-[state=on]:text-on-accent focus-visible:ring-2 focus-visible:ring-focus"
+          :aria-label="researchMode ? $t('chat.researchOn') : $t('chat.researchOff')"
+          @update:model-value="toggleResearch"
+        >
+          <Telescope :size="14" /> {{ $t('chat.research') }}
+        </Toggle>
+        <span v-if="convoSpend.calls" class="inline-flex h-8 items-center rounded bg-surface2 px-2 text-xs text-muted">
+          <SpendBadge :spend="convoSpend" />
+        </span>
+        <ToolbarRoot class="ml-auto flex gap-0.5" :aria-label="$t('chat.tools')">
+          <UiToolbarButton :label="$t('chat.contextEditor')" @click="panel = 'context'"><NotebookText :size="16" /></UiToolbarButton>
+          <UiToolbarButton :label="$t('common.cards')" @click="panel = 'cards'"><Layers :size="16" /></UiToolbarButton>
+          <UiToolbarButton :label="$t('chat.conversationSettings')" @click="panel = 'settings'"><SlidersHorizontal :size="16" /></UiToolbarButton>
+          <UiToolbarButton class="opacity-60" :label="$t('debug.button')" @click="panel = 'debug'"><Bug :size="16" /></UiToolbarButton>
+        </ToolbarRoot>
       </div>
-      <div class="flex items-stretch gap-2 px-3 pb-3">
-        <textarea
+      <div class="flex items-stretch gap-2 px-3 pb-3" @dragover.prevent @drop="!researchMode && onDrop($event)">
+        <div class="flex min-w-0 flex-1 flex-col gap-2">
+          <div v-if="pendingImages.length" class="flex gap-2 overflow-x-auto">
+            <div v-for="image in pendingImages" :key="image.id" class="relative shrink-0">
+              <img :src="`data:${image.media_type};base64,${image.data}`" class="h-16 w-16 rounded object-cover" />
+              <UiIconButton class="absolute -right-2 -top-2 !size-6 rounded-full border border-edge bg-surface" :label="$t('chat.removeImage')" @click="removePending(image)"><X :size="12" /></UiIconButton>
+            </div>
+          </div>
+          <div class="flex items-stretch gap-2">
+            <textarea
           ref="composerEl"
           v-model="input"
           rows="2"
-          :placeholder="`Message…  (${composerHint})`"
-          class="min-h-16 max-h-40 flex-1 resize-none rounded bg-surface2 px-3 py-2 outline-none"
+          :placeholder="runActive ? $t('chat.researchRunning') : `${researchMode ? $t('chat.researchPrompt') : $t('chat.messagePlaceholder')}  (${composerHint})`"
+          :disabled="runActive"
+          class="min-h-16 max-h-40 flex-1 resize-none rounded-md border border-edge bg-surface2 px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-60"
           @keydown="onComposerKeydown"
+          @paste="onPaste"
         ></textarea>
-        <button v-if="!streaming" class="flex items-center justify-center rounded bg-indigo-600 px-4 text-white hover:bg-indigo-500" title="Send" @click="send">
-          <Send :size="18" />
-        </button>
-        <button v-else class="flex items-center justify-center rounded bg-red-600 px-4 text-white hover:bg-red-500" title="Stop" @click="stop">
+            <input ref="imageInput" type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp" class="hidden" @change="onImageInput" />
+            <UiIconButton class="h-auto w-10" :label="$t('chat.attachImages')" :disabled="researchMode" @click="imageInput.click()"><Paperclip :size="18" /></UiIconButton>
+          </div>
+        </div>
+        <UiIconButton v-if="!streaming" class="h-auto w-12" variant="primary" :label="researchMode ? $t('chat.startResearch') : $t('common.send')" :disabled="runActive" @click="send">
+          <Telescope v-if="researchMode" :size="18" />
+          <Send v-else :size="18" />
+        </UiIconButton>
+        <UiIconButton v-else class="h-auto w-12" variant="dangerSolid" :label="$t('common.stop')" @click="stop">
           <Square :size="18" />
-        </button>
+        </UiIconButton>
       </div>
     </div>
 
-    <Modal v-if="panel === 'context'" title="Context editor" @close="panel = null">
+    <Modal v-if="panel === 'context'" :title="$t('chat.contextEditor')" @close="panel = null">
       <ContextPanel :convo="convo" />
     </Modal>
-    <Modal v-if="panel === 'settings'" title="Conversation settings" @close="panel = null">
+    <Modal v-if="panel === 'settings'" :title="$t('chat.conversationSettings')" @close="panel = null">
       <SettingsPanel :convo="convo" />
     </Modal>
-    <Modal v-if="panel === 'cards'" title="Cards" @close="panel = null">
+    <Modal v-if="panel === 'cards'" :title="$t('common.cards')" @close="panel = null">
       <CardsPanel :convo="convo" />
     </Modal>
-    <Modal v-if="panel === 'debug'" title="System prompt (live)" @close="panel = null">
+    <Modal v-if="panel === 'debug'" :title="$t('debug.title')" @close="panel = null">
       <DebugPanel :convo="convo" />
     </Modal>
   </section>
 
   <section v-else class="flex flex-1 items-center justify-center bg-app text-muted">
-    Create a conversation to begin.
+    {{ $t('chat.createFirst') }}
   </section>
 </template>

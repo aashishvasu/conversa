@@ -4,20 +4,26 @@
 
 # conversa
 
-A chat client for Claude and GPT where **your data lives in your browser**, not on someone's server.
+*The small, private, multi-provider, chat assistant for **you.***
 
-Conversations, settings, cards, workspaces, templates and research runs are all stored locally and stay there. A small server holds the provider API keys behind a password you set, relays chat, and does the two things a browser cannot: fetch pages that CORS puts out of reach, and run research jobs that keep going after you close the tab.
+All conversation data lives in the browser.
+
+All you need are provider API keys (currently Anthropic, OpenAI and DeepSeek are supported), and set a password. The server sets up the frontend, streams chats, relays model streams, fetches pages, and keeps research runs going after the browser closes. Everything else lands in your browser, gets stored locally.
+
+Want to create a shortcut on mobile devices? You can do that too.
 
 Who ends up holding what:
 
 | What | In your browser | On the server |
 |------|-----------------|---------------|
-| Every chat transcript | ✔️ | ❌ |
-| Cards, workspaces, templates | ✔️ | ❌ |
-| A finished research report | ✔️ | 🟡 (Until you keep it. Then deleted) |
+| Every chat transcript and image | ✔️ | ❌ |
+| Cards, workspaces, documents, templates | ✔️ | ❌ |
+| A finished research report | ✔️ | 🟡 (Until collected, eviction, or restart) |
 | Your provider API key | ❌ | ✔️ (This is the whole reason it exists) |
-| The pages a research run reads | ❌ | 🟡 (A minute or two, then forgotten) |
+| The pages a research run reads | ❌ | 🟡 (While processed, then forgotten) |
 | Your password | ❌ | ✔️ (As the env var you set it to) |
+
+
 
 ## Run it
 
@@ -34,9 +40,14 @@ podman run -p 8000:8000 \
 
 Open **http://localhost:8000** and unlock with your password.
 
-Either provider key on its own is enough.
-Set both to pick between Claude and GPT models per conversation.
-Models belonging to a provider you have no key for are left out of the model picker, and the app says so in a banner on first load.
+Any configured provider is enough.
+Set several to pick between their models per conversation.
+The model picker contains models from configured providers. A `MODELS` entry with incomplete provider configuration produces a banner on first load.
+
+Conversa supports Anthropic's Messages API, OpenAI's Responses API, and DeepSeek's Responses API.
+The `compatible` entry serves one chat.completions endpoint at a time. Set its key and base URL, then list models with the `compatible/` prefix. It sends text and image messages, and reads text plus `reasoning_content`. Research through this entry uses Exa, Brave, or SearXNG.
+
+Attach images from the picker, clipboard, or a drag-drop. Conversa keeps them in your browser, and sends them with the chat turn.
 
 ### Run it as a systemd service (Podman Quadlet)
 
@@ -44,7 +55,7 @@ To have systemd start and supervise the container, first store your secrets with
 
 ```sh
 printf 'sk-ant-...' | podman secret create conversa_api_key -
-printf 'sk-...' | podman secret create conversa_openai_key -   # optional
+printf 'sk-...' | podman secret create conversa_openai_key -
 printf 'your-password' | podman secret create conversa_password -
 ```
 
@@ -106,7 +117,7 @@ podman run -p 8000:8000 \
   conversa
 ```
 
-Your conversations, settings, cards, workspaces, and templates live in the browser, so an update leaves all of them intact.
+Your conversations, settings, cards, workspaces, documents, and templates live in the browser, so an update leaves all of them intact.
 
 ## Configuration
 
@@ -114,13 +125,16 @@ Set these as environment variables when you start the container.
 
 | Variable | Required | Default | What it does |
 |----------|----------|---------|--------------|
-| `ANTHROPIC_API_KEY` | one of the two | _(none)_ | Your Anthropic key. Stays on the server. |
-| `OPENAI_API_KEY` | one of the two | _(none)_ | Your OpenAI key. Stays on the server. |
+| `ANTHROPIC_API_KEY` | one key | _(none)_ | Your Anthropic key. Stays on the server. |
+| `OPENAI_API_KEY` | one key | _(none)_ | Your OpenAI key. Stays on the server. |
+| `DEEPSEEK_API_KEY` | one key | _(none)_ | Your DeepSeek key. DeepSeek models and hosted web search appear once it is set. |
+| `OPENAI_COMPATIBLE_API_KEY` | one key | _(none)_ | Key for one generic chat.completions endpoint. Requires `OPENAI_COMPATIBLE_BASE_URL`. |
+| `OPENAI_COMPATIBLE_BASE_URL` | with compatible key | _(none)_ | Base URL for that endpoint, for example `https://api.moonshot.ai/v1`. |
 | `APP_PASSWORD` | **yes** | _(none)_ | The password used to log in. |
-| `JWT_SECRET` | no | random | Signs login tokens. Leave unset and every restart logs everyone out; set it to keep sessions alive across restarts. |
+| `JWT_SECRET` | no | random | Signs login tokens. A fixed value keeps sessions valid across restarts; the random default gives each process a new signing key. |
 | `TOKEN_TTL_SECONDS` | no | `604800` | How long a login lasts (default 7 days). |
 | `DEFAULT_MODEL` | no | `claude-sonnet-5` | Model new conversations start with. |
-| `DEFAULT_TEMPERATURE` | no | `1.0` | Creativity, 0 to 1. Ignored by the Claude and GPT reasoning models, which reject it. |
+| `DEFAULT_TEMPERATURE` | no | `1.0` | Creativity, 0 to 1. Claude 4.6+ and Responses reasoning models receive no temperature; older Claude models receive it when thinking is off. |
 | `DEFAULT_NUM_MESSAGES` | no | `20` | How many recent messages are sent each turn. |
 | `DEFAULT_SEND_SYSTEM_PROMPT` | no | `true` | Whether system messages are sent. |
 | `DEFAULT_MAX_TOKENS` | no | `4096` | Cap on reply length. |
@@ -130,19 +144,19 @@ Set these as environment variables when you start the container.
 | `DEFAULT_SUMMARIZE_N` | no | `20` | How many turns just above the send window get summarized into memory. |
 | `DEFAULT_USE_RECALL` | no | `false` | Whether relevant dropped turns get resent verbatim. |
 | `DEFAULT_USE_CACHE` | no | `false` | Whether the stable part of the prompt is cached by the provider. Off by default because it only pays back in long conversations with a large shared context. |
-| `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; OpenAI ids need the `openai/` prefix. Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/providers.py`. |
-| `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches on its own when a message needs it. Empty disables it. |
-| `WEB_FETCH_TOOL_VERSION` | no | `web_fetch_20250910` | Anthropic web-fetch tool version; lets the model open a URL you paste in chat. Empty disables it. |
+| `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; every other provider's ids need its prefix (`openai/`, `deepseek/`, `compatible/`). Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/providers/anthropic.py`. |
+| `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic web-search tool version; the model searches when a message warrants it. Set empty to disable Anthropic hosted search. |
+| `WEB_FETCH_TOOL_VERSION` | no | `web_fetch_20250910` | Anthropic web-fetch tool version for opening URLs pasted in chat. Set empty to disable Anthropic page opening. |
 | `WEB_FETCH_BETA` | no | `web-fetch-2025-09-10` | Beta header the web-fetch tool requires. |
-| `EXA_API_KEY` | no | _(none)_ | [Exa](https://exa.ai) key. When set, research runs search via Exa instead of spending a model call on the hosted search tool; chat keeps the hosted tools. |
+| `EXA_API_KEY` | no | _(none)_ | [Exa](https://exa.ai) key. Research searches use Exa; chat keeps the hosted tools. |
 | `BRAVE_API_KEY` | no | _(none)_ | [Brave Search](https://brave.com/search/api/) key, same role. Used when Exa is not configured. |
 | `SEARXNG_URL` | no | _(none)_ | Base URL of a self-hosted SearXNG instance (`format=json` must be enabled in its settings.yml), same role. Last in precedence. |
 | `DEFAULT_RESEARCH_SEARCH_MODEL` | no | `DEFAULT_MODEL` | Model that runs the searches in a research run when no app search key above is set, and the fallback when one fails. |
 | `DEFAULT_RESEARCH_NOTE_MODEL` | no | `DEFAULT_UTILITY_MODEL` | Model that reads pages and takes notes. Around 78% of a run's input tokens, so a cheap model belongs here. |
 | `DEFAULT_RESEARCH_REPORT_MODEL` | no | `DEFAULT_MODEL` | Model that plans the subquestions and writes the report. |
 | `DEFAULT_RESEARCH_DEPTH` | no | `5` | Sources read per subquestion. |
-| `API_MAX_RETRIES` | no | `5` | Provider retries on 429, 5xx and connection errors. A run makes ~30 calls, so the SDK default of 2 is too few. |
-| `OPENAI_WEB_SEARCH_TOOL` | no | `web_search` | OpenAI's hosted search tool. One tool covers both searching and opening pages, so it does the job of the two Anthropic ones. Empty disables it. |
+| `API_MAX_RETRIES` | no | `5` | Provider retries on 429, 5xx and connection errors. A research run makes about 30 model calls. |
+| `OPENAI_WEB_SEARCH_TOOL` | no | `web_search` | OpenAI's hosted search and page-opening tool. Set empty to disable OpenAI hosted search. |
 
 Change any of them globally (in **Global settings**) or per conversation (in **Conversation settings**).
 
@@ -158,31 +172,30 @@ Two kinds of note live there:
 - **System messages**: standing instructions ("You are a terse Rust expert").
 - **Pinned messages**: any normal message you've pinned.
   Pinned messages skip the recent-messages limit and go every turn, so an important detail from 200 messages ago stays in context.
-  Pin a message with the 📌 button, or manage everything together in the context editor.
+  Pin a message with the button, or manage everything together in the context editor.
 
 Paste a URL into the context editor's fetch box and the page comes back as clean markdown, pinned to the board as a system message you can edit or delete.
 The server fetches it, because your browser is blocked from most pages by CORS.
 
-### Research: a run that reads the web and writes you a report
+### Research: a conversation turn that reads the web and writes you a report
 
-Press **Research** beside **New chat** in the sidebar.
-A run is its own thing, listed alongside your conversations rather than living inside one.
+Flip the **Research** toggle in the composer toolbar (or start a conversation from the sidebar's Research tab) and sends become research runs instead of chat turns.
 
-Give it a brief.
-Before starting, you can have it ask you a few scoping questions: how deep to go, which time period, who is reading.
-Your answers go to the planner with the brief, which is what decides how wide a net the run casts.
+Send a request and it first comes back with a few scoping questions: how deep to go, which time period, who is reading.
+Answer what matters and skip the rest; a request that leaves nothing open gets no questions.
+Nothing runs until you press **Start research**.
 
-The run then breaks the brief into subquestions, searches for each, reads what it finds, and writes a cited report.
-It keeps going if you close the tab, and reopening picks the stream back up where you left it.
-A counter shows tokens and estimated cost as it goes, and stop ends it immediately.
+The run then breaks the request into subquestions, searches for each, reads what it finds, and writes a cited report, all inside the conversation.
+Its progress (subquestions, sources read, token spend) lives in a collapsible block on the turn, with a stop button.
+It keeps going if you close the tab, and reopening the conversation picks the stream back up.
+Other conversations stay usable while it runs; the one that started it waits for its result.
 
-The result lands in a workspace: the report as a reference document, and each subquestion's underlying notes as a card you pull in by typing `q1`, `q2` and so on.
-Open the workspace to read the report, or download it as a markdown file.
-That way the report is always in context and the raw notes are one keystroke away without costing anything on the turns you do not ask for them.
+The finished report lands in the document store, attached to the conversation, so follow-up questions in the same conversation have it in context and any other conversation can attach it from the Context editor.
+The turn keeps the run's plan, sources, and spend as its audit trail.
 
-With a search key configured (`EXA_API_KEY`, `BRAVE_API_KEY`, or `SEARXNG_URL` in the table above), the searching itself is a plain API request that costs no tokens; without one, the search model runs it through its provider's hosted search tool.
+Research tries configured app finders in Exa, Brave, SearXNG order. The search model's hosted tool runs after those finders fail or when all three are absent.
 
-Three models are set separately, because the stages differ: one searches (only when no search key is set), one reads pages and takes notes (this is most of the spend, so a cheap model belongs here), and one plans and writes the report.
+Research has separate search, note, and report models, set per run in the turn's models-and-depth section. The note model reads every page and accounts for most model input, so a cheap model belongs there.
 
 ### Cards: notes that appear only when relevant
 
@@ -203,8 +216,8 @@ A folder is a display heading; triggering runs off the phrases alone.
 
 ### Memory: so long chats don't get forgotten or expensive
 
-Turn on **Compress history into memory** and conversa keeps a summary of the messages just above the recent-messages window (written by the cheap utility model) instead of re-sending them verbatim.
-The summary refreshes in the background after each reply, so sending never waits on it.
+Turn on **Compress history into memory** and conversa replaces messages above the recent-message window with a summary written by the utility model.
+The summary refreshes in the background after each reply while sending remains available.
 Recent messages stay word-for-word; anything older than both windows drops out (recall below brings it back when relevant).
 You can read, edit, or clear the summary in **Conversation settings**.
 
@@ -215,11 +228,17 @@ Ask "what was the dragon called again?" 200 messages later and the turn that nam
 
 Recall returns the original turns word for word, where memory summarizes.
 
+### Languages
+
+The interface is available in British English, French, Italian, German, and Spanish. Pick one at the top of **Global settings**; conversa remembers it in this browser and includes it in full backups.
+
+Conversation content, model replies, documents, and research reports stay in the language they were written in.
+
 ### Models
 
 The model picker in the composer toolbar (also in **Conversation settings** and **Global settings**) groups models under their provider.
-Every feature works the same on either: cards, memory, recall, workspaces, templates, thinking effort, web search, research runs, and the utility model that writes titles and memory summaries.
-You can point the utility model at one provider while chatting with the other.
+Cards, memory, recall, workspaces, templates, and the utility model work across providers. Provider-specific controls are disabled when the selected model cannot use them.
+You can point the utility model at one provider while chatting with another.
 
 ### Thinking effort
 
@@ -237,36 +256,48 @@ The trace is ephemeral: it lives in memory for the current turn, and a reload cl
 ### Workspaces: shared context for a group of conversations
 
 A **workspace** bundles a shared system prompt, shared cards, and plain-text documents (`.txt`/`.md`), and any number of conversations can point at it.
-Documents can be uploaded, and research runs write their reports here too.
 Every reply in a member conversation carries the workspace's prompt, its documents in full, and whichever of its cards trigger, on top of the conversation's own system messages and cards.
 Where the same topic has a card in both, the workspace card is sent first and the conversation card after it, so a conversation can refine the shared note.
 
-Workspaces head the sidebar's conversation list, below the new-chat and research buttons and any research runs: each workspace row heads its member conversations, the + next to the **Workspaces** label creates one, clicking a row opens its editor (name, prompt, documents, cards), and everything unassigned sits below under **Conversations**.
+The sidebar is a vertical tab rail: **Chat** lists templates and chat conversations outside any workspace, **Research** lists research conversations wherever they live, **Workspaces** lists each workspace with its member conversations beneath it, and **Usage** shows the spend table.
+The + in a list's header creates its kind, clicking a workspace row opens its editor (name, prompt, documents, cards), and a workspace's menu can also spawn a member conversation.
 A conversation joins or leaves through **Conversation settings**; membership is a single link, so joining, leaving, or deleting the workspace leaves the conversation's own cards and messages exactly as they were.
 In a member conversation the card panel lists the workspace's cards read-only, with the same live "active" dots as its own; editing them happens in the workspace so a change to shared context is always a deliberate act.
 The include and exclude buttons on a workspace card are the exception: they are stored on the conversation, so one conversation can force a shared card to send every turn, or silence it, while the rest of the workspace keeps it as is.
 
 Documents are sent whole with every request and count as input tokens, so keep them to what the conversations actually need.
 Click a document in the workspace editor to read it rendered, or use the download button to save it as a file.
-That is how a research report gets out of the browser.
 
-### Prompt caching: pay for a big workspace once
+### Documents: one copy, referenced anywhere
 
-Turn on **Cache the workspace prompt & docs** and the provider caches the stable part of your prompt: the workspace prompt, your system messages, and the workspace documents. A big shared context then gets billed once per cache window instead of on every turn.
+Every document lives once in a browser-side document store; workspaces and conversations reference it.
+An uploaded file or a promoted reply can therefore back several workspaces and conversations at the same time, with no copies to drift apart.
 
-It is off by default because it is a bet. A cache write costs 25% more than an ordinary one and expires after a few minutes, so it wants a lot of stable text and a steady back-and-forth.
+A conversation attaches a document directly in its **Context** panel, whether or not it belongs to a workspace: attached documents are sent whole with every request, right after any workspace documents.
+The same panel detaches a document, and its picker deletes one from the store outright.
+Removing a document from its last workspace or conversation also deletes it.
 
-Caching is prefix-match: change one byte and everything after it is re-billed. That makes conversa's own assembly order the thing that decides what you actually save.
+The save-as-document button on any assistant reply turns that reply into a document, named after its first heading, ready to attach anywhere.
+
+Every document row has a **Revise** box: describe a change, and the utility model rewrites the document in place.
+The previous text is kept (the last ten revisions), and the undo button restores it.
+
+### Prompt caching: reuse stable context
+
+For Anthropic models, turn on **Cache stable prompt context** to cache the workspace prompt, system messages, and attached documents. The initial request pays Anthropic's cache-write rate; matching follow-ups pay its lower cache-read rate until expiry.
+
+It is off by default because a short conversation can cost more with caching. Anthropic charges 25% extra for a cache write, so caching suits a large stable prompt followed by several turns.
+
+Caching is prefix-match: change one byte and everything after it is re-billed. That makes conversa's assembly order the thing that decides what stays cached.
 
 > [!TIP]
-> Cards cost you nothing here. They are assembled last, after the cache breakpoint, so a card firing on turn seven rewrites only the uncached tail while the workspace prompt and documents above it stay cached.
+> Cards are assembled after the cache breakpoint. A card firing on turn seven changes the uncached tail while the workspace prompt and documents above it stay cached.
 
 > [!NOTE]
-> Memory and recall sit outside the cache on purpose.
-> The summary is rewritten after every reply and recall re-picks which old turns to resend each turn, so caching either would invalidate the block constantly. You re-pay for both every turn.
+> Memory and recall occupy the volatile prompt block. The summary changes after replies, and recall selects turns for each request, so both are billed each turn.
 
 > [!WARNING]
-> The messages array is never cached at all. The send window drops old turns off the front as it slides, so the message prefix changes on most turns. Only the system prompt benefits from this setting, which is why it needs workspace documents to be worth turning on.
+> The messages array is uncached because its sliding window changes the prefix. This setting applies to the system prompt and pays back when that block contains enough shared context.
 
 ### Templates
 

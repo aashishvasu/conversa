@@ -1,37 +1,50 @@
 <script setup>
 import { onMounted, ref } from 'vue'
-import { authed, fetchModels, fetchSettings, getToken, logout } from './api.js'
-import { cacheModels, currentRunId, initStore, setGlobalSettings } from './store.js'
+import { ConfigProvider, TabsContent, TabsRoot, TooltipProvider } from 'reka-ui'
+import { locale } from './utils/prefs.js'
+import { authed, fetchModels, fetchSettings, getToken, logout } from './api/client.js'
+import { activePane, cacheModels, initStore, setGlobalSettings } from './state/store.js'
+import { initUsage } from './state/usage.js'
 import { dismiss, notify } from './utils/notify.js'
 import ConfirmModal from './components/ConfirmModal.vue'
+import UiButton from './components/ui/UiButton.vue'
 import Notifications from './components/Notifications.vue'
 import ChatPane from './views/ChatPane.vue'
 import Login from './views/Login.vue'
-import ResearchPane from './views/ResearchPane.vue'
 import Sidebar from './views/Sidebar.vue'
+import UsagePane from './views/UsagePane.vue'
 
-const ready = ref(false)
+// One state for the boot pipeline: the stages are strictly sequential, so a single enum makes conflicting flag combinations unrepresentable.
+// `authed` (from api.js) stays separate: unlike the one-way boot stages, it flips at any point in the session (a 401 logs it out again).
+const bootState = ref('loading') // 'loading' | 'bootError' | 'serverError' | 'ready'
 // initStore() failing means IndexedDB could not be read (blocked, corrupt), so there is nothing to show and nothing to export. The raw error is the page.
-const bootError = ref(null)
-const serverError = ref('')
+const bootErrorMessage = ref('')
+const serverErrorMessage = ref('')
 
 onMounted(async () => {
   try {
-    await initStore()
+    await Promise.all([initStore(), initUsage()])
   } catch (e) {
-    bootError.value = String(e?.stack || e)
+    bootErrorMessage.value = String(e?.stack || e)
+    bootState.value = 'bootError'
     return
   }
   if (getToken()) await loadSettings()
-  ready.value = true
+  else bootState.value = 'ready'
 })
 
 async function loadSettings() {
-  serverError.value = ''
   try {
     await onAuthed(await fetchSettings())
+    bootState.value = 'ready'
   } catch (e) {
-    if (getToken()) serverError.value = e.message
+    // No token means a 401 already logged us out mid-request: that is Login's job, not an error page.
+    if (getToken()) {
+      serverErrorMessage.value = e.message
+      bootState.value = 'serverError'
+    } else {
+      bootState.value = 'ready'
+    }
   }
 }
 
@@ -51,28 +64,37 @@ async function onAuthed({ config_errors: errors, ...settings }) {
 </script>
 
 <template>
-  <div v-if="bootError" class="flex h-dvh flex-col items-center justify-center gap-3 bg-app p-6 text-base">
-    <p class="text-sm">Stored conversations could not be read from this browser.</p>
-    <pre class="max-h-[50vh] w-full max-w-2xl overflow-auto rounded-lg border border-edge bg-surface p-3 text-xs">{{ bootError }}</pre>
-    <button class="rounded bg-surface2 px-3 py-1.5 text-sm hover:opacity-80" @click="reload">Retry</button>
+  <ConfigProvider :locale="locale" :dir="['ar', 'he', 'fa', 'ur'].includes(locale.split('-')[0]) ? 'rtl' : 'ltr'">
+  <TooltipProvider :delay-duration="500" :skip-delay-duration="200">
+  <div v-if="bootState === 'bootError'" class="flex h-dvh flex-col items-center justify-center gap-3 bg-app p-6 text-base">
+    <p class="text-sm">{{ $t('app.storedDataUnreadable') }}</p>
+    <pre class="max-h-[50vh] w-full max-w-2xl overflow-auto rounded-lg border border-edge bg-surface p-3 text-xs">{{ bootErrorMessage }}</pre>
+    <UiButton @click="reload">{{ $t('app.retry') }}</UiButton>
   </div>
-  <div v-else-if="serverError" class="flex h-dvh flex-col items-center justify-center gap-3 bg-app p-6 text-base">
-    <p class="text-sm">Could not reach the server.</p>
-    <pre class="max-h-[50vh] w-full max-w-2xl overflow-auto rounded-lg border border-edge bg-surface p-3 text-xs">{{ serverError }}</pre>
-    <button class="rounded bg-surface2 px-3 py-1.5 text-sm hover:opacity-80" @click="loadSettings">Retry</button>
+  <div v-else-if="bootState === 'serverError'" class="flex h-dvh flex-col items-center justify-center gap-3 bg-app p-6 text-base">
+    <p class="text-sm">{{ $t('app.serverUnavailable') }}</p>
+    <pre class="max-h-[50vh] w-full max-w-2xl overflow-auto rounded-lg border border-edge bg-surface p-3 text-xs">{{ serverErrorMessage }}</pre>
+    <UiButton @click="loadSettings">{{ $t('app.retry') }}</UiButton>
   </div>
-  <div v-else-if="!ready" class="flex h-dvh items-center justify-center bg-app text-muted">
-    Loading…
+  <div v-else-if="bootState === 'loading'" class="flex h-dvh items-center justify-center bg-app text-muted">
+    {{ $t('app.loading') }}
   </div>
   <Login v-else-if="!authed" @authenticated="onAuthed" />
   <div v-else class="flex h-dvh flex-col">
     <Notifications />
-    <div class="flex min-h-0 flex-1">
+    <!-- TabsRoot is the shared ancestor for Sidebar's vertical PaneTabs triggers and the panes; manual activation keeps arrow-key nav from switching away from a streaming chat.
+         Chat and Workspaces both show the current conversation (workspace editing is a sidebar modal), so ChatPane sits outside TabsContent and stays mounted, keeping the composer draft across tab switches. -->
+    <TabsRoot v-model="activePane" orientation="vertical" activation-mode="manual" class="flex min-h-0 flex-1">
       <Sidebar />
-      <!-- A run and a conversation are siblings, so selecting one is what swaps the pane. -->
-      <ResearchPane v-if="currentRunId" />
-      <ChatPane v-else />
-    </div>
+      <div v-show="activePane !== 'usage'" class="flex min-w-0 flex-1">
+        <ChatPane />
+      </div>
+      <TabsContent force-mount value="usage" class="min-w-0 flex-1 data-[state=inactive]:hidden data-[state=active]:flex">
+        <UsagePane />
+      </TabsContent>
+    </TabsRoot>
   </div>
   <ConfirmModal />
+  </TooltipProvider>
+  </ConfigProvider>
 </template>

@@ -9,6 +9,14 @@
   --c-edge: #e4e4e7;
   --c-text: #18181b;
   --c-muted: #6b7280;
+  --c-accent: #4f46e5;
+  --c-accent-hover: #4338ca;
+  --c-on-accent: #ffffff;
+  --c-focus: #6366f1;
+  --c-success: #15803d;
+  --c-warning: #a16207;
+  --c-danger: #dc2626;
+  --c-on-danger: #ffffff;
   --c-code: #f6f8fa;
 }
 .dark {
@@ -18,6 +26,11 @@
   --c-edge: #27272a;
   --c-text: #f4f4f5;
   --c-muted: #a1a1aa;
+  --c-accent: #4f46e5;
+  --c-accent-hover: #4338ca;
+  --c-focus: #818cf8;
+  --c-success: #4ade80;
+  --c-warning: #facc15;
   --c-code: #0d1117;
 }
 
@@ -28,20 +41,45 @@
   --color-edge: var(--c-edge);
   --color-base: var(--c-text);
   --color-muted: var(--c-muted);
+  --color-accent: var(--c-accent);
+  --color-accent-hover: var(--c-accent-hover);
+  --color-on-accent: var(--c-on-accent);
+  --color-focus: var(--c-focus);
+  --color-success: var(--c-success);
+  --color-warning: var(--c-warning);
+  --color-danger: var(--c-danger);
+  --color-on-danger: var(--c-on-danger);
 }
 
 html, body, #app { height: 100dvh; }
 /* Lock the page to the visible viewport so the chat header (and its menu button) can't scroll off-screen on mobile when the browser toolbar shows/hides. */
-body { background: var(--c-app); color: var(--c-text); overflow: hidden; }
+body { background: var(--c-app); color: var(--c-text); overflow: hidden; -webkit-font-smoothing: antialiased; }
 input, textarea, select { color: inherit; }
+
+.ui-disclosure-content[data-state="open"] { animation: disclosure-down 120ms ease-out; }
+.ui-disclosure-content[data-state="closed"] { animation: disclosure-up 120ms ease-in; }
+@keyframes disclosure-down { from { height: 0; } to { height: var(--reka-collapsible-content-height); } }
+@keyframes disclosure-up { from { height: var(--reka-collapsible-content-height); } to { height: 0; } }
+.research-progress { animation: research-progress 1.2s ease-in-out infinite; }
+@keyframes research-progress { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+@media (max-width: 767px) and (prefers-reduced-motion: no-preference) {
+  .sidebar-drawer[data-state="open"] { animation: sidebar-enter 150ms ease-out; }
+  .sidebar-drawer[data-state="closed"] { animation: sidebar-leave 150ms ease-in; }
+}
+@keyframes sidebar-enter { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes sidebar-leave { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+}
 
 /* Rendered-markdown styling (Tailwind's preflight strips defaults, so restore the basics). */
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
 .md p { margin: 0.5rem 0; }
 .md pre { background: var(--c-code); border: 1px solid var(--c-edge); padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; margin: 0.5rem 0; }
-.md code { background: var(--c-surface2); padding: 0.1em 0.3em; border-radius: 0.25rem; font-size: 0.9em; }
-.md pre code { background: none; padding: 0; }
+.md code { background: var(--c-code); border: 1px solid var(--c-edge); color: var(--c-text); padding: 0.1em 0.3em; border-radius: 0.25rem; font-size: 0.9em; }
+.md pre code { background: none; border: 0; padding: 0; }
 .md .code-block { position: relative; }
 .md .code-copy {
   position: absolute; top: 0.4rem; right: 0.4rem;

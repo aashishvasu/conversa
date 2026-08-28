@@ -1,8 +1,14 @@
 <script setup>
-import { X } from '@lucide/vue'
+import { Trash2, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
-import { fetchUrl } from '../api.js'
+import { fetchUrl } from '../api/client.js'
+import { deleteDoc, docs, docsOf, removeDocRef } from '../state/store.js'
 import { confirmDelete } from '../utils/confirm.js'
+import { tr } from '../i18n.js'
+import DocRow from './DocRow.vue'
+import UiButton from './ui/UiButton.vue'
+import UiDisclosure from './ui/UiDisclosure.vue'
+import UiIconButton from './ui/UiIconButton.vue'
 
 const props = defineProps({ convo: Object })
 
@@ -19,8 +25,26 @@ function addSystem() {
 // Pinned turns are only unpinned, which is reversible, so they go straight through.
 async function remove(m) {
   if (m.role !== 'system') { m.pinned = false; return }
-  if (await confirmDelete('Delete this system message?')) {
+  if (await confirmDelete(tr('confirm.deleteSystem'))) {
     props.convo.messages = props.convo.messages.filter((x) => x.id !== m.id)
+  }
+}
+
+// Standing document attachments: the convo's own docIds, alongside whatever its workspace already shares.
+const attached = computed(() => docsOf(props.convo))
+const unattached = computed(() => docs.value.filter((d) => !props.convo.docIds?.includes(d.id)))
+
+function attach(id) {
+  ;(props.convo.docIds ??= []).push(id)
+}
+async function detach(id) {
+  if (await confirmDelete(tr('confirm.removeConversationDoc'), tr('common.remove'))) {
+    removeDocRef(props.convo, id)
+  }
+}
+async function destroyDoc(id) {
+  if (await confirmDelete(tr('confirm.deleteDoc'))) {
+    deleteDoc(id)
   }
 }
 
@@ -52,34 +76,51 @@ async function addPage() {
 
 <template>
   <div class="space-y-2 text-sm">
-    <p class="text-muted">
-      System and pinned messages are always sent. They ignore the messages-to-send limit.
-      Editing here and in the conversation are the same thing.
-    </p>
+    <p class="text-muted">{{ $t('context.help') }}</p>
 
-    <details v-for="msg in contextMessages" :key="msg.id" class="group rounded border border-edge">
-      <summary class="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 [&::-webkit-details-marker]:hidden">
+    <UiDisclosure v-for="msg in contextMessages" :key="msg.id" :padded="false">
+      <template #title>
         <span class="shrink-0 text-xs uppercase tracking-wide text-muted">{{ msg.role }}</span>
-        <span class="flex-1 truncate text-muted group-open:hidden">{{ msg.content.trim() }}</span>
-        <button class="shrink-0 text-muted hover:text-red-500" :title="msg.role === 'system' ? 'Delete' : 'Unpin'" @click.stop.prevent="remove(msg)"><X :size="14" /></button>
-      </summary>
-      <textarea v-model="msg.content" rows="4" placeholder="Instructions for the assistant…" class="w-full rounded-b border-t border-edge bg-surface2 px-2 py-2 outline-none"></textarea>
-    </details>
+        <span class="truncate text-muted">{{ msg.content.trim() }}</span>
+      </template>
+      <template #actions>
+        <UiIconButton :label="msg.role === 'system' ? $t('common.delete') : $t('message.unpin')" variant="danger" @click="remove(msg)"><X :size="14" /></UiIconButton>
+      </template>
+      <textarea v-model="msg.content" rows="4" :placeholder="$t('context.assistantInstructions')" class="w-full bg-surface2 px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-focus"></textarea>
+    </UiDisclosure>
 
-    <p v-if="!contextMessages.length" class="text-muted">No system or pinned messages yet.</p>
+    <p v-if="!contextMessages.length" class="text-muted">{{ $t('context.empty') }}</p>
 
-    <button class="w-full rounded bg-surface2 py-2 hover:opacity-80" @click="addSystem">+ Add system message</button>
+    <UiButton class="w-full" @click="addSystem">{{ $t('context.addSystem') }}</UiButton>
 
     <div class="flex gap-2">
       <input
-        v-model="pageUrl" type="url" placeholder="https://… fetch a page as context"
-        class="min-w-0 flex-1 rounded bg-surface2 px-2 py-2 outline-none"
+        v-model="pageUrl" type="url" :placeholder="$t('context.fetchPlaceholder')"
+        class="min-w-0 flex-1 rounded-md border border-edge bg-surface2 px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-focus"
         @keydown.enter.prevent="addPage"
       />
-      <button class="shrink-0 rounded bg-surface2 px-3 py-2 hover:opacity-80 disabled:opacity-50" :disabled="fetching" @click="addPage">
-        {{ fetching ? 'Fetching…' : 'Fetch' }}
-      </button>
+      <UiButton class="shrink-0" :loading="fetching" @click="addPage">
+        {{ fetching ? $t('context.fetching') : $t('context.fetch') }}
+      </UiButton>
     </div>
-    <p v-if="fetchError" class="text-xs text-red-500">{{ fetchError }}</p>
+    <p v-if="fetchError" class="text-xs text-danger">{{ fetchError }}</p>
+
+    <hr class="border-edge" />
+
+    <p class="text-muted">{{ $t('context.docsHelp') }}</p>
+    <DocRow v-for="d in attached" :key="d.id" :doc="d" :owner="convo" @remove="detach(d.id)" />
+    <p v-if="!attached.length" class="text-xs italic text-muted">{{ $t('context.noDocs') }}</p>
+
+    <UiDisclosure v-if="unattached.length">
+      <template #title><span class="text-muted">{{ $t('context.attachDoc', unattached.length, { count: unattached.length }) }}</span></template>
+      <div class="space-y-1">
+        <div v-for="d in unattached" :key="d.id" class="flex items-center gap-2">
+          <span class="min-w-0 flex-1 truncate">{{ d.name }}</span>
+          <span class="shrink-0 text-xs text-muted">{{ $t('common.charCount', { count: (d.text.length / 1000).toFixed(1) }) }}</span>
+          <UiButton size="compact" @click="attach(d.id)">{{ $t('context.attach') }}</UiButton>
+          <UiIconButton :label="$t('common.delete')" variant="danger" @click="destroyDoc(d.id)"><Trash2 :size="14" /></UiIconButton>
+        </div>
+      </div>
+    </UiDisclosure>
   </div>
 </template>

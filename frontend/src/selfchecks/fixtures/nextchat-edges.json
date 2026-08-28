@@ -1,0 +1,652 @@
+{
+  "chat-next-web-store": {
+    "sessions": [
+      {
+        "id": "fixture-edge-1",
+        "topic": "Fixture edge session 1",
+        "memoryPrompt": "",
+        "messages": [],
+        "stat": {
+          "tokenCount": 0,
+          "wordCount": 0,
+          "charCount": 0
+        },
+        "lastUpdate": 1756079999000,
+        "lastSummarizeIndex": 0,
+        "mask": {
+          "avatar": "",
+          "name": "Fixture mask",
+          "context": [
+            {
+              "id": "fixture-edge-1-context-message-1",
+              "role": "system",
+              "content": "Fixture system message.",
+              "date": "13/08/2025, 1:02:03 PM"
+            },
+            {
+              "id": "fixture-edge-1-context-message-2",
+              "role": "user",
+              "content": "Fixture user message.",
+              "date": "14/08/2025, 2:02:03 PM"
+            },
+            {
+              "id": "fixture-edge-1-context-message-3",
+              "role": "assistant",
+              "content": "Fixture assistant message.",
+              "date": "15/08/2025, 3:02:03 PM"
+            },
+            {
+              "id": "fixture-edge-1-context-message-4",
+              "role": "system",
+              "content": "Fixture system message.",
+              "date": "16/08/2025, 4:02:03 PM"
+            }
+          ],
+          "modelConfig": {
+            "model": "gpt-3.5-turbo",
+            "providerName": "DeepSeek",
+            "temperature": 1,
+            "top_p": 1,
+            "max_tokens": 2000,
+            "presence_penalty": 0,
+            "frequency_penalty": 0,
+            "sendMemory": true,
+            "historyMessageCount": 32,
+            "compressMessageLengthThreshold": 1000,
+            "compressModel": "gpt-3.5-turbo",
+            "compressProviderName": "OpenAI",
+            "enableInjectSystemPrompts": true,
+            "template": "{{input}}",
+            "size": "",
+            "quality": "",
+            "style": ""
+          },
+          "lang": "cn",
+          "builtin": true,
+          "createdAt": 1755043200000,
+          "id": 1
+        }
+      },
+      {
+        "id": "fixture-edge-2",
+        "topic": "Fixture edge session 2",
+        "memoryPrompt": "",
+        "messages": [
+          {
+            "id": "fixture-edge-2-message-1",
+            "date": "13/08/2025, 1:02:03 PM",
+            "role": "user",
+            "content": "Fixture user message."
+          },
+          {
+            "id": "fixture-edge-2-message-2",
+            "date": "14/08/2025, 2:02:03 PM",
+            "role": "assistant",
+            "content": "Fixture assistant message.",
+            "streaming": true,
+            "model": "deepseek-chat"
+          }
+        ],
+        "stat": {
+          "tokenCount": 0,
+          "wordCount": 0,
+          "charCount": 0
+        },
+        "lastUpdate": 1756079999000,
+        "lastSummarizeIndex": 0,
+        "mask": {
+          "id": "fixture-edge-2-mask",
+          "avatar": "",
+          "name": "Fixture mask",
+          "context": [],
+          "syncGlobalConfig": true,
+          "modelConfig": {
+            "model": "deepseek-chat",
+            "providerName": "DeepSeek",
+            "temperature": 0.5,
+            "top_p": 1,
+            "max_tokens": 4000,
+            "presence_penalty": 0,
+            "frequency_penalty": 0,
+            "sendMemory": true,
+            "historyMessageCount": 4,
+            "compressMessageLengthThreshold": 1000,
+            "compressModel": "gpt-3.5-turbo",
+            "compressProviderName": "OpenAI",
+            "enableInjectSystemPrompts": true,
+            "template": "{{input}}",
+            "size": "",
+            "quality": "",
+            "style": ""
+          },
+          "lang": "en",
+          "builtin": false,
+          "createdAt": 1755043200000,
+          "plugin": []
+        }
+      },
+      {
+        "id": "fixture-edge-3",
+        "topic": "Fixture edge session 3",
+        "memoryPrompt": "Fixture memory summary.",
+        "messages": [
+          {
+            "id": "fixture-edge-3-message-1",
+            "date": "13/08/2025, 1:02:03 PM",
+            "role": "user",
+            "content": "Fixture user message."
+          },
+          {
+            "id": "fixture-edge-3-message-2",
+            "date": "14/08/2025, 2:02:03 PM",
+            "role": "assistant",
+            "content": "Fixture assistant message.",
+            "streaming": false,
+            "model": "claude-opus-4-20250514"
+          },
+          {
+            "id": "fixture-edge-3-message-3",
+            "date": "15/08/2025, 3:02:03 PM",
+            "role": "assistant",
+            "content": "Fixture assistant message.",
+            "streaming": false,
+            "model": "claude-opus-4-20250514",
+            "tools": [
+              {
+                "id": "",
+                "type": "function",
+                "function": {
+                  "name": "",
+                  "arguments": ""
+                },
+                "content": "",
+                "isError": false
+              }
+            ]
+          },
+          {
+            "id": "fixture-edge-3-message-4",
+            "date": "16/08/2025, 4:02:03 PM",
+            "role": "assistant",
+            "content": "Fixture assistant message.",
+            "streaming": false,
+            "model": "claude-opus-4-20250514",
+            "tools": [
+              {
+                "id": "",
+                "type": "function",
+                "function": {
+                  "name": "",
+                  "arguments": ""
+                },
+                "content": "",
+                "isError": false
+              }
+            ]
+          }
+        ],
+        "stat": {
+          "tokenCount": 0,
+          "wordCount": 0,
+          "charCount": 35594
+        },
+        "lastUpdate": 1756079999000,
+        "lastSummarizeIndex": 40,
+        "mask": {
+          "id": "fixture-edge-3-mask",
+          "avatar": "",
+          "name": "Fixture mask",
+          "context": [
+            {
+              "id": "fixture-edge-3-context-message-1",
+              "date": "13/08/2025, 1:02:03 PM",
+              "role": "system",
+              "content": "Fixture system message."
+            }
+          ],
+          "syncGlobalConfig": false,
+          "modelConfig": {
+            "model": "claude-opus-4-20250514",
+            "providerName": "Anthropic",
+            "temperature": 0.5,
+            "top_p": 1,
+            "max_tokens": 4000,
+            "presence_penalty": 0,
+            "frequency_penalty": 0,
+            "sendMemory": true,
+            "historyMessageCount": 15,
+            "compressMessageLengthThreshold": 1000,
+            "compressModel": "gpt-3.5-turbo",
+            "compressProviderName": "OpenAI",
+            "enableInjectSystemPrompts": true,
+            "template": "{{input}}",
+            "size": "",
+            "quality": "",
+            "style": ""
+          },
+          "lang": "en",
+          "builtin": false,
+          "createdAt": 1755043200000,
+          "plugin": [
+            ""
+          ]
+        }
+      },
+      {
+        "id": "fixture-edge-4",
+        "topic": "Fixture edge session 4",
+        "memoryPrompt": "Fixture memory summary.",
+        "messages": [
+          {
+            "id": "fixture-edge-4-message-1",
+            "date": "13/08/2025, 1:02:03 PM",
+            "role": "user",
+            "content": "Fixture user message."
+          },
+          {
+            "id": "fixture-edge-4-message-2",
+            "date": "14/08/2025, 2:02:03 PM",
+            "role": "assistant",
+            "content": "Fixture assistant message.",
+            "streaming": false,
+            "model": "claude-opus-4-20250514"
+          }
+        ],
+        "stat": {
+          "tokenCount": 0,
+          "wordCount": 0,
+          "charCount": 6480
+        },
+        "lastUpdate": 1756079999000,
+        "lastSummarizeIndex": 6,
+        "mask": {
+          "id": "fixture-edge-4-mask",
+          "avatar": "",
+          "name": "Fixture mask",
+          "context": [
+            {
+              "id": "fixture-edge-4-context-message-1",
+              "date": "13/08/2025, 1:02:03 PM",
+              "role": "system",
+              "content": "Fixture system message."
+            }
+          ],
+          "syncGlobalConfig": false,
+          "modelConfig": {
+            "model": "claude-opus-4-20250514",
+            "providerName": "Anthropic",
+            "temperature": 0.5,
+            "top_p": 1,
+            "max_tokens": 4000,
+            "presence_penalty": 0,
+            "frequency_penalty": 0,
+            "sendMemory": true,
+            "historyMessageCount": 15,
+            "compressMessageLengthThreshold": 1000,
+            "compressModel": "gpt-3.5-turbo",
+            "compressProviderName": "OpenAI",
+            "enableInjectSystemPrompts": true,
+            "template": "{{input}}",
+            "size": "",
+            "quality": "",
+            "style": ""
+          },
+          "lang": "en",
+          "builtin": false,
+          "createdAt": 1755043200000,
+          "plugin": []
+        }
+      },
+      {
+        "id": "fixture-edge-5",
+        "topic": "Fixture edge session 5",
+        "memoryPrompt": "Fixture memory summary.",
+        "messages": [
+          {
+            "id": "fixture-edge-5-message-1",
+            "date": "13/08/2025, 1:02:03 PM",
+            "role": "user",
+            "content": "Fixture user message."
+          },
+          {
+            "id": "fixture-edge-5-message-2",
+            "date": "14/08/2025, 2:02:03 PM",
+            "role": "assistant",
+            "content": "Fixture assistant message.",
+            "streaming": false,
+            "model": "claude-opus-4-20250514"
+          }
+        ],
+        "stat": {
+          "tokenCount": 0,
+          "wordCount": 0,
+          "charCount": 4510
+        },
+        "lastUpdate": 1756079999000,
+        "lastSummarizeIndex": 6,
+        "mask": {
+          "id": "fixture-edge-5-mask",
+          "avatar": "",
+          "name": "Fixture mask",
+          "context": [],
+          "syncGlobalConfig": false,
+          "modelConfig": {
+            "model": "claude-opus-4-20250514",
+            "providerName": "Anthropic",
+            "temperature": 0.5,
+            "top_p": 1,
+            "max_tokens": 4000,
+            "presence_penalty": 0,
+            "frequency_penalty": 0,
+            "sendMemory": true,
+            "historyMessageCount": 4,
+            "compressMessageLengthThreshold": 1000,
+            "compressModel": "gpt-3.5-turbo",
+            "compressProviderName": "OpenAI",
+            "enableInjectSystemPrompts": true,
+            "template": "{{input}}",
+            "size": "",
+            "quality": "",
+            "style": ""
+          },
+          "lang": "en",
+          "builtin": false,
+          "createdAt": 1755043200000,
+          "plugin": []
+        }
+      },
+      {
+        "id": "fixture-edge-6",
+        "topic": "Fixture edge session 6",
+        "memoryPrompt": "Fixture memory summary.",
+        "messages": [
+          {
+            "id": "fixture-edge-6-message-1",
+            "date": "13/08/2025, 1:02:03 PM",
+            "role": "user",
+            "content": "Fixture user message."
+          },
+          {
+            "id": "fixture-edge-6-message-2",
+            "date": "14/08/2025, 2:02:03 PM",
+            "role": "assistant",
+            "content": "Fixture assistant message.",
+            "streaming": false,
+            "model": "claude-opus-4-20250514"
+          }
+        ],
+        "stat": {
+          "tokenCount": 0,
+          "wordCount": 0,
+          "charCount": 93862
+        },
+        "lastUpdate": 1756079999000,
+        "lastSummarizeIndex": 50,
+        "mask": {
+          "id": "fixture-edge-6-mask",
+          "avatar": "",
+          "name": "Fixture mask",
+          "context": [
+            {
+              "id": "fixture-edge-6-context-message-1",
+              "date": "13/08/2025, 1:02:03 PM",
+              "role": "system",
+              "content": "Fixture system message."
+            },
+            {
+              "id": "fixture-edge-6-context-message-2",
+              "date": "14/08/2025, 2:02:03 PM",
+              "role": "user",
+              "content": "Fixture user message."
+            }
+          ],
+          "syncGlobalConfig": false,
+          "modelConfig": {
+            "model": "claude-opus-4-20250514",
+            "providerName": "Anthropic",
+            "temperature": 0.5,
+            "top_p": 1,
+            "max_tokens": 4000,
+            "presence_penalty": 0,
+            "frequency_penalty": 0,
+            "sendMemory": true,
+            "historyMessageCount": 15,
+            "compressMessageLengthThreshold": 1000,
+            "compressModel": "gpt-3.5-turbo",
+            "compressProviderName": "OpenAI",
+            "enableInjectSystemPrompts": true,
+            "template": "{{input}}",
+            "size": "",
+            "quality": "",
+            "style": ""
+          },
+          "lang": "en",
+          "builtin": false,
+          "createdAt": 1755043200000,
+          "plugin": []
+        }
+      },
+      {
+        "id": "fixture-edge-7",
+        "topic": "Fixture edge session 7",
+        "memoryPrompt": "Fixture memory summary.",
+        "messages": [
+          {
+            "id": "fixture-edge-7-message-1",
+            "date": "13/08/2025, 1:02:03 PM",
+            "role": "user",
+            "content": "Fixture user message."
+          },
+          {
+            "id": "fixture-edge-7-message-2",
+            "date": "14/08/2025, 2:02:03 PM",
+            "role": "assistant",
+            "content": "Fixture assistant message.",
+            "streaming": false,
+            "model": "claude-3-7-sonnet-latest"
+          }
+        ],
+        "stat": {
+          "tokenCount": 0,
+          "wordCount": 0,
+          "charCount": 74394
+        },
+        "lastUpdate": 1756079999000,
+        "lastSummarizeIndex": 30,
+        "mask": {
+          "id": "fixture-edge-7-mask",
+          "avatar": "",
+          "name": "Fixture mask",
+          "context": [
+            {
+              "id": "fixture-edge-7-context-message-1",
+              "date": "13/08/2025, 1:02:03 PM",
+              "role": "system",
+              "content": "Fixture system message."
+            },
+            {
+              "id": "fixture-edge-7-context-message-2",
+              "date": "14/08/2025, 2:02:03 PM",
+              "role": "user",
+              "content": "Fixture user message."
+            },
+            {
+              "id": "fixture-edge-7-context-message-3",
+              "date": "15/08/2025, 3:02:03 PM",
+              "role": "assistant",
+              "content": "Fixture assistant message.",
+              "streaming": false,
+              "model": "claude-3-7-sonnet-latest"
+            }
+          ],
+          "syncGlobalConfig": false,
+          "modelConfig": {
+            "model": "claude-3-7-sonnet-latest",
+            "providerName": "Anthropic",
+            "temperature": 0.5,
+            "top_p": 1,
+            "max_tokens": 4000,
+            "presence_penalty": 0,
+            "frequency_penalty": 0,
+            "sendMemory": true,
+            "historyMessageCount": 15,
+            "compressMessageLengthThreshold": 1000,
+            "compressModel": "",
+            "compressProviderName": "",
+            "enableInjectSystemPrompts": true,
+            "template": "{{input}}",
+            "size": "",
+            "quality": "",
+            "style": ""
+          },
+          "lang": "en",
+          "builtin": false,
+          "createdAt": 1755043200000,
+          "plugin": []
+        }
+      }
+    ],
+    "currentSessionIndex": 0,
+    "lastInput": "",
+    "lastUpdateTime": 0,
+    "_hasHydrated": true
+  },
+  "access-control": {
+    "accessCode": "[REDACTED]",
+    "useCustomConfig": false,
+    "provider": "",
+    "openaiUrl": "",
+    "openaiApiKey": "",
+    "azureUrl": "",
+    "azureApiKey": "",
+    "azureApiVersion": "",
+    "googleUrl": "",
+    "googleApiKey": "",
+    "googleApiVersion": "",
+    "googleSafetySettings": "",
+    "anthropicUrl": "",
+    "anthropicApiKey": "",
+    "anthropicApiVersion": "",
+    "baiduUrl": "",
+    "baiduApiKey": "",
+    "baiduSecretKey": "",
+    "bytedanceUrl": "",
+    "bytedanceApiKey": "",
+    "alibabaUrl": "",
+    "alibabaApiKey": "",
+    "moonshotUrl": "",
+    "moonshotApiKey": "",
+    "stabilityUrl": "",
+    "stabilityApiKey": "",
+    "tencentUrl": "",
+    "tencentSecretKey": "",
+    "tencentSecretId": "",
+    "iflytekUrl": "",
+    "iflytekApiKey": "",
+    "iflytekApiSecret": "",
+    "deepseekUrl": "",
+    "deepseekApiKey": "",
+    "xaiUrl": "",
+    "xaiApiKey": "",
+    "chatglmUrl": "",
+    "chatglmApiKey": "",
+    "siliconflowUrl": "",
+    "siliconflowApiKey": "",
+    "ai302Url": "",
+    "ai302ApiKey": "",
+    "needCode": true,
+    "hideUserApiKey": false,
+    "hideBalanceQuery": true,
+    "disableGPT4": false,
+    "disableFastLink": false,
+    "customModels": "",
+    "defaultModel": "",
+    "visionModels": "",
+    "edgeTTSVoiceName": "",
+    "lastUpdateTime": 0,
+    "_hasHydrated": true
+  },
+  "app-config": {
+    "lastUpdate": 0,
+    "submitKey": "",
+    "avatar": "",
+    "fontSize": 14,
+    "fontFamily": "",
+    "theme": "",
+    "tightBorder": true,
+    "sendPreviewBubble": true,
+    "enableAutoGenerateTitle": true,
+    "sidebarWidth": 421,
+    "enableArtifacts": true,
+    "enableCodeFold": true,
+    "disablePromptHint": false,
+    "dontShowMaskSplashScreen": false,
+    "hideBuiltinMasks": false,
+    "customModels": "",
+    "models": [
+      {
+        "name": "",
+        "available": true,
+        "sorted": 1000,
+        "provider": {
+          "id": "",
+          "providerName": "OpenAI",
+          "providerType": "",
+          "sorted": 1
+        }
+      }
+    ],
+    "modelConfig": {
+      "model": "deepseek-chat",
+      "providerName": "DeepSeek",
+      "temperature": 0.5,
+      "top_p": 1,
+      "max_tokens": 4000,
+      "presence_penalty": 0,
+      "frequency_penalty": 0,
+      "sendMemory": true,
+      "historyMessageCount": 4,
+      "compressMessageLengthThreshold": 1000,
+      "compressModel": "gpt-3.5-turbo",
+      "compressProviderName": "OpenAI",
+      "enableInjectSystemPrompts": true,
+      "template": "{{input}}",
+      "size": "",
+      "quality": "",
+      "style": ""
+    },
+    "ttsConfig": {
+      "enable": false,
+      "autoplay": false,
+      "engine": "",
+      "model": "tts-1",
+      "voice": "",
+      "speed": 1
+    },
+    "realtimeConfig": {
+      "enable": false,
+      "provider": "",
+      "model": "gpt-4o-realtime-preview-2024-10-01",
+      "apiKey": "",
+      "azure": {
+        "endpoint": "",
+        "deployment": ""
+      },
+      "temperature": 0.9,
+      "voice": ""
+    },
+    "lastUpdateTime": 0,
+    "_hasHydrated": true
+  },
+  "mask-store": {
+    "masks": {},
+    "lastUpdateTime": 0,
+    "_hasHydrated": true
+  },
+  "prompt-store": {
+    "counter": 0,
+    "prompts": {},
+    "lastUpdateTime": 0,
+    "_hasHydrated": true
+  }
+}
