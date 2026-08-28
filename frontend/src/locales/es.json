@@ -277,6 +277,11 @@
     "snapshotRestored": "Copia de seguridad restaurada",
     "restoreFailed": "No se ha podido restaurar: {error}",
     "imported": "Se ha importado {count} conversación | Se han importado {count} conversaciones",
+    "templatesImported": "Se ha importado {count} plantilla. | Se han importado {count} plantillas.",
+    "emptySessionsSkipped": "Se ha omitido {count} sesión vacía. | Se han omitido {count} sesiones vacías.",
+    "partialMessagesSkipped": "Se ha omitido {count} mensaje parcial. | Se han omitido {count} mensajes parciales.",
+    "toolRecordsDropped": "Se ha descartado {count} registro de herramienta. | Se han descartado {count} registros de herramienta.",
+    "nextChatWarning": "Las copias de seguridad de NextChat pueden contener claves de API y códigos de acceso. La importación se realiza localmente e ignora las credenciales.",
     "nothing": "No hay nada nuevo que importar",
     "importFailed": "No se ha podido importar: {error}"
   },

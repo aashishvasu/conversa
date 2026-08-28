@@ -277,6 +277,11 @@
     "snapshotRestored": "Sauvegarde restaurée",
     "restoreFailed": "Échec de la restauration : {error}",
     "imported": "{count} conversation importée | {count} conversations importées",
+    "templatesImported": "{count} modèle importé. | {count} modèles importés.",
+    "emptySessionsSkipped": "{count} session vide ignorée. | {count} sessions vides ignorées.",
+    "partialMessagesSkipped": "{count} message partiel ignoré. | {count} messages partiels ignorés.",
+    "toolRecordsDropped": "{count} enregistrement d'outil ignoré. | {count} enregistrements d'outil ignorés.",
+    "nextChatWarning": "Les sauvegardes NextChat peuvent contenir des clés API et des codes d'accès. L'importation s'effectue localement et ignore les identifiants.",
     "nothing": "Aucune nouvelle donnée à importer",
     "importFailed": "Échec de l'importation : {error}"
   },

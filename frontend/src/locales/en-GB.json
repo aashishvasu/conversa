@@ -277,6 +277,11 @@
     "snapshotRestored": "Snapshot restored",
     "restoreFailed": "Restore failed: {error}",
     "imported": "Imported {count} conversation | Imported {count} conversations",
+    "templatesImported": "{count} template imported. | {count} templates imported.",
+    "emptySessionsSkipped": "Skipped {count} empty session. | Skipped {count} empty sessions.",
+    "partialMessagesSkipped": "Skipped {count} partial message. | Skipped {count} partial messages.",
+    "toolRecordsDropped": "Dropped {count} tool record. | Dropped {count} tool records.",
+    "nextChatWarning": "NextChat backups may contain API keys and access codes. Imports run locally and ignore credentials.",
     "nothing": "Nothing new to import",
     "importFailed": "Import failed: {error}"
   },

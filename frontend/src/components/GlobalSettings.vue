@@ -1,7 +1,8 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { EFFORT_LEVELS } from '../state/settings.js'
-import { downloadExport, globalSettings, importData, modelSupportsCache, persistGlobal, restoreData, snapshotInfo } from '../state/store.js'
+import { downloadExport, globalSettings, importData, modelSupportsCache, models, persistGlobal, restoreData, snapshotInfo } from '../state/store.js'
+import { convertImport } from '../state/importers.js'
 import { enterToSend, fontScale, locale, restorePrefs } from '../utils/prefs.js'
 import { locales, setLocale, tr } from '../i18n.js'
 import { restoreTheme } from '../utils/theme.js'
@@ -26,13 +27,25 @@ const setGlobal = (k, v) => {
 
 const importMsg = ref('')
 
+function nextChatReport(report) {
+  const parts = []
+  if (report.conversations) parts.push(`${tr('import.imported', report.conversations, { count: report.conversations })}.`)
+  if (report.templates) parts.push(tr('import.templatesImported', report.templates, { count: report.templates }))
+  if (report.sessionsSkipped) parts.push(tr('import.emptySessionsSkipped', report.sessionsSkipped, { count: report.sessionsSkipped }))
+  if (report.messagesSkipped) parts.push(tr('import.partialMessagesSkipped', report.messagesSkipped, { count: report.messagesSkipped }))
+  if (report.toolsDropped) parts.push(tr('import.toolRecordsDropped', report.toolsDropped, { count: report.toolsDropped }))
+  return parts.join(' ')
+}
+
 async function onImportFile(e) {
   const file = e.target.files[0]
   e.target.value = '' // so picking the same file again re-fires @change
   if (!file) return
   try {
-    const n = await importData(JSON.parse(await file.text()))
-    importMsg.value = n ? tr('import.imported', n, { count: n }) : tr('import.nothing')
+    const data = JSON.parse(await file.text())
+    const converted = convertImport(data, models.value.map((model) => model.id))
+    const n = await importData(converted?.data || data)
+    importMsg.value = converted ? nextChatReport(converted.report) : n ? tr('import.imported', n, { count: n }) : tr('import.nothing')
   } catch (err) {
     importMsg.value = tr('import.importFailed', { error: err.message })
   }
@@ -145,6 +158,7 @@ async function onRestoreFile(e) {
           <input type="file" accept=".json,application/json" class="hidden" @change="onRestoreFile" />
         </label>
       </div>
+      <p class="mt-1 text-xs text-muted">{{ $t('import.nextChatWarning') }}</p>
       <p v-if="importMsg" class="mt-1 text-xs text-muted">{{ importMsg }}</p>
     </div>
   </div>

@@ -1,0 +1,185 @@
+{
+  "chat-next-web-store": {
+    "sessions": [],
+    "currentSessionIndex": -1,
+    "lastInput": "",
+    "lastUpdateTime": 0,
+    "_hasHydrated": true
+  },
+  "access-control": {
+    "accessCode": "[REDACTED]",
+    "useCustomConfig": false,
+    "provider": "",
+    "openaiUrl": "",
+    "openaiApiKey": "",
+    "azureUrl": "",
+    "azureApiKey": "",
+    "azureApiVersion": "",
+    "googleUrl": "",
+    "googleApiKey": "",
+    "googleApiVersion": "",
+    "googleSafetySettings": "",
+    "anthropicUrl": "",
+    "anthropicApiKey": "",
+    "anthropicApiVersion": "",
+    "baiduUrl": "",
+    "baiduApiKey": "",
+    "baiduSecretKey": "",
+    "bytedanceUrl": "",
+    "bytedanceApiKey": "",
+    "alibabaUrl": "",
+    "alibabaApiKey": "",
+    "moonshotUrl": "",
+    "moonshotApiKey": "",
+    "stabilityUrl": "",
+    "stabilityApiKey": "",
+    "tencentUrl": "",
+    "tencentSecretKey": "",
+    "tencentSecretId": "",
+    "iflytekUrl": "",
+    "iflytekApiKey": "",
+    "iflytekApiSecret": "",
+    "deepseekUrl": "",
+    "deepseekApiKey": "",
+    "xaiUrl": "",
+    "xaiApiKey": "",
+    "chatglmUrl": "",
+    "chatglmApiKey": "",
+    "siliconflowUrl": "",
+    "siliconflowApiKey": "",
+    "ai302Url": "",
+    "ai302ApiKey": "",
+    "needCode": true,
+    "hideUserApiKey": false,
+    "hideBalanceQuery": true,
+    "disableGPT4": false,
+    "disableFastLink": false,
+    "customModels": "",
+    "defaultModel": "",
+    "visionModels": "",
+    "edgeTTSVoiceName": "",
+    "lastUpdateTime": 0,
+    "_hasHydrated": true
+  },
+  "app-config": {
+    "lastUpdate": 0,
+    "submitKey": "",
+    "avatar": "",
+    "fontSize": 14,
+    "fontFamily": "",
+    "theme": "",
+    "tightBorder": true,
+    "sendPreviewBubble": true,
+    "enableAutoGenerateTitle": true,
+    "sidebarWidth": 421,
+    "enableArtifacts": true,
+    "enableCodeFold": true,
+    "disablePromptHint": false,
+    "dontShowMaskSplashScreen": false,
+    "hideBuiltinMasks": false,
+    "customModels": "",
+    "models": [
+      {
+        "name": "",
+        "available": true,
+        "sorted": 1000,
+        "provider": {
+          "id": "",
+          "providerName": "OpenAI",
+          "providerType": "",
+          "sorted": 1
+        }
+      }
+    ],
+    "modelConfig": {
+      "model": "deepseek-chat",
+      "providerName": "DeepSeek",
+      "temperature": 0.5,
+      "top_p": 1,
+      "max_tokens": 4000,
+      "presence_penalty": 0,
+      "frequency_penalty": 0,
+      "sendMemory": true,
+      "historyMessageCount": 4,
+      "compressMessageLengthThreshold": 1000,
+      "compressModel": "gpt-3.5-turbo",
+      "compressProviderName": "OpenAI",
+      "enableInjectSystemPrompts": true,
+      "template": "{{input}}",
+      "size": "",
+      "quality": "",
+      "style": ""
+    },
+    "ttsConfig": {
+      "enable": false,
+      "autoplay": false,
+      "engine": "",
+      "model": "tts-1",
+      "voice": "",
+      "speed": 1
+    },
+    "realtimeConfig": {
+      "enable": false,
+      "provider": "",
+      "model": "gpt-4o-realtime-preview-2024-10-01",
+      "apiKey": "",
+      "azure": {
+        "endpoint": "",
+        "deployment": ""
+      },
+      "temperature": 0.9,
+      "voice": ""
+    },
+    "lastUpdateTime": 0,
+    "_hasHydrated": true
+  },
+  "mask-store": {
+    "masks": {
+      "fixture-mask-1": {
+        "id": "standalone-mask-1",
+        "avatar": "",
+        "name": "Fixture mask",
+        "context": [
+          {
+            "id": "standalone-1-context-message-1",
+            "date": "13/08/2025, 1:02:03 PM",
+            "role": "system",
+            "content": "Fixture system message."
+          }
+        ],
+        "syncGlobalConfig": false,
+        "modelConfig": {
+          "model": "claude-opus-4-20250514",
+          "providerName": "Anthropic",
+          "temperature": 0.5,
+          "top_p": 1,
+          "max_tokens": 4000,
+          "presence_penalty": 0,
+          "frequency_penalty": 0,
+          "sendMemory": true,
+          "historyMessageCount": 15,
+          "compressMessageLengthThreshold": 1000,
+          "compressModel": "gpt-3.5-turbo",
+          "compressProviderName": "OpenAI",
+          "enableInjectSystemPrompts": true,
+          "template": "{{input}}",
+          "size": "",
+          "quality": "",
+          "style": ""
+        },
+        "lang": "en",
+        "builtin": false,
+        "createdAt": 1755043200000,
+        "plugin": []
+      }
+    },
+    "lastUpdateTime": 0,
+    "_hasHydrated": true
+  },
+  "prompt-store": {
+    "counter": 0,
+    "prompts": {},
+    "lastUpdateTime": 0,
+    "_hasHydrated": true
+  }
+}

@@ -277,6 +277,11 @@
     "snapshotRestored": "Datensicherung wiederhergestellt",
     "restoreFailed": "Wiederherstellung fehlgeschlagen: {error}",
     "imported": "{count} Unterhaltung importiert | {count} Unterhaltungen importiert",
+    "templatesImported": "{count} Vorlage importiert. | {count} Vorlagen importiert.",
+    "emptySessionsSkipped": "{count} leere Sitzung übersprungen. | {count} leere Sitzungen übersprungen.",
+    "partialMessagesSkipped": "{count} unvollständige Nachricht übersprungen. | {count} unvollständige Nachrichten übersprungen.",
+    "toolRecordsDropped": "{count} Werkzeugdatensatz verworfen. | {count} Werkzeugdatensätze verworfen.",
+    "nextChatWarning": "NextChat-Sicherungen können API-Schlüssel und Zugangscodes enthalten. Der Import erfolgt lokal und ignoriert Anmeldedaten.",
     "nothing": "Keine neuen Daten zum Importieren",
     "importFailed": "Import fehlgeschlagen: {error}"
   },
