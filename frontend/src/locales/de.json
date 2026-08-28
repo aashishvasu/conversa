@@ -22,12 +22,17 @@
     "export": "Exportieren",
     "import": "Importieren",
     "restore": "Wiederherstellen",
+    "decrease": "Verringern",
+    "increase": "Erhöhen",
+    "openOptions": "Optionen öffnen",
+    "noResults": "Keine Ergebnisse",
     "actions": "Aktionen",
     "name": "Name",
     "none": "Keine",
     "stop": "Stoppen",
     "send": "Senden",
     "language": "Sprache",
+    "settings": "Einstellungen",
     "cards": "Karten",
     "workspace": "Arbeitsbereich",
     "inactive": "Inaktiv",
@@ -35,6 +40,7 @@
   },
   "settings": {
     "intro": "Unterhaltungen übernehmen diese Einstellungen, sofern sie nicht abweichend konfiguriert sind. Sie werden in diesem Browser gespeichert.",
+    "inheritGlobal": "Globalen Standard verwenden",
     "utilityModel": "Hilfsmodell (Titel, Gedächtnis, Karten und Überarbeitungen)",
     "temperature": "Temperatur: {value}",
     "messagesToSend": "Zu sendende Nachrichten",
@@ -134,6 +140,7 @@
     "modelEmpty": "Das Modell hat keine Antwort geliefert"
   },
   "message": {
+    "role": "Nachrichtenrolle",
     "roleSystem": "System",
     "roleUser": "Benutzer",
     "roleAssistant": "Assistent",
@@ -186,12 +193,14 @@
   },
   "chat": {
     "template": "Vorlage",
+    "conversationTitle": "Unterhaltungstitel",
     "regenerateTitle": "Titel neu erstellen",
     "scrollBottom": "Nach unten scrollen",
     "researchOn": "Sendet Rechercheläufe; klicken für normalen Chat",
     "researchOff": "Sendet normale Chats; klicken für Rechercheläufe",
     "research": "Recherche",
     "contextEditor": "Kontext-Editor",
+    "tools": "Unterhaltungswerkzeuge",
     "conversationSettings": "Unterhaltungseinstellungen",
     "removeImage": "Bild entfernen",
     "researchRunning": "In dieser Unterhaltung läuft eine Recherche…",
@@ -216,6 +225,7 @@
     "image": "Bild"
   },
   "sidebar": {
+    "navigation": "Hauptnavigation",
     "chat": "Chat",
     "research": "Recherche",
     "workspaces": "Arbeitsbereiche",
