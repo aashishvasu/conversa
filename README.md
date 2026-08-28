@@ -4,22 +4,26 @@
 
 # conversa
 
-A local-first chat client for Claude, GPT, and DeepSeek. Conversation data lives in browser IndexedDB.
+*The small, private, multi-provider, chat assistant for **you.***
 
-The FastAPI server holds provider keys and the app password, relays model streams, fetches pages, and keeps research runs going after the browser closes.
+All conversation data lives in the browser.
 
-The production build includes a PWA manifest and service worker.
+All you need are provider API keys (currently Anthropic, OpenAI and DeepSeek are supported), and set a password. The server sets up the frontend, streams chats, relays model streams, fetches pages, and keeps research runs going after the browser closes. Everything else lands in your browser, gets stored locally.
+
+Want to create a shortcut on mobile devices? You can do that too.
 
 Who ends up holding what:
 
 | What | In your browser | On the server |
 |------|-----------------|---------------|
-| Every chat transcript and image | | |
-| Cards, workspaces, documents, templates | | |
-| A finished research report | | Until collected, eviction, or restart |
-| Your provider API key | | (This is the whole reason it exists) |
-| The pages a research run reads | | While processed, then forgotten |
-| Your password | | (As the env var you set it to) |
+| Every chat transcript and image | ✔️ | ❌ |
+| Cards, workspaces, documents, templates | ✔️ | ❌ |
+| A finished research report | ✔️ | 🟡 (Until collected, eviction, or restart) |
+| Your provider API key | ❌ | ✔️ (This is the whole reason it exists) |
+| The pages a research run reads | ❌ | 🟡 (While processed, then forgotten) |
+| Your password | ❌ | ✔️ (As the env var you set it to) |
+
+
 
 ## Run it
 
@@ -51,7 +55,7 @@ To have systemd start and supervise the container, first store your secrets with
 
 ```sh
 printf 'sk-ant-...' | podman secret create conversa_api_key -
-printf 'sk-...' | podman secret create conversa_openai_key -   # optional
+printf 'sk-...' | podman secret create conversa_openai_key -
 printf 'your-password' | podman secret create conversa_password -
 ```
 
