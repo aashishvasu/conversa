@@ -1,12 +1,13 @@
 <script setup>
 import { onMounted, ref } from 'vue'
-import { ConfigProvider, TabsContent, TabsRoot } from 'reka-ui'
+import { ConfigProvider, TabsContent, TabsRoot, TooltipProvider } from 'reka-ui'
 import { locale } from './utils/prefs.js'
 import { authed, fetchModels, fetchSettings, getToken, logout } from './api/client.js'
 import { activePane, cacheModels, initStore, setGlobalSettings } from './state/store.js'
 import { initUsage } from './state/usage.js'
 import { dismiss, notify } from './utils/notify.js'
 import ConfirmModal from './components/ConfirmModal.vue'
+import UiButton from './components/ui/UiButton.vue'
 import Notifications from './components/Notifications.vue'
 import ChatPane from './views/ChatPane.vue'
 import Login from './views/Login.vue'
@@ -64,15 +65,16 @@ async function onAuthed({ config_errors: errors, ...settings }) {
 
 <template>
   <ConfigProvider :locale="locale" :dir="['ar', 'he', 'fa', 'ur'].includes(locale.split('-')[0]) ? 'rtl' : 'ltr'">
+  <TooltipProvider :delay-duration="500" :skip-delay-duration="200">
   <div v-if="bootState === 'bootError'" class="flex h-dvh flex-col items-center justify-center gap-3 bg-app p-6 text-base">
     <p class="text-sm">{{ $t('app.storedDataUnreadable') }}</p>
     <pre class="max-h-[50vh] w-full max-w-2xl overflow-auto rounded-lg border border-edge bg-surface p-3 text-xs">{{ bootErrorMessage }}</pre>
-    <button class="rounded bg-surface2 px-3 py-1.5 text-sm hover:opacity-80" @click="reload">{{ $t('app.retry') }}</button>
+    <UiButton @click="reload">{{ $t('app.retry') }}</UiButton>
   </div>
   <div v-else-if="bootState === 'serverError'" class="flex h-dvh flex-col items-center justify-center gap-3 bg-app p-6 text-base">
     <p class="text-sm">{{ $t('app.serverUnavailable') }}</p>
     <pre class="max-h-[50vh] w-full max-w-2xl overflow-auto rounded-lg border border-edge bg-surface p-3 text-xs">{{ serverErrorMessage }}</pre>
-    <button class="rounded bg-surface2 px-3 py-1.5 text-sm hover:opacity-80" @click="loadSettings">{{ $t('app.retry') }}</button>
+    <UiButton @click="loadSettings">{{ $t('app.retry') }}</UiButton>
   </div>
   <div v-else-if="bootState === 'loading'" class="flex h-dvh items-center justify-center bg-app text-muted">
     {{ $t('app.loading') }}
@@ -93,5 +95,6 @@ async function onAuthed({ config_errors: errors, ...settings }) {
     </TabsRoot>
   </div>
   <ConfirmModal />
+  </TooltipProvider>
   </ConfigProvider>
 </template>

@@ -22,12 +22,17 @@
     "export": "Export",
     "import": "Import",
     "restore": "Restore",
+    "decrease": "Decrease",
+    "increase": "Increase",
+    "openOptions": "Open options",
+    "noResults": "No results",
     "actions": "Actions",
     "name": "Name",
     "none": "None",
     "stop": "Stop",
     "send": "Send",
     "language": "Language",
+    "settings": "Settings",
     "cards": "Cards",
     "workspace": "Workspace",
     "inactive": "Inactive",
@@ -35,6 +40,7 @@
   },
   "settings": {
     "intro": "Conversations inherit these defaults unless they override them. Saved in this browser.",
+    "inheritGlobal": "Use the global default",
     "utilityModel": "Utility model (titles, memory, cards & revisions)",
     "temperature": "Temperature: {value}",
     "messagesToSend": "Messages to send",
@@ -134,6 +140,7 @@
     "modelEmpty": "The model returned nothing"
   },
   "message": {
+    "role": "Message role",
     "roleSystem": "system",
     "roleUser": "user",
     "roleAssistant": "assistant",
@@ -186,12 +193,14 @@
   },
   "chat": {
     "template": "template",
+    "conversationTitle": "Conversation title",
     "regenerateTitle": "Regenerate title",
     "scrollBottom": "Scroll to bottom",
     "researchOn": "Sends start research runs; click for normal chat",
     "researchOff": "Sends chat normally; click to make them research runs",
     "research": "Research",
     "contextEditor": "Context editor",
+    "tools": "Conversation tools",
     "conversationSettings": "Conversation settings",
     "removeImage": "Remove image",
     "researchRunning": "Research is running in this conversation…",
@@ -216,6 +225,7 @@
     "image": "Image"
   },
   "sidebar": {
+    "navigation": "Main navigation",
     "chat": "Chat",
     "research": "Research",
     "workspaces": "Workspaces",

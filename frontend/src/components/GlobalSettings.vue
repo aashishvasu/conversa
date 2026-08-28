@@ -7,6 +7,11 @@ import { locales, setLocale, tr } from '../i18n.js'
 import { restoreTheme } from '../utils/theme.js'
 import { confirmDelete } from '../utils/confirm.js'
 import ModelSelect from './ModelSelect.vue'
+import UiButton from './ui/UiButton.vue'
+import UiNumberField from './ui/UiNumberField.vue'
+import UiSelect from './ui/UiSelect.vue'
+import UiSlider from './ui/UiSlider.vue'
+import UiSwitch from './ui/UiSwitch.vue'
 
 // Edits the global defaults inherited by conversations without an override.
 const g = globalSettings // ref auto-unwraps in template
@@ -57,96 +62,79 @@ async function onRestoreFile(e) {
   <div class="space-y-4 text-sm">
     <div>
       <label class="mb-1 block text-muted">{{ $t('common.language') }}</label>
-      <select :value="locale" class="w-full rounded bg-surface2 px-2 py-1" @change="setLocale($event.target.value)">
-        <option v-for="(label, id) in locales" :key="id" :value="id">{{ label }}</option>
-      </select>
+      <UiSelect :model-value="locale" :aria-label="$t('common.language')" :options="Object.entries(locales).map(([value, label]) => ({ value, label }))" @update:model-value="setLocale" />
     </div>
 
     <p class="text-muted">{{ $t('settings.intro') }}</p>
 
     <div>
       <label class="mb-1 block text-muted">{{ $t('common.model') }}</label>
-      <ModelSelect :model-value="g.model" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setGlobal('model', $event)" />
+      <ModelSelect :model-value="g.model" :label="$t('common.model')" @update:model-value="setGlobal('model', $event)" />
     </div>
 
     <div>
       <label class="mb-1 block text-muted">{{ $t('settings.utilityModel') }}</label>
-      <ModelSelect :model-value="g.utility_model" class="w-full rounded bg-surface2 px-2 py-1" @update:model-value="setGlobal('utility_model', $event)" />
+      <ModelSelect :model-value="g.utility_model" :label="$t('settings.utilityModel')" @update:model-value="setGlobal('utility_model', $event)" />
     </div>
 
     <div>
       <label class="mb-1 block text-muted">{{ $t('settings.temperature', { value: g.temperature }) }}</label>
-      <input
-        v-model.number="g.temperature" type="range" min="0" max="1" step="0.1"
-        class="w-full" @change="persistGlobal"
-      />
+      <UiSlider v-model="g.temperature" :label="$t('settings.temperature', { value: g.temperature })" :min="0" :max="1" :step="0.1" @value-commit="persistGlobal" />
     </div>
 
     <div>
       <label class="mb-1 block text-muted">{{ $t('settings.messagesToSend') }}</label>
-      <input
-        v-model.number="g.num_messages_to_send" type="number" min="1"
-        class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal"
-      />
+      <UiNumberField :model-value="g.num_messages_to_send" :label="$t('settings.messagesToSend')" :min="1" @update:model-value="setGlobal('num_messages_to_send', $event)" />
     </div>
 
     <div>
       <label class="mb-1 block text-muted">{{ $t('settings.maxTokens') }}</label>
-      <input
-        v-model.number="g.max_tokens" type="number" min="1"
-        class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal"
-      />
+      <UiNumberField :model-value="g.max_tokens" :label="$t('settings.maxTokens')" :min="1" @update:model-value="setGlobal('max_tokens', $event)" />
     </div>
 
     <div>
       <label class="mb-1 block text-muted">{{ $t('settings.thinkingEffort') }}</label>
-      <select v-model="g.effort" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal">
-        <option v-for="level in EFFORT_LEVELS" :key="level" :value="level">{{ $t(`effort.${level || 'off'}`) }}</option>
-      </select>
+      <UiSelect
+        :model-value="g.effort"
+        :aria-label="$t('settings.thinkingEffort')"
+        :options="EFFORT_LEVELS.map(value => ({ value, label: $t(`effort.${value || 'off'}`) }))"
+        @update:model-value="setGlobal('effort', $event)"
+      />
     </div>
 
-    <label class="flex items-center gap-2">
-      <input v-model="g.send_system_prompt" type="checkbox" @change="persistGlobal" />
-      {{ $t('settings.sendSystem') }}
-    </label>
+    <UiSwitch v-model="g.send_system_prompt" :label="$t('settings.sendSystem')" @update:model-value="persistGlobal" />
 
-    <label class="flex items-center gap-2">
-      <input v-model="g.use_memory" type="checkbox" @change="persistGlobal" />
-      {{ $t('settings.compressHistory') }}
-    </label>
+    <UiSwitch v-model="g.use_memory" :label="$t('settings.compressHistory')" @update:model-value="persistGlobal" />
 
     <div>
       <label class="mb-1 block text-muted">{{ $t('settings.messagesToSummarise') }}</label>
-      <input v-model.number="g.summarize_n" type="number" min="1" step="1" class="w-full rounded bg-surface2 px-2 py-1" @change="persistGlobal" />
+      <UiNumberField :model-value="g.summarize_n" :label="$t('settings.messagesToSummarise')" :min="1" @update:model-value="setGlobal('summarize_n', $event)" />
     </div>
 
-    <label class="flex items-center gap-2">
-      <input v-model="g.use_recall" type="checkbox" @change="persistGlobal" />
-      {{ $t('settings.recall') }}
-    </label>
+    <UiSwitch v-model="g.use_recall" :label="$t('settings.recall')" @update:model-value="persistGlobal" />
 
-    <label class="flex items-center gap-2" :class="!cacheSupported && 'opacity-50'" :title="cacheSupported ? '' : $t('settings.cacheUnsupported', { model: g.model })">
-      <input v-model="g.use_cache" type="checkbox" :disabled="!cacheSupported" @change="persistGlobal" />
-      {{ $t('settings.cache') }}
-    </label>
+    <UiSwitch
+      v-model="g.use_cache"
+      :label="$t('settings.cache')"
+      :help="cacheSupported ? '' : $t('settings.cacheUnsupported', { model: g.model })"
+      :disabled="!cacheSupported"
+      @update:model-value="persistGlobal"
+    />
 
     <hr class="border-edge" />
     <p class="text-muted">{{ $t('settings.appearance') }}</p>
 
     <div>
       <label class="mb-1 block text-muted">{{ $t('settings.fontSize', { size: Math.round(fontScale * 100) }) }}</label>
-      <input v-model.number="fontScale" type="range" min="0.8" max="1.4" step="0.05" class="w-full" />
+      <UiSlider v-model="fontScale" :label="$t('settings.fontSize', { size: Math.round(fontScale * 100) })" :min="0.8" :max="1.4" :step="0.05" />
     </div>
 
-    <label class="flex items-center gap-2">
-      <input v-model="enterToSend" type="checkbox" />
-      {{ $t('settings.enterSends') }}
-    </label>
+    <UiSwitch v-model="enterToSend" :label="$t('settings.enterSends')" />
 
     <div>
       <label class="mb-1 block text-muted">{{ $t('settings.backup') }}</label>
       <div class="flex gap-2">
-        <button class="flex-1 rounded bg-surface2 py-2 hover:opacity-80" @click="downloadExport()">{{ $t('common.export') }}</button>
+        <UiButton class="flex-1" @click="downloadExport()">{{ $t('common.export') }}</UiButton>
         <!-- native file input, hidden inside the label so the button triggers the picker -->
         <label class="flex-1 cursor-pointer rounded bg-surface2 py-2 text-center hover:opacity-80">
           {{ $t('common.import') }}

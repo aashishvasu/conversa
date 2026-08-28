@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { fetchSettings, login } from '../api/client.js'
+import UiButton from '../components/ui/UiButton.vue'
 
 const emit = defineEmits(['authenticated'])
 const pw = ref('')
@@ -23,7 +24,7 @@ async function submit() {
 
 <template>
   <div class="flex h-dvh items-center justify-center bg-app text-base">
-    <form class="w-80 space-y-4 rounded-lg bg-surface p-6 shadow-lg" @submit.prevent="submit">
+    <form class="w-80 space-y-4 rounded-xl border border-edge bg-surface p-6 shadow-xl" @submit.prevent="submit">
       <div class="flex flex-col items-center gap-2">
         <img src="/logo.png" alt="conversa" class="h-16 w-16" />
         <h1 class="text-xl font-semibold">conversa</h1>
@@ -33,16 +34,12 @@ async function submit() {
         type="password"
         :placeholder="$t('login.password')"
         autofocus
-        class="w-full rounded bg-surface2 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+        class="h-10 w-full rounded-md border border-edge bg-surface2 px-3 outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-app"
       />
-      <p v-if="error" class="text-sm text-red-500">{{ error }}</p>
-      <button
-        type="submit"
-        :disabled="busy"
-        class="w-full rounded bg-indigo-600 py-2 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-      >
+      <p v-if="error" class="text-sm text-danger">{{ error }}</p>
+      <UiButton type="submit" variant="primary" class="w-full" :loading="busy">
         {{ busy ? $t('login.checking') : $t('login.unlock') }}
-      </button>
+      </UiButton>
     </form>
   </div>
 </template>

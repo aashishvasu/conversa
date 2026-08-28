@@ -22,12 +22,17 @@
     "export": "Esporta",
     "import": "Importa",
     "restore": "Ripristina",
+    "decrease": "Diminuisci",
+    "increase": "Aumenta",
+    "openOptions": "Apri le opzioni",
+    "noResults": "Nessun risultato",
     "actions": "Azioni",
     "name": "Nome",
     "none": "Nessuno",
     "stop": "Interrompi",
     "send": "Invia",
     "language": "Lingua",
+    "settings": "Impostazioni",
     "cards": "Schede",
     "workspace": "Spazio di lavoro",
     "inactive": "Inattiva",
@@ -35,6 +40,7 @@
   },
   "settings": {
     "intro": "Le conversazioni usano queste impostazioni, salvo modifiche specifiche. Vengono salvate in questo browser.",
+    "inheritGlobal": "Usa il valore globale",
     "utilityModel": "Modello di servizio (titoli, memoria, schede e revisioni)",
     "temperature": "Temperatura: {value}",
     "messagesToSend": "Messaggi da inviare",
@@ -134,6 +140,7 @@
     "modelEmpty": "Il modello non ha restituito nulla"
   },
   "message": {
+    "role": "Ruolo del messaggio",
     "roleSystem": "sistema",
     "roleUser": "utente",
     "roleAssistant": "assistente",
@@ -186,12 +193,14 @@
   },
   "chat": {
     "template": "modello",
+    "conversationTitle": "Titolo della conversazione",
     "regenerateTitle": "Rigenera titolo",
     "scrollBottom": "Vai in fondo",
     "researchOn": "Gli invii avviano ricerche; fai clic per tornare alla chat normale",
     "researchOff": "Gli invii sono messaggi normali; fai clic per avviare ricerche",
     "research": "Ricerca",
     "contextEditor": "Contesto",
+    "tools": "Strumenti di conversazione",
     "conversationSettings": "Impostazioni conversazione",
     "removeImage": "Rimuovi immagine",
     "researchRunning": "È in corso una ricerca in questa conversazione…",
@@ -216,6 +225,7 @@
     "image": "Immagine"
   },
   "sidebar": {
+    "navigation": "Navigazione principale",
     "chat": "Chat",
     "research": "Ricerca",
     "workspaces": "Spazi di lavoro",

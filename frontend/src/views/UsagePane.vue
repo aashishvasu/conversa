@@ -2,6 +2,8 @@
 import { Menu } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import SpendBadge from '../components/SpendBadge.vue'
+import UiButton from '../components/ui/UiButton.vue'
+import UiIconButton from '../components/ui/UiIconButton.vue'
 import { sidebarOpen } from '../state/store.js'
 import { usageDays, usageRows } from '../state/usage.js'
 
@@ -18,7 +20,7 @@ function clearRange() {
 <template>
   <main class="flex min-w-0 flex-1 flex-col bg-app">
     <header class="flex items-center gap-2 border-b border-edge px-3 py-2">
-      <button class="rounded p-1.5 hover:bg-surface2 md:hidden" :title="$t('sidebar.menu')" @click="sidebarOpen = true"><Menu :size="16" /></button>
+      <UiIconButton class="md:hidden" :label="$t('sidebar.menu')" @click="sidebarOpen = true"><Menu :size="16" /></UiIconButton>
       <div>
         <p class="text-sm font-medium">{{ $t('usage.title') }}</p>
         <p class="text-xs text-muted">{{ $t('usage.subtitle') }}</p>
@@ -29,17 +31,17 @@ function clearRange() {
       <div class="mx-auto max-w-5xl space-y-4">
         <div class="flex flex-wrap items-end gap-3 text-sm">
           <label class="grid gap-1 text-xs text-muted">{{ $t('usage.from') }}
-            <input v-model="start" :max="end || undefined" type="date" class="rounded bg-surface2 px-2 py-1.5 text-sm text-base outline-none" />
+            <input v-model="start" :max="end || undefined" type="date" class="h-9 rounded-md border border-edge bg-surface2 px-2 text-sm text-base outline-none focus-visible:ring-2 focus-visible:ring-focus" />
           </label>
           <label class="grid gap-1 text-xs text-muted">{{ $t('usage.to') }}
-            <input v-model="end" :min="start || undefined" type="date" class="rounded bg-surface2 px-2 py-1.5 text-sm text-base outline-none" />
+            <input v-model="end" :min="start || undefined" type="date" class="h-9 rounded-md border border-edge bg-surface2 px-2 text-sm text-base outline-none focus-visible:ring-2 focus-visible:ring-focus" />
           </label>
-          <button v-if="start || end" class="rounded px-2 py-1.5 text-sm text-muted hover:bg-surface2 hover:text-base" @click="clearRange">{{ $t('usage.allTime') }}</button>
+          <UiButton v-if="start || end" size="compact" variant="ghost" @click="clearRange">{{ $t('usage.allTime') }}</UiButton>
         </div>
 
-        <p v-if="rangeError" class="text-sm text-red-500" role="alert">{{ $t('usage.badRange') }}</p>
+        <p v-if="rangeError" class="text-sm text-danger" role="alert">{{ $t('usage.badRange') }}</p>
         <p v-else-if="!rows.length" class="py-12 text-center text-sm text-muted">{{ $t('usage.empty') }}</p>
-        <div v-else class="overflow-x-auto rounded border border-edge">
+        <div v-else class="overflow-x-auto rounded-lg border border-edge bg-surface">
           <table class="w-full text-left text-sm">
             <thead class="border-b border-edge bg-surface2 text-xs uppercase tracking-wide text-muted">
               <tr><th scope="col" class="px-3 py-2 font-medium">{{ $t('common.model') }}</th><th scope="col" class="px-3 py-2 font-medium">{{ $t('usage.kind') }}</th><th scope="col" class="px-3 py-2 font-medium">{{ $t('usage.usage') }}</th></tr>

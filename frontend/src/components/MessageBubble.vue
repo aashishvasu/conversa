@@ -1,8 +1,13 @@
 <script setup>
 import { Bot, Check, ChevronRight, Cog, Copy, FileText, Pencil, Pin, RotateCcw, Trash2, User, X } from '@lucide/vue'
 import { ref } from 'vue'
+import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger, ToolbarRoot } from 'reka-ui'
 import { formatTime } from '../utils/format.js'
 import { renderMarkdown } from '../utils/md.js'
+import UiIconButton from './ui/UiIconButton.vue'
+import UiSelect from './ui/UiSelect.vue'
+import UiToolbarButton from './ui/UiToolbarButton.vue'
+import UiTooltip from './ui/UiTooltip.vue'
 
 const props = defineProps({
   message: { type: Object, required: true },
@@ -20,8 +25,8 @@ const copied = ref(false)
 const promoted = ref(false)
 
 function bubbleClass(role) {
-  if (role === 'user') return 'bg-indigo-600 text-white'
-  if (role === 'system') return 'border border-amber-600/40 bg-surface'
+  if (role === 'user') return 'bg-accent text-on-accent'
+  if (role === 'system') return 'border border-warning/40 bg-surface'
   return 'bg-surface2'
 }
 function rowAlign(role) {
@@ -50,39 +55,47 @@ function promote() {
 
 <template>
   <!-- Render the live trace as soon as search or thinking events arrive. -->
-  <div v-if="trace && trace.length" class="mb-1 text-xs text-muted">
-    <button class="flex items-center gap-0.5 hover:text-base" @click.stop="emit('toggle-trace')">
+  <CollapsibleRoot v-if="trace && trace.length" :open="traceOpen" class="mb-1 text-xs text-muted" @update:open="$event !== traceOpen && emit('toggle-trace')">
+    <CollapsibleTrigger class="flex items-center gap-0.5 rounded-sm outline-none hover:text-base focus-visible:ring-2 focus-visible:ring-focus">
       <ChevronRight :size="12" class="transition-transform" :class="traceOpen && 'rotate-90'" />
       {{ $t('message.steps', trace.length, { count: trace.length }) }}
-    </button>
-    <div v-if="traceOpen" class="mt-1 flex flex-col gap-2 border-l-2 border-indigo-500/40 pl-2">
+    </CollapsibleTrigger>
+    <CollapsibleContent class="mt-1 flex flex-col gap-2 border-l-2 border-accent/40 pl-2">
       <div v-for="(s, i) in trace" :key="i">
         <div class="text-[10px] uppercase tracking-wide opacity-60">{{ s.type }}</div>
         <div v-if="s.type === 'results'" class="flex flex-col gap-0.5">
-          <a v-for="(l, j) in s.links" :key="j" :href="l.url" target="_blank" rel="noopener" class="truncate text-indigo-400 hover:underline">{{ l.title || l.url }}</a>
+          <a v-for="(l, j) in s.links" :key="j" :href="l.url" target="_blank" rel="noopener" class="truncate text-accent hover:underline">{{ l.title || l.url }}</a>
         </div>
         <div v-else class="whitespace-pre-wrap [overflow-wrap:anywhere]">{{ s.text }}</div>
       </div>
-    </div>
-  </div>
+    </CollapsibleContent>
+  </CollapsibleRoot>
   <div class="group">
-    <div v-if="windowStart" class="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-wide text-indigo-400" :title="$t('message.sendBoundary')">
-      <div class="h-px flex-1 bg-indigo-500/40"></div>
-      {{ $t('message.sentFromHere') }}
-      <div class="h-px flex-1 bg-indigo-500/40"></div>
-    </div>
+    <UiTooltip v-if="windowStart" :content="$t('message.sendBoundary')">
+      <div class="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-wide text-accent">
+        <div class="h-px flex-1 bg-accent/40"></div>
+        {{ $t('message.sentFromHere') }}
+        <div class="h-px flex-1 bg-accent/40"></div>
+      </div>
+    </UiTooltip>
     <!-- edit mode -->
     <div v-if="editing" class="rounded-lg border border-edge bg-surface p-2">
       <div class="mb-2 flex items-center gap-2">
-        <select v-model="message.role" class="rounded bg-surface2 px-2 py-1 text-xs">
-          <option value="system">{{ $t('message.roleSystem') }}</option>
-          <option value="user">{{ $t('message.roleUser') }}</option>
-          <option value="assistant">{{ $t('message.roleAssistant') }}</option>
-        </select>
-        <button class="ml-auto rounded p-1.5 text-muted hover:bg-surface2 hover:text-base" :title="$t('message.cancelEdit')" @click="emit('cancel-edit')"><X :size="14" /></button>
-        <button class="rounded bg-indigo-600 p-1.5 text-white hover:bg-indigo-500" :title="$t('message.doneEditing')" @click="emit('done-edit')"><Check :size="14" /></button>
+        <UiSelect
+          v-model="message.role"
+          :aria-label="$t('message.role')"
+          :options="[
+            { value: 'system', label: $t('message.roleSystem') },
+            { value: 'user', label: $t('message.roleUser') },
+            { value: 'assistant', label: $t('message.roleAssistant') },
+          ]"
+          compact
+          class="!w-36"
+        />
+        <UiIconButton class="ml-auto" :label="$t('message.cancelEdit')" @click="emit('cancel-edit')"><X :size="14" /></UiIconButton>
+        <UiIconButton :label="$t('message.doneEditing')" variant="primary" @click="emit('done-edit')"><Check :size="14" /></UiIconButton>
       </div>
-      <textarea v-model="message.content" rows="5" class="w-full rounded bg-surface2 px-3 py-2 text-sm outline-none"></textarea>
+      <textarea v-model="message.content" rows="5" class="w-full rounded-md border border-edge bg-surface2 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus"></textarea>
     </div>
 
     <!-- view mode -->
@@ -92,7 +105,7 @@ function promote() {
         <div class="relative min-w-[11rem] max-w-full rounded-lg px-4 py-2" :class="bubbleClass(message.role)">
           <div class="mb-1 flex items-center gap-1 opacity-60">
             <component :is="ROLE_ICON[message.role]" :size="13" />
-            <Pin v-if="message.pinned" :size="12" class="fill-current text-indigo-400" />
+            <Pin v-if="message.pinned" :size="12" class="fill-current text-accent" />
           </div>
           <div v-if="images.length" class="mb-2 flex gap-2 overflow-x-auto">
             <img v-for="image in images" :key="image.id" :src="`data:${image.media_type};base64,${image.data}`" class="h-20 w-20 rounded object-cover" />
@@ -100,20 +113,20 @@ function promote() {
           <div v-if="message.role === 'system'" class="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm" :class="!message.content && 'italic text-muted'">{{ message.content || $t('message.emptySystem') }}</div>
           <div v-else-if="message.content" class="md [overflow-wrap:anywhere]" v-html="renderMarkdown(message.content)"></div>
           <div v-else class="text-muted">…</div>
-          <div class="absolute -top-3 right-2 hidden gap-0.5 rounded-md border border-edge bg-surface p-0.5 text-muted shadow group-hover:flex" :class="{ '!flex': active }">
-            <button class="rounded p-1 hover:bg-surface2 hover:text-base" :title="$t('message.regenerate')" @click="emit('regenerate')"><RotateCcw :size="14" /></button>
-            <button class="rounded p-1 hover:bg-surface2 hover:text-base" :title="$t('message.edit')" @click="emit('edit')"><Pencil :size="14" /></button>
-            <button v-if="message.role !== 'system'" class="rounded p-1 hover:bg-surface2" :class="message.pinned ? 'text-indigo-400' : 'hover:text-base'" :title="message.pinned ? $t('message.unpin') : $t('message.pin')" @click="togglePin"><Pin :size="14" :class="message.pinned && 'fill-current'" /></button>
-            <button v-if="message.role === 'assistant' && message.content" class="rounded p-1 hover:bg-surface2 hover:text-base" :title="$t('message.saveDoc')" @click="promote">
-              <Check v-if="promoted" :size="14" class="text-green-500" />
+          <ToolbarRoot class="absolute -top-3 right-2 hidden gap-0.5 rounded-md border border-edge bg-surface p-0.5 text-muted shadow group-hover:flex" :class="{ '!flex': active }" :aria-label="$t('common.actions')">
+            <UiToolbarButton :label="$t('message.regenerate')" @click="emit('regenerate')"><RotateCcw :size="14" /></UiToolbarButton>
+            <UiToolbarButton :label="$t('message.edit')" @click="emit('edit')"><Pencil :size="14" /></UiToolbarButton>
+            <UiToolbarButton v-if="message.role !== 'system'" :label="message.pinned ? $t('message.unpin') : $t('message.pin')" :active="message.pinned" @click="togglePin"><Pin :size="14" :class="message.pinned && 'fill-current'" /></UiToolbarButton>
+            <UiToolbarButton v-if="message.role === 'assistant' && message.content" :label="$t('message.saveDoc')" @click="promote">
+              <Check v-if="promoted" :size="14" class="text-success" />
               <FileText v-else :size="14" />
-            </button>
-            <button class="rounded p-1 hover:bg-surface2 hover:text-base" :title="$t('message.copyRaw')" @click="copyMessage">
-              <Check v-if="copied" :size="14" class="text-green-500" />
+            </UiToolbarButton>
+            <UiToolbarButton :label="$t('message.copyRaw')" @click="copyMessage">
+              <Check v-if="copied" :size="14" class="text-success" />
               <Copy v-else :size="14" />
-            </button>
-            <button class="rounded p-1 hover:bg-surface2 hover:text-red-500" :title="$t('message.delete')" @click="emit('delete')"><Trash2 :size="14" /></button>
-          </div>
+            </UiToolbarButton>
+            <UiToolbarButton :label="$t('message.delete')" danger @click="emit('delete')"><Trash2 :size="14" /></UiToolbarButton>
+          </ToolbarRoot>
         </div>
         <div v-if="message.role !== 'system' && message.createdAt" class="mt-0.5 px-1 text-[10px] text-muted">
           {{ formatTime(message.createdAt) }}

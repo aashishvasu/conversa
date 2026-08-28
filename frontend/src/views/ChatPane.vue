@@ -1,6 +1,7 @@
 <script setup>
 import { Bot, Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Paperclip, Plus, RotateCcw, Send, SlidersHorizontal, Square, Telescope, X } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { EditableArea, EditableInput, EditablePreview, EditableRoot, Toggle, ToolbarRoot } from 'reka-ui'
 import { streamChat } from '../api/client.js'
 import { useStreamGuard } from '../composables/useStreamGuard.js'
 import { refreshMemory } from '../jobs/memory.js'
@@ -21,6 +22,10 @@ import ModelSelect from '../components/ModelSelect.vue'
 import ResearchBlock from '../components/ResearchBlock.vue'
 import Modal from '../components/Modal.vue'
 import SpendBadge from '../components/SpendBadge.vue'
+import UiButton from '../components/ui/UiButton.vue'
+import UiIconButton from '../components/ui/UiIconButton.vue'
+import UiSelect from '../components/ui/UiSelect.vue'
+import UiToolbarButton from '../components/ui/UiToolbarButton.vue'
 import ContextPanel from '../components/ContextPanel.vue'
 import SettingsPanel from '../components/SettingsPanel.vue'
 
@@ -350,26 +355,26 @@ async function regenTitle() {
   <section v-if="convo" class="flex flex-1 flex-col overflow-hidden bg-app text-base">
     <!-- Top bar -->
     <header class="flex items-center gap-2 border-b border-edge px-3 py-2.5">
-      <button class="rounded p-1.5 hover:bg-surface2 md:hidden" @click="sidebarOpen = true">
-        <Menu :size="18" />
-      </button>
-      <input
-        v-model="convo.title"
-        class="min-w-0 flex-1 truncate bg-transparent text-base font-semibold outline-none"
-      />
-      <button class="rounded p-1.5 text-muted hover:bg-surface2 hover:text-base disabled:opacity-50" :title="$t('chat.regenerateTitle')" :disabled="titling" @click="regenTitle">
+      <UiIconButton class="md:hidden" :label="$t('sidebar.menu')" @click="sidebarOpen = true"><Menu :size="18" /></UiIconButton>
+      <EditableRoot v-model="convo.title" activation-mode="focus" submit-mode="both" select-on-focus class="min-w-0 flex-1">
+        <EditableArea class="rounded-sm focus-within:ring-2 focus-within:ring-focus">
+          <EditablePreview class="block truncate rounded-sm text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-focus" />
+          <EditableInput :aria-label="$t('chat.conversationTitle')" class="w-full bg-transparent text-base font-semibold outline-none" />
+        </EditableArea>
+      </EditableRoot>
+      <UiIconButton :label="$t('chat.regenerateTitle')" :disabled="titling" @click="regenTitle">
         <RotateCcw :size="15" :class="titling && 'animate-spin'" />
-      </button>
-      <span v-if="convo.isTemplate" class="rounded bg-amber-600/20 px-1.5 py-0.5 text-[10px] uppercase text-amber-600">{{ $t('chat.template') }}</span>
+      </UiIconButton>
+      <span v-if="convo.isTemplate" class="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] uppercase text-warning">{{ $t('chat.template') }}</span>
     </header>
 
     <!-- Messages -->
     <div class="relative flex-1 overflow-hidden">
       <div ref="scroller" class="h-full space-y-3 overflow-y-auto px-3 py-6 sm:px-4" @scroll="onScroll" @click="onContentClick">
         <div v-if="convo.messages.length > visibleCount" class="flex justify-center">
-          <button class="rounded px-3 py-1 text-xs text-muted hover:bg-surface2 hover:text-base" @click="visibleCount += PAGE_SIZE">
+          <UiButton size="compact" variant="ghost" @click="visibleCount += PAGE_SIZE">
             {{ $t('chat.loadMore', { count: PAGE_SIZE, older: convo.messages.length - visibleCount }) }}
-          </button>
+          </UiButton>
         </div>
         <!-- The component boundary scopes re-renders: streaming one message re-renders only its own bubble, so it doesn't re-parse markdown for every other visible message. -->
         <template v-for="m in visibleMessages" :key="m.id">
@@ -395,68 +400,70 @@ async function regenTitle() {
         </template>
 
         <div class="flex justify-center">
-          <button class="flex items-center gap-1 rounded px-3 py-1 text-xs text-muted hover:bg-surface2 hover:text-base" @click="addMessage">
+          <UiButton size="compact" variant="ghost" @click="addMessage">
             <Plus :size="14" /> {{ $t('chat.addMessage') }}
-          </button>
+          </UiButton>
         </div>
       </div>
 
-      <button
+      <UiIconButton
         v-if="!atBottom"
-        class="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-edge bg-surface p-2 text-muted shadow-lg hover:text-base"
-        :title="$t('chat.scrollBottom')"
+        class="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-edge bg-surface shadow-lg"
+        :label="$t('chat.scrollBottom')"
         @click="scrollDown"
       >
         <ChevronDown :size="18" />
-      </button>
+      </UiIconButton>
     </div>
 
     <!-- Toolbar + composer -->
     <div class="border-t border-edge">
       <div class="flex items-center gap-2 px-3 py-1.5">
-        <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" :title="$t('common.model')">
-          <Bot :size="14" />
+        <div class="flex min-w-0 items-center gap-1 text-muted">
+          <Bot :size="14" class="shrink-0" />
           <ModelSelect
             :model-value="effectiveSettings(convo).model"
-            class="max-w-[9rem] bg-transparent py-1 pr-1 text-xs text-base outline-none"
+            :label="$t('common.model')"
+            class="max-w-[9rem]"
+            compact
             @update:model-value="setModel"
           />
         </div>
-        <div class="flex items-center gap-1 rounded bg-surface2 pl-2 text-muted" :title="$t('settings.thinkingEffort')">
-          <Brain :size="14" />
-          <select
-            :value="effectiveSettings(convo).effort || ''"
-            class="bg-transparent py-1 pr-1 text-xs text-base outline-none"
-            @change="setThinking($event.target.value)"
-          >
-            <option v-for="level in EFFORT_LEVELS" :key="level" :value="level">{{ $t(`effort.${level || 'off'}`) }}</option>
-          </select>
+        <div class="flex items-center gap-1 text-muted">
+          <Brain :size="14" class="shrink-0" />
+          <UiSelect
+            :model-value="effectiveSettings(convo).effort || ''"
+            :aria-label="$t('settings.thinkingEffort')"
+            :options="EFFORT_LEVELS.map(value => ({ value, label: $t(`effort.${value || 'off'}`) }))"
+            compact
+            class="!w-24"
+            @update:model-value="setThinking"
+          />
         </div>
-        <button
-          class="flex items-center gap-1 rounded px-2 py-1 text-xs"
-          :class="researchMode ? 'bg-indigo-600 text-white' : 'bg-surface2 text-muted hover:text-base'"
-          :title="researchMode ? $t('chat.researchOn') : $t('chat.researchOff')"
-          @click="toggleResearch"
+        <Toggle
+          :model-value="researchMode"
+          class="flex h-8 items-center gap-1 rounded-md border border-edge bg-surface2 px-2 text-xs text-muted outline-none transition-colors hover:bg-edge hover:text-base data-[state=on]:border-accent data-[state=on]:bg-accent data-[state=on]:text-on-accent focus-visible:ring-2 focus-visible:ring-focus"
+          :aria-label="researchMode ? $t('chat.researchOn') : $t('chat.researchOff')"
+          @update:model-value="toggleResearch"
         >
           <Telescope :size="14" /> {{ $t('chat.research') }}
-        </button>
-        <span v-if="convoSpend.calls" class="rounded bg-surface2 px-2 py-1 text-xs text-muted">
+        </Toggle>
+        <span v-if="convoSpend.calls" class="inline-flex h-8 items-center rounded bg-surface2 px-2 text-xs text-muted">
           <SpendBadge :spend="convoSpend" />
         </span>
-        <div class="ml-auto flex gap-1">
-          <button class="rounded p-1.5 hover:bg-surface2" :title="$t('chat.contextEditor')" @click="panel = 'context'"><NotebookText :size="16" /></button>
-          <button class="rounded p-1.5 hover:bg-surface2" :title="$t('common.cards')" @click="panel = 'cards'"><Layers :size="16" /></button>
-          <button class="rounded p-1.5 hover:bg-surface2" :title="$t('chat.conversationSettings')" @click="panel = 'settings'"><SlidersHorizontal :size="16" /></button>
-          <!-- debug peek, deliberately lighter weight than the real panels -->
-          <button class="rounded p-1.5 opacity-50 hover:bg-surface2 hover:opacity-100" :title="$t('debug.button')" @click="panel = 'debug'"><Bug :size="16" /></button>
-        </div>
+        <ToolbarRoot class="ml-auto flex gap-0.5" :aria-label="$t('chat.tools')">
+          <UiToolbarButton :label="$t('chat.contextEditor')" @click="panel = 'context'"><NotebookText :size="16" /></UiToolbarButton>
+          <UiToolbarButton :label="$t('common.cards')" @click="panel = 'cards'"><Layers :size="16" /></UiToolbarButton>
+          <UiToolbarButton :label="$t('chat.conversationSettings')" @click="panel = 'settings'"><SlidersHorizontal :size="16" /></UiToolbarButton>
+          <UiToolbarButton class="opacity-60" :label="$t('debug.button')" @click="panel = 'debug'"><Bug :size="16" /></UiToolbarButton>
+        </ToolbarRoot>
       </div>
       <div class="flex items-stretch gap-2 px-3 pb-3" @dragover.prevent @drop="!researchMode && onDrop($event)">
         <div class="flex min-w-0 flex-1 flex-col gap-2">
           <div v-if="pendingImages.length" class="flex gap-2 overflow-x-auto">
             <div v-for="image in pendingImages" :key="image.id" class="relative shrink-0">
               <img :src="`data:${image.media_type};base64,${image.data}`" class="h-16 w-16 rounded object-cover" />
-              <button class="absolute -right-1 -top-1 rounded-full bg-surface p-0.5" :title="$t('chat.removeImage')" @click="removePending(image)"><X :size="12" /></button>
+              <UiIconButton class="absolute -right-2 -top-2 !size-6 rounded-full border border-edge bg-surface" :label="$t('chat.removeImage')" @click="removePending(image)"><X :size="12" /></UiIconButton>
             </div>
           </div>
           <div class="flex items-stretch gap-2">
@@ -466,21 +473,21 @@ async function regenTitle() {
           rows="2"
           :placeholder="runActive ? $t('chat.researchRunning') : `${researchMode ? $t('chat.researchPrompt') : $t('chat.messagePlaceholder')}  (${composerHint})`"
           :disabled="runActive"
-          class="min-h-16 max-h-40 flex-1 resize-none rounded bg-surface2 px-3 py-2 outline-none disabled:opacity-60"
+          class="min-h-16 max-h-40 flex-1 resize-none rounded-md border border-edge bg-surface2 px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-60"
           @keydown="onComposerKeydown"
           @paste="onPaste"
         ></textarea>
             <input ref="imageInput" type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp" class="hidden" @change="onImageInput" />
-            <button class="rounded bg-surface2 px-3 text-muted hover:text-base disabled:opacity-50" :title="$t('chat.attachImages')" :disabled="researchMode" @click="imageInput.click()"><Paperclip :size="18" /></button>
+            <UiIconButton class="h-auto w-10" :label="$t('chat.attachImages')" :disabled="researchMode" @click="imageInput.click()"><Paperclip :size="18" /></UiIconButton>
           </div>
         </div>
-        <button v-if="!streaming" class="flex items-center justify-center rounded bg-indigo-600 px-4 text-white hover:bg-indigo-500 disabled:opacity-50" :title="researchMode ? $t('chat.startResearch') : $t('common.send')" :disabled="runActive" @click="send">
+        <UiIconButton v-if="!streaming" class="h-auto w-12" variant="primary" :label="researchMode ? $t('chat.startResearch') : $t('common.send')" :disabled="runActive" @click="send">
           <Telescope v-if="researchMode" :size="18" />
           <Send v-else :size="18" />
-        </button>
-        <button v-else class="flex items-center justify-center rounded bg-red-600 px-4 text-white hover:bg-red-500" :title="$t('common.stop')" @click="stop">
+        </UiIconButton>
+        <UiIconButton v-else class="h-auto w-12" variant="dangerSolid" :label="$t('common.stop')" @click="stop">
           <Square :size="18" />
-        </button>
+        </UiIconButton>
       </div>
     </div>
 

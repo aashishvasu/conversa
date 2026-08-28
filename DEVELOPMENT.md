@@ -215,6 +215,12 @@ UI strings live in the catalogs. Conversation content, model output, documents, 
 
 `pnpm lint:i18n` runs Intlify's `no-raw-text` rule over Vue templates. `tools/check.py` runs it before the module self-checks.
 
+### UI controls (`frontend/src/components/ui/`)
+
+Repeated controls compose Reka primitives behind conversa-owned styling: Button, IconButton/Tooltip, Switch, Select, Slider, NumberField, Disclosure, ScrollArea, and ToolbarButton. `style.css` exposes semantic accent, focus, success, warning, and danger tokens for both themes. Feature components consume the shared controls and keep their value/persistence logic.
+
+`ModelSelect.vue` is the grouped, searchable model Combobox. Native date and file inputs stay native. The mobile navigation is a modal left Drawer; the same content is a persistent non-modal sidebar from `md` upward. App.vue's ConfigProvider and TooltipProvider supply locale, direction, and tooltip timing.
+
 ### Frontend module map (`frontend/src/`)
 
 | File | Responsibility |
@@ -238,7 +244,7 @@ UI strings live in the catalogs. Conversation content, model output, documents, 
 | `utils/notify.js` | Reactive app-wide notification queue with keyed dedupe and dismissal; `selfchecks/notify.selfcheck.js` checks its contract. |
 | `views/ChatPane.vue` | The chat window: message list, image-capable composer, toolbar (model + thinking-effort pickers + the Research mode toggle), and the stream loop. A research-mode send appends the request, its linked run, and the placeholder ResearchBlock renders; a running run blocks further sends in that conversation only. Renders the last `PAGE_SIZE` (100) messages with "Load more" (display-only, and separate from what's sent), and marks the send-window start with a divider. |
 | `components/MessageBubble.vue` | One message: image thumbnails, view/edit bubble, pin/copy/delete/regenerate/save-as-document actions, and the live thinking/search trace while it streams (ephemeral, dropped on reload). List and stream mutations stay in ChatPane, behind events. |
-| `components/ModelSelect.vue` | The one model dropdown, rendered in five places. Groups models by provider with native `<optgroup>`. |
+| `components/ModelSelect.vue` | The grouped, searchable Reka Combobox rendered in the composer, settings, and research controls. |
 | `views/Login.vue` | Password prompt shown until a token exists. |
 | `components/ContextPanel.vue` | Edits system + pinned messages together. Also the URL fetch box: a fetched page lands as a system message, so it edits, deletes and sends like any other context. Also the document picker: attach any stored doc to the conversation, detach it, or delete it from the store. |
 | `components/DocRow.vue` | One document row shared by WorkspacePanel and ContextPanel: rendered preview, download, remove, and the revise action (utility model rewrites the text, prior version kept for undo). |
@@ -246,12 +252,13 @@ UI strings live in the catalogs. Conversation content, model output, documents, 
 | `components/CardsPanel.vue` | Card editor with live "active" indicators. For a convo in a workspace, lists the workspace's cards read-only above the convo's own. Also reused by WorkspacePanel as the shared-card editor (a workspace passes as `convo`; its missing messages/settings are guarded). The card builder lives here: pasted text goes to the utility model, and the parsed cards are appended to whichever owner the panel got, which is what makes it work in both scopes. |
 | `components/WorkspacePanel.vue` | Workspace editor for the name, shared prompt, shared cards, and documents (uploaded here, rendered as DocRow rows). |
 | `components/DebugPanel.vue` | Read-only live preview of the assembled `system` param (via `buildPayload`). |
-| `components/SettingsPanel.vue` / `GlobalSettings.vue` | Per-conversation overrides / global defaults. |
+| `components/SettingsPanel.vue` / `GlobalSettings.vue` | Per-conversation overrides / global defaults, built from shared Reka switches, selects, sliders, number fields, and model comboboxes. |
 | `components/Notifications.vue` | App-root renderer for sticky banners and transient Reka toasts. |
-| `views/Sidebar.vue` | The vertical `PaneTabs` rail, then the selected tab's sublist: Chat lists templates and unassigned chat-mode conversations, Research lists research-mode conversations wherever they live, Workspaces lists each workspace row (click to edit; its menu also spawns a member conversation) with its member conversations beneath it, Usage lists nothing. Each list header's + creates its kind. The tabs are views over one conversation list, so a workspace-member research conversation shows under both its workspace and Research. A workspaceId pointing at a deleted or unimported workspace resolves to null, so that conversation lands under Chat. Selecting from the Research or Workspaces list keeps that tab active. The footer holds global settings, theme, and logout. |
+| `views/Sidebar.vue` | One Reka Drawer navigation tree: modal, overlaid, and swipe-dismissable below `md`; persistent and non-modal from `md` upward. The vertical tabs scope lists for Chat, Research, Workspaces, and Usage. The footer holds global settings, the theme switch, and logout. |
 | `components/RowActionsMenu.vue` | Reka `DropdownMenu` behind one "..." trigger per sidebar row. |
 | `components/shell/PaneTabs.vue` | The vertical Chat/Research/Workspaces/Usage `TabsList`, mounted in `Sidebar.vue` inside the `TabsRoot` App.vue wraps around Sidebar and the panes. Each tab scopes the sidebar sublist; Usage swaps the main pane to `UsagePane`, the others show `ChatPane`, which stays mounted so the composer draft survives tab switches. |
 | `views/UsagePane.vue` | Usage ledger table by model and kind, optionally scoped by native From/To date inputs. The pane keeps its range while hidden, so returning from Chat preserves it. |
+| `components/ui/` | Shared conversa control styling and value adapters over Reka primitives. |
 | `components/Modal.vue` / `ConfirmModal.vue` | Reka `Dialog` shell (focus trap, aria wiring) / Reka `AlertDialog` shared delete-confirmation dialog. |
 | `components/SpendBadge.vue` | One spend summary (calls, k tokens, `>$X.XX` with the unpriced tooltip), mounted in the chat footer (`convo.usage`), the research block, and each Usage-pane row. |
 

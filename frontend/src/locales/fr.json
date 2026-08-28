@@ -22,12 +22,17 @@
     "export": "Exporter",
     "import": "Importer",
     "restore": "Restaurer",
+    "decrease": "Diminuer",
+    "increase": "Augmenter",
+    "openOptions": "Ouvrir les options",
+    "noResults": "Aucun résultat",
     "actions": "Actions",
     "name": "Nom",
     "none": "Aucun",
     "stop": "Arrêter",
     "send": "Envoyer",
     "language": "Langue",
+    "settings": "Paramètres",
     "cards": "Fiches",
     "workspace": "Espace de travail",
     "inactive": "Inactive",
@@ -35,6 +40,7 @@
   },
   "settings": {
     "intro": "Les conversations utilisent ces réglages, sauf si elles ont leurs propres valeurs. Ils sont enregistrés dans ce navigateur.",
+    "inheritGlobal": "Utiliser la valeur globale",
     "utilityModel": "Modèle auxiliaire (titres, mémoire, fiches et révisions)",
     "temperature": "Température : {value}",
     "messagesToSend": "Messages à envoyer",
@@ -134,6 +140,7 @@
     "modelEmpty": "Le modèle n'a rien renvoyé"
   },
   "message": {
+    "role": "Rôle du message",
     "roleSystem": "système",
     "roleUser": "utilisateur",
     "roleAssistant": "assistant",
@@ -186,12 +193,14 @@
   },
   "chat": {
     "template": "modèle",
+    "conversationTitle": "Titre de la conversation",
     "regenerateTitle": "Regénérer le titre",
     "scrollBottom": "Aller en bas",
     "researchOn": "Les envois lancent des recherches ; cliquez pour revenir au chat normal",
     "researchOff": "Les envois sont des messages normaux ; cliquez pour lancer des recherches",
     "research": "Recherche",
     "contextEditor": "Contexte",
+    "tools": "Outils de conversation",
     "conversationSettings": "Réglages de la conversation",
     "removeImage": "Retirer l'image",
     "researchRunning": "Une recherche est en cours dans cette conversation…",
@@ -216,6 +225,7 @@
     "image": "Image"
   },
   "sidebar": {
+    "navigation": "Navigation principale",
     "chat": "Chat",
     "research": "Recherche",
     "workspaces": "Espaces de travail",

@@ -10,18 +10,18 @@ defineProps({ actions: { type: Array, required: true } })
 <template>
   <DropdownMenuRoot>
     <DropdownMenuTrigger
-      class="rounded p-1 text-muted opacity-40 hover:bg-surface2 hover:text-base group-hover:opacity-100 pointer-coarse:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-surface2"
-      :title="$t('common.actions')"
+      class="inline-flex size-8 items-center justify-center rounded-md text-muted opacity-40 outline-none hover:bg-surface2 hover:text-base focus-visible:ring-2 focus-visible:ring-focus group-hover:opacity-100 pointer-coarse:opacity-100 data-[state=open]:bg-surface2 data-[state=open]:opacity-100"
+      :aria-label="$t('common.actions')"
     >
       <EllipsisVertical :size="14" />
     </DropdownMenuTrigger>
     <DropdownMenuPortal>
-      <DropdownMenuContent class="z-30 min-w-36 rounded border border-edge bg-surface p-1 text-sm shadow-lg" :side-offset="4" align="end">
+      <DropdownMenuContent class="z-[70] min-w-36 rounded-md border border-edge bg-surface p-1 text-sm shadow-lg" :side-offset="4" align="end">
         <DropdownMenuItem
           v-for="a in actions"
           :key="a.label"
           class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 outline-none data-[highlighted]:bg-surface2"
-          :class="a.danger && 'text-red-500'"
+          :class="a.danger && 'text-danger'"
           @select="a.onSelect"
         >
           <component :is="a.icon" :size="14" />{{ a.label }}

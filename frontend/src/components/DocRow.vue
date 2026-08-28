@@ -6,6 +6,9 @@ import { effectiveSettings } from '../state/settings.js'
 import { downloadText, undoDocRevision, updateDocText } from '../state/store.js'
 import { renderMarkdown } from '../utils/md.js'
 import { tr } from '../i18n.js'
+import UiButton from './ui/UiButton.vue'
+import UiDisclosure from './ui/UiDisclosure.vue'
+import UiIconButton from './ui/UiIconButton.vue'
 
 // One document row: name and size collapsed; markdown preview, download, and the revise action expanded.
 // `owner` is the convo or workspace the row renders under; it supplies the utility model and takes the usage charge, the CardsPanel arrangement.
@@ -44,21 +47,23 @@ async function revise() {
 </script>
 
 <template>
-  <details class="rounded border border-edge">
-    <summary class="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 [&::-webkit-details-marker]:hidden">
+  <UiDisclosure :padded="false">
+    <template #title>
       <span class="min-w-0 flex-1 truncate">{{ doc.name }}</span>
       <span class="shrink-0 text-xs text-muted">{{ $t('common.charCount', { count: (doc.text.length / 1000).toFixed(1) }) }}</span>
-      <button class="shrink-0 text-muted hover:text-base" :title="$t('common.download')" @click.stop.prevent="downloadText(doc.name, doc.text)"><Download :size="14" /></button>
-      <button class="shrink-0 text-muted hover:text-red-500" :title="$t('doc.remove')" @click.stop.prevent="$emit('remove')"><X :size="14" /></button>
-    </summary>
-    <div class="md max-h-96 overflow-y-auto border-t border-edge p-2 [overflow-wrap:anywhere]" v-html="renderMarkdown(doc.text)"></div>
+    </template>
+    <template #actions>
+      <UiIconButton :label="$t('common.download')" @click="downloadText(doc.name, doc.text)"><Download :size="14" /></UiIconButton>
+      <UiIconButton :label="$t('doc.remove')" variant="danger" @click="$emit('remove')"><X :size="14" /></UiIconButton>
+    </template>
+    <div class="md max-h-96 overflow-y-auto p-2 [overflow-wrap:anywhere]" v-html="renderMarkdown(doc.text)"></div>
     <div class="space-y-2 border-t border-edge p-2">
       <div class="flex gap-2">
-        <input v-model="instruction" :placeholder="$t('doc.revisePlaceholder')" class="min-w-0 flex-1 rounded bg-surface2 px-2 py-1 outline-none" @keydown.enter.prevent="revise" />
-        <button class="shrink-0 rounded bg-surface2 px-3 py-1 hover:opacity-80 disabled:opacity-50" :disabled="busy || !instruction.trim()" @click="revise">{{ busy ? $t('doc.revising') : $t('doc.revise') }}</button>
-        <button v-if="doc.versions?.length" class="shrink-0 rounded bg-surface2 px-2 py-1 text-muted hover:opacity-80" :title="$t('doc.undo', { count: doc.versions.length })" @click="undoDocRevision(doc)"><RotateCcw :size="14" /></button>
+        <input v-model="instruction" :placeholder="$t('doc.revisePlaceholder')" class="min-w-0 flex-1 rounded-md border border-edge bg-surface2 px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-focus" @keydown.enter.prevent="revise" />
+        <UiButton size="compact" :loading="busy" :disabled="!instruction.trim()" @click="revise">{{ busy ? $t('doc.revising') : $t('doc.revise') }}</UiButton>
+        <UiIconButton v-if="doc.versions?.length" :label="$t('doc.undo', { count: doc.versions.length })" @click="undoDocRevision(doc)"><RotateCcw :size="14" /></UiIconButton>
       </div>
-      <p v-if="error" class="text-xs text-red-500">{{ error }}</p>
+      <p v-if="error" class="text-xs text-danger">{{ error }}</p>
     </div>
-  </details>
+  </UiDisclosure>
 </template>

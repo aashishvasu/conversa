@@ -1,12 +1,17 @@
 <script setup>
 import { Ban, ChevronDown, CircleCheck, GripVertical, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
+import { ToggleGroupItem, ToggleGroupRoot } from 'reka-ui'
 import { utilityCall } from '../jobs/utility.js'
 import { CARDGEN_SYSTEM, effectiveCards, matchedCardIds, parseGeneratedCards } from '../prompt/cards.js'
 import { effectiveSettings } from '../state/settings.js'
 import { workspaceOf } from '../state/store.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { tr } from '../i18n.js'
+import UiButton from './ui/UiButton.vue'
+import UiDisclosure from './ui/UiDisclosure.vue'
+import UiIconButton from './ui/UiIconButton.vue'
+import UiTooltip from './ui/UiTooltip.vue'
 
 // Also reused by WorkspacePanel with a workspace as `convo`; workspaces have cards but no messages, settings, or workspaceId, so those reads are guarded below.
 const props = defineProps({ convo: Object })
@@ -25,10 +30,10 @@ const active = computed(() => {
 function overrideOf(id) {
   return props.convo.cardOverrides?.[id] || null
 }
-function toggleOverride(e, id, mode) {
-  const ov = (props.convo.cardOverrides ||= {})
-  ov[id] === mode ? delete ov[id] : (ov[id] = mode)
-  e.currentTarget.blur()
+function setOverride(id, mode) {
+  const overrides = (props.convo.cardOverrides ||= {})
+  if (mode) overrides[id] = mode
+  else delete overrides[id]
 }
 
 // Cards grouped by their (display-only) folder path.
@@ -45,8 +50,7 @@ const groups = computed(() => {
   return [...entries.filter(([k]) => k), ...entries.filter(([k]) => !k)]
 })
 
-// Flattened to header + card rows so every <details> shares one parent.
-// Folder edits move the existing node, preserving its open and focus state.
+// WHY: one flat keyed list lets folder edits move a disclosure without losing its open or focus state.
 const rows = computed(() => {
   const out = []
   for (const [path, cards] of groups.value) {
@@ -92,11 +96,8 @@ function onPointerUp() {
   cards.splice(cards.findIndex((c) => c.id === target), 0, moved)
 }
 
-// Tri-state override: click to set, click again to clear back to trigger matching.
-// Blur so the tapped button drops its highlight immediately (touch leaves :focus/:hover stuck).
-function toggleForce(e, card, mode) {
-  card.force = card.force === mode ? null : mode
-  e.currentTarget.blur()
+function setForce(card, mode) {
+  card.force = mode || null
 }
 
 function addCard() {
@@ -159,15 +160,19 @@ async function removeCard(id) {
     <template v-if="ws">
       <p class="px-1 text-xs uppercase text-muted">{{ $t('cards.workspaceCards', { name: ws.name }) }}</p>
       <p v-if="!ws.cards.length" class="px-1 text-xs italic text-muted">{{ $t('cards.noWorkspaceCards') }}</p>
-      <details v-for="c in ws.cards" :key="c.id" class="rounded border" :class="overrideOf(c.id) === 'skip' ? 'border-yellow-500' : active.has(c.id) ? 'border-green-500' : 'border-edge'">
-        <summary class="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 [&::-webkit-details-marker]:hidden">
-          <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(c.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(c.id) ? $t('cards.active') : $t('common.inactive')"></span>
-          <span class="flex-1 truncate text-muted">{{ c.triggers || $t('cards.noTriggers') }}</span>
-          <button class="shrink-0" :class="overrideOf(c.id) === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" :title="$t('cards.alwaysConversation')" @click.stop.prevent="toggleOverride($event, c.id, 'include')"><CircleCheck :size="14" /></button>
-          <button class="shrink-0" :class="overrideOf(c.id) === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" :title="$t('cards.excludeConversation')" @click.stop.prevent="toggleOverride($event, c.id, 'skip')"><Ban :size="14" /></button>
-        </summary>
-        <div class="whitespace-pre-wrap border-t border-edge p-2 text-muted">{{ c.content }}</div>
-      </details>
+      <UiDisclosure v-for="c in ws.cards" :key="c.id" :class="overrideOf(c.id) === 'skip' ? '!border-warning' : active.has(c.id) ? '!border-success' : ''">
+        <template #title>
+          <UiTooltip :content="active.has(c.id) ? $t('cards.active') : $t('common.inactive')"><span class="size-2 shrink-0 rounded-full" :class="active.has(c.id) ? 'bg-success' : 'bg-muted'"></span></UiTooltip>
+          <span class="truncate text-muted">{{ c.triggers || $t('cards.noTriggers') }}</span>
+        </template>
+        <template #actions>
+          <ToggleGroupRoot type="single" :model-value="overrideOf(c.id) || ''" class="flex" @update:model-value="setOverride(c.id, $event)">
+            <UiTooltip :content="$t('cards.alwaysConversation')"><ToggleGroupItem value="include" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-success data-[state=on]:text-success focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.alwaysConversation')"><CircleCheck :size="14" /></ToggleGroupItem></UiTooltip>
+            <UiTooltip :content="$t('cards.excludeConversation')"><ToggleGroupItem value="skip" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-warning data-[state=on]:text-warning focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.excludeConversation')"><Ban :size="14" /></ToggleGroupItem></UiTooltip>
+          </ToggleGroupRoot>
+        </template>
+        <div class="whitespace-pre-wrap text-muted">{{ c.content }}</div>
+      </UiDisclosure>
       <hr class="border-edge" />
     </template>
 
@@ -175,38 +180,41 @@ async function removeCard(id) {
       <p v-if="row.header" class="flex cursor-pointer select-none items-center gap-1 px-1 pt-1 text-xs text-muted" @click="toggleFolder(row.header)">
         <ChevronDown :size="12" class="shrink-0 transition-transform" :class="collapsed.has(row.header) ? '-rotate-90' : ''" />{{ row.header }}
       </p>
-      <details
+      <UiDisclosure
         v-else-if="!collapsed.has(row.path)"
-        class="rounded border"
         :data-card-id="row.card.id"
-        :class="[row.card.force === 'skip' ? 'border-yellow-500' : active.has(row.card.id) ? 'border-green-500' : 'border-edge', dragId === row.card.id ? 'opacity-50' : '', dragId && dragId !== row.card.id && overId === row.card.id ? 'border-t-2 border-t-blue-500' : '']"
+        :class="[row.card.force === 'skip' ? '!border-warning' : active.has(row.card.id) ? '!border-success' : '', dragId === row.card.id ? 'opacity-50' : '', dragId && dragId !== row.card.id && overId === row.card.id ? '!border-t-2 !border-t-accent' : '']"
       >
-        <summary class="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 [&::-webkit-details-marker]:hidden">
-          <span class="shrink-0 cursor-grab touch-none text-muted active:cursor-grabbing" :title="$t('cards.drag')" @click.stop.prevent @pointerdown="onPointerDown($event, row.card.id)" @pointermove="onPointerMove" @pointerup="onPointerUp"><GripVertical :size="14" /></span>
-          <span class="h-2 w-2 shrink-0 rounded-full" :class="active.has(row.card.id) ? 'bg-green-500' : 'bg-muted'" :title="active.has(row.card.id) ? $t('cards.active') : $t('common.inactive')"></span>
-          <span class="flex-1 truncate text-muted">{{ row.card.triggers || $t('cards.noTriggers') }}</span>
-          <button class="shrink-0" :class="row.card.force === 'include' ? 'text-green-500' : 'text-muted hover:text-green-500'" :title="$t('cards.always')" @click.stop.prevent="toggleForce($event, row.card, 'include')"><CircleCheck :size="14" /></button>
-          <button class="shrink-0" :class="row.card.force === 'skip' ? 'text-yellow-500' : 'text-muted hover:text-yellow-500'" :title="$t('cards.exclude')" @click.stop.prevent="toggleForce($event, row.card, 'skip')"><Ban :size="14" /></button>
-          <button class="shrink-0 border-l border-edge pl-2 text-muted hover:text-red-500" :title="$t('cards.delete')" @click.stop.prevent="removeCard(row.card.id)"><X :size="14" /></button>
-        </summary>
-        <div class="space-y-2 border-t border-edge p-2">
-          <input v-model="row.card.path" list="folder-paths" :placeholder="$t('cards.folder')" class="w-full rounded bg-surface2 px-2 py-1 text-xs text-muted" />
-          <input v-model="row.card.triggers" :placeholder="$t('cards.triggerExample')" class="w-full rounded bg-surface2 px-2 py-1" />
-          <textarea v-model="row.card.content" rows="4" :placeholder="$t('cards.contentPlaceholder')" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
+        <template #title>
+          <UiTooltip :content="$t('cards.drag')"><span class="shrink-0 cursor-grab touch-none text-muted active:cursor-grabbing" @click.stop.prevent @pointerdown="onPointerDown($event, row.card.id)" @pointermove="onPointerMove" @pointerup="onPointerUp"><GripVertical :size="14" /></span></UiTooltip>
+          <UiTooltip :content="active.has(row.card.id) ? $t('cards.active') : $t('common.inactive')"><span class="size-2 shrink-0 rounded-full" :class="active.has(row.card.id) ? 'bg-success' : 'bg-muted'"></span></UiTooltip>
+          <span class="truncate text-muted">{{ row.card.triggers || $t('cards.noTriggers') }}</span>
+        </template>
+        <template #actions>
+          <ToggleGroupRoot type="single" :model-value="row.card.force || ''" class="flex" @update:model-value="setForce(row.card, $event)">
+            <UiTooltip :content="$t('cards.always')"><ToggleGroupItem value="include" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-success data-[state=on]:text-success focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.always')"><CircleCheck :size="14" /></ToggleGroupItem></UiTooltip>
+            <UiTooltip :content="$t('cards.exclude')"><ToggleGroupItem value="skip" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-warning data-[state=on]:text-warning focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.exclude')"><Ban :size="14" /></ToggleGroupItem></UiTooltip>
+          </ToggleGroupRoot>
+          <UiIconButton :label="$t('cards.delete')" variant="danger" @click="removeCard(row.card.id)"><X :size="14" /></UiIconButton>
+        </template>
+        <div class="space-y-2">
+          <input v-model="row.card.path" list="folder-paths" :placeholder="$t('cards.folder')" class="w-full rounded-md border border-edge bg-surface2 px-2 py-1 text-xs text-muted outline-none focus-visible:ring-2 focus-visible:ring-focus" />
+          <input v-model="row.card.triggers" :placeholder="$t('cards.triggerExample')" class="w-full rounded-md border border-edge bg-surface2 px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-focus" />
+          <textarea v-model="row.card.content" rows="4" :placeholder="$t('cards.contentPlaceholder')" class="w-full rounded-md border border-edge bg-surface2 px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-focus"></textarea>
         </div>
-      </details>
+      </UiDisclosure>
     </template>
 
-    <button class="w-full rounded bg-surface2 py-2 hover:opacity-80" @click="addCard()">{{ $t('cards.add') }}</button>
+    <UiButton class="w-full" @click="addCard()">{{ $t('cards.add') }}</UiButton>
 
-    <details class="rounded border border-edge">
-      <summary class="cursor-pointer list-none px-2 py-1.5 text-muted [&::-webkit-details-marker]:hidden">{{ $t('cards.generateHeading') }}</summary>
-      <div class="space-y-2 border-t border-edge p-2">
-        <textarea v-model="genText" rows="5" :placeholder="$t('cards.generatePlaceholder')" class="w-full rounded bg-surface2 px-2 py-1"></textarea>
-        <button class="w-full rounded bg-surface2 py-2 hover:opacity-80 disabled:opacity-50" :disabled="genBusy || !genText.trim()" @click="generate()">{{ genBusy ? $t('cards.generating') : $t('cards.generate') }}</button>
-        <p v-if="genError" class="text-xs text-red-500">{{ genError }}</p>
+    <UiDisclosure>
+      <template #title><span class="text-muted">{{ $t('cards.generateHeading') }}</span></template>
+      <div class="space-y-2">
+        <textarea v-model="genText" rows="5" :placeholder="$t('cards.generatePlaceholder')" class="w-full rounded-md border border-edge bg-surface2 px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-focus"></textarea>
+        <UiButton class="w-full" :disabled="genBusy || !genText.trim()" @click="generate()">{{ genBusy ? $t('cards.generating') : $t('cards.generate') }}</UiButton>
+        <p v-if="genError" class="text-xs text-danger">{{ genError }}</p>
       </div>
-    </details>
+    </UiDisclosure>
     <datalist id="folder-paths"><option v-for="p in paths" :key="p" :value="p" /></datalist>
   </div>
 </template>

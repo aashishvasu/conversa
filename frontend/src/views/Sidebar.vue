@@ -1,6 +1,7 @@
 <script setup>
 import { Boxes, CopyPlus, Download, LogOut, MessageSquarePlus, Moon, Plus, SlidersHorizontal, Sun, X } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { DrawerContent, DrawerOverlay, DrawerPortal, DrawerRoot, DrawerTitle } from 'reka-ui'
 import { logout } from '../api/client.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { formatShort } from '../utils/format.js'
@@ -21,19 +22,51 @@ import {
   workspaceOf,
   workspaces,
 } from '../state/store.js'
-import { isDark, toggleTheme } from '../utils/theme.js'
+import { isDark, restoreTheme } from '../utils/theme.js'
 import { tr } from '../i18n.js'
 import GlobalSettings from '../components/GlobalSettings.vue'
 import Modal from '../components/Modal.vue'
 import RowActionsMenu from '../components/RowActionsMenu.vue'
 import PaneTabs from '../components/shell/PaneTabs.vue'
 import WorkspacePanel from '../components/WorkspacePanel.vue'
+import UiButton from '../components/ui/UiButton.vue'
+import UiIconButton from '../components/ui/UiIconButton.vue'
+import UiScrollArea from '../components/ui/UiScrollArea.vue'
+import UiSwitch from '../components/ui/UiSwitch.vue'
+import UiTooltip from '../components/ui/UiTooltip.vue'
 
 const showGlobal = ref(false)
 const editingWs = ref(null) // workspace being edited in the modal, or null
+const desktop = ref(false)
+const drawerOpen = computed(() => desktop.value || sidebarOpen.value)
+let desktopQuery
+
+function syncDesktop(event) {
+  desktop.value = event.matches
+  if (desktop.value) sidebarOpen.value = false
+}
+onMounted(() => {
+  desktopQuery = window.matchMedia('(min-width: 768px)')
+  syncDesktop(desktopQuery)
+  desktopQuery.addEventListener('change', syncDesktop)
+})
+onBeforeUnmount(() => desktopQuery?.removeEventListener('change', syncDesktop))
+
+function setDrawerOpen(open) {
+  if (!desktop.value) sidebarOpen.value = open
+}
 
 function addWorkspace() {
   editingWs.value = createWorkspace()
+  sidebarOpen.value = false
+}
+function editWorkspace(workspace) {
+  editingWs.value = workspace
+  sidebarOpen.value = false
+}
+function openGlobalSettings() {
+  showGlobal.value = true
+  sidebarOpen.value = false
 }
 async function removeWorkspace(w) {
   if (await confirmDelete(tr('confirm.deleteWorkspace', { name: w.name }))) {
@@ -78,18 +111,21 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
 </script>
 
 <template>
-  <!-- Backdrop (mobile only, when open) -->
-  <div v-if="sidebarOpen" class="fixed inset-0 z-10 bg-black/50 md:hidden" @click="sidebarOpen = false"></div>
-
-  <aside
-    class="fixed inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-edge bg-surface text-base transition-transform md:static md:translate-x-0"
-    :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
-  >
+  <DrawerRoot :open="drawerOpen" :modal="!desktop" swipe-direction="left" @update:open="setDrawerOpen">
+    <DrawerPortal :disabled="desktop">
+      <DrawerOverlay v-if="!desktop" class="fixed inset-0 z-40 bg-black/50" />
+      <DrawerContent
+        as="aside"
+        :role="desktop ? 'complementary' : 'dialog'"
+        class="sidebar-drawer fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-edge bg-surface text-base shadow-xl outline-none transition-transform data-[state=closed]:-translate-x-full data-[state=open]:translate-x-0 md:static md:z-auto md:translate-x-0 md:shadow-none"
+      >
+        <DrawerTitle class="sr-only">{{ $t('sidebar.navigation') }}</DrawerTitle>
     <PaneTabs class="m-3" />
     <div class="mx-3 border-t border-edge"></div>
 
     <!-- Chat tab: templates, then conversations -->
-    <div v-if="activePane === 'chat'" class="flex-1 overflow-y-auto p-2">
+    <UiScrollArea v-if="activePane === 'chat'" class="flex-1">
+      <div class="p-2">
       <!-- Templates: click to edit in the chat window; copy to start a conversation; delete -->
       <template v-if="templates.length">
         <p class="px-1 pb-1 text-xs uppercase text-muted">{{ $t('sidebar.templates') }}</p>
@@ -99,7 +135,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
           class="group relative rounded hover:bg-surface2"
           :class="t.id === currentId && 'bg-surface2'"
         >
-          <button class="w-full truncate px-2 py-1.5 pr-8 text-left text-sm" @click="pick(t.id)">{{ t.title }}</button>
+          <button class="w-full truncate rounded-md px-2 py-1.5 pr-8 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="pick(t.id)">{{ t.title }}</button>
           <div class="absolute right-1 top-1.5">
             <RowActionsMenu :actions="[
               { label: tr('sidebar.newFromTemplate'), icon: CopyPlus, onSelect: () => createFromTemplate(t) },
@@ -111,7 +147,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
 
       <p class="flex items-center justify-between px-1 pb-1 text-xs uppercase text-muted" :class="templates.length && 'pt-2'">
         {{ $t('sidebar.conversations') }}
-        <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" :title="$t('sidebar.newConversation')" @click="newConversation"><Plus :size="14" /></button>
+        <UiIconButton class="!size-7" :label="$t('sidebar.newConversation')" @click="newConversation"><Plus :size="14" /></UiIconButton>
       </p>
       <div
         v-for="c in unassigned"
@@ -119,7 +155,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         class="group relative rounded hover:bg-surface2"
         :class="c.id === currentId && 'bg-surface2'"
       >
-        <button class="w-full px-2 py-2 text-left" @click="pick(c.id)">
+        <button class="w-full rounded-md px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="pick(c.id)">
           <div class="truncate pr-8 text-sm">{{ c.title }}</div>
           <div class="mt-0.5 flex justify-between text-[10px] text-muted">
             <span>{{ $t('sidebar.messageCount', c.messages.length, { count: c.messages.length }) }}</span>
@@ -133,13 +169,15 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
           ]" />
         </div>
       </div>
-    </div>
+      </div>
+    </UiScrollArea>
 
     <!-- Research tab: conversations whose composer defaults to research, wherever they live -->
-    <div v-else-if="activePane === 'research'" class="flex-1 overflow-y-auto p-2">
+    <UiScrollArea v-else-if="activePane === 'research'" class="flex-1">
+      <div class="p-2">
       <p class="flex items-center justify-between px-1 pb-1 text-xs uppercase text-muted">
         {{ $t('sidebar.research') }}
-        <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" :title="$t('sidebar.newResearch')" @click="newResearchConversation"><Plus :size="14" /></button>
+        <UiIconButton class="!size-7" :label="$t('sidebar.newResearch')" @click="newResearchConversation"><Plus :size="14" /></UiIconButton>
       </p>
       <div
         v-for="c in researchConvos"
@@ -147,7 +185,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         class="group relative rounded hover:bg-surface2"
         :class="c.id === currentId && 'bg-surface2'"
       >
-        <button class="w-full px-2 py-2 text-left" @click="pickInPlace(c.id)">
+        <button class="w-full rounded-md px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="pickInPlace(c.id)">
           <div class="truncate pr-8 text-sm">{{ c.title }}</div>
           <div class="mt-0.5 flex justify-between text-[10px] text-muted">
             <span>{{ $t('sidebar.messageCount', c.messages.length, { count: c.messages.length }) }}</span>
@@ -162,20 +200,24 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         </div>
       </div>
       <p v-if="!researchConvos.length" class="px-1 text-xs italic text-muted">{{ $t('sidebar.noResearch') }}</p>
-    </div>
+      </div>
+    </UiScrollArea>
 
     <!-- Workspaces tab: each row is the management surface, click to edit (name, shared prompt, docs, cards).
          Convos join a workspace via their settings panel. -->
-    <div v-else-if="activePane === 'workspaces'" class="flex-1 overflow-y-auto p-2">
+    <UiScrollArea v-else-if="activePane === 'workspaces'" class="flex-1">
+      <div class="p-2">
       <p class="flex items-center justify-between px-1 pb-1 text-xs uppercase text-muted">
         {{ $t('sidebar.workspaces') }}
-        <button class="rounded p-0.5 hover:bg-surface2 hover:text-base" :title="$t('sidebar.newWorkspace')" @click="addWorkspace"><Plus :size="14" /></button>
+        <UiIconButton class="!size-7" :label="$t('sidebar.newWorkspace')" @click="addWorkspace"><Plus :size="14" /></UiIconButton>
       </p>
       <template v-for="w in workspaces" :key="w.id">
         <div class="group relative rounded hover:bg-surface2">
-          <button class="flex w-full items-center gap-1.5 truncate px-2 py-1.5 pr-8 text-left text-sm font-medium" :title="$t('sidebar.editWorkspace')" @click="editingWs = w">
-            <Boxes :size="14" class="shrink-0 text-muted" />{{ w.name }}
-          </button>
+          <UiTooltip :content="$t('sidebar.editWorkspace')">
+            <button class="flex w-full items-center gap-1.5 truncate rounded-md px-2 py-1.5 pr-8 text-left text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="editWorkspace(w)">
+              <Boxes :size="14" class="shrink-0 text-muted" />{{ w.name }}
+            </button>
+          </UiTooltip>
           <div class="absolute right-1 top-1.5">
             <RowActionsMenu :actions="[
               { label: tr('sidebar.newHere'), icon: MessageSquarePlus, onSelect: () => newWorkspaceConversation(w) },
@@ -189,7 +231,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
           class="group relative ml-2 rounded hover:bg-surface2"
           :class="c.id === currentId && 'bg-surface2'"
         >
-          <button class="w-full px-2 py-2 text-left" @click="pickInPlace(c.id)">
+          <button class="w-full rounded-md px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="pickInPlace(c.id)">
             <div class="truncate pr-8 text-sm">{{ c.title }}</div>
             <div class="mt-0.5 flex justify-between text-[10px] text-muted">
               <span>{{ $t('sidebar.messageCount', c.messages.length, { count: c.messages.length }) }}</span>
@@ -205,21 +247,28 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         </div>
       </template>
       <p v-if="!workspaces.length" class="px-1 text-xs italic text-muted">{{ $t('sidebar.noWorkspaces') }}</p>
-    </div>
+      </div>
+    </UiScrollArea>
 
     <div v-else class="flex-1"></div>
 
     <div class="flex items-center gap-1 border-t border-edge p-2">
-      <button class="flex flex-1 items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-surface2" @click="showGlobal = true">
-        <SlidersHorizontal :size="16" /> {{ $t('sidebar.globalSettings') }}
-      </button>
-      <button class="rounded p-2 hover:bg-surface2" :title="isDark ? $t('sidebar.light') : $t('sidebar.dark')" @click="toggleTheme">
-        <Sun v-if="isDark" :size="16" />
-        <Moon v-else :size="16" />
-      </button>
-      <button class="rounded p-2 hover:bg-surface2 hover:text-red-500" :title="$t('sidebar.logOut')" @click="logout">
+      <UiButton class="flex-1 !justify-start" variant="ghost" @click="openGlobalSettings">
+        <SlidersHorizontal :size="18" /> {{ $t('common.settings') }}
+      </UiButton>
+      <div class="flex items-center gap-1.5 px-1 text-muted">
+        <Sun :size="14" />
+        <UiSwitch
+          :model-value="isDark"
+          :label="$t('sidebar.dark')"
+          compact
+          @update:model-value="restoreTheme($event ? 'dark' : 'light')"
+        />
+        <Moon :size="14" />
+      </div>
+      <UiIconButton :label="$t('sidebar.logOut')" variant="danger" @click="logout">
         <LogOut :size="16" />
-      </button>
+      </UiIconButton>
     </div>
 
     <a
@@ -229,6 +278,9 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
       class="block border-t border-edge px-3 py-1.5 text-center text-[10px] text-muted hover:text-base"
     >conversa{{ version ? ` ${version}` : '' }}</a>
 
+      </DrawerContent>
+    </DrawerPortal>
+
     <Modal v-if="showGlobal" :title="$t('sidebar.globalSettings')" @close="showGlobal = false">
       <GlobalSettings />
     </Modal>
@@ -236,5 +288,5 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
     <Modal v-if="editingWs" :title="$t('common.workspace')" @close="editingWs = null; persistNow()">
       <WorkspacePanel :workspace="editingWs" />
     </Modal>
-  </aside>
+  </DrawerRoot>
 </template>
