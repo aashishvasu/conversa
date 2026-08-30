@@ -345,6 +345,57 @@ async def stream_chat(
         yield {"error": str(error)}
 
 
+def complete_messages_kwargs(
+    provider: str,
+    model: str,
+    messages: list[dict],
+    system: str | list[str] | None,
+    max_tokens: int,
+    effort: str,
+) -> dict:
+    """Build one non-streaming completion request from assembled chat context."""
+    dialect = PROVIDERS[provider]["dialect"]
+    if dialect == "anthropic":
+        kwargs = {"model": model, "max_tokens": max_tokens, "messages": messages}
+        if system:
+            kwargs["system"] = anthropic_system(system)
+        return apply_thinking(kwargs, effort, max_tokens)
+    if dialect == "responses":
+        kwargs = {"model": model, "input": openai_messages(messages, True), "max_output_tokens": max_tokens}
+        if system:
+            kwargs["instructions"] = join_system(system)
+        if takes_reasoning(provider, model):
+            if effort:
+                kwargs["reasoning"] = {"effort": effort}
+                kwargs["max_output_tokens"] = max(max_tokens, REASONING_OUTPUT_FLOOR)
+            elif provider == "deepseek":
+                kwargs["reasoning"] = {"effort": "none"}
+        return kwargs
+    return chat_completions_kwargs(model, openai_messages(messages, False), system, max_tokens)
+
+
+async def complete_messages(
+    model_id: str,
+    system: str | list[str] | None,
+    messages: list[dict],
+    max_tokens: int = 2048,
+    effort: str = "",
+) -> str:
+    """Complete an already assembled conversation without flattening its context."""
+    provider, model = resolve_model(model_id)
+    api = CLIENTS[provider]
+    kwargs = complete_messages_kwargs(provider, model, messages, system, max_tokens, effort)
+    if PROVIDERS[provider]["dialect"] == "anthropic":
+        async with api.messages.stream(**kwargs) as stream:
+            message = await stream.get_final_message()
+        return "".join(block.text for block in message.content if block.type == "text").strip()
+    if PROVIDERS[provider]["dialect"] == "responses":
+        response = await api.responses.create(**kwargs)
+        return (response.output_text or "").strip()
+    response = await api.chat.completions.create(**kwargs)
+    return (response.choices[0].message.content or "").strip()
+
+
 async def complete(
     model_id: str,
     system: str | list[str] | None,

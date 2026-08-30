@@ -151,16 +151,11 @@ async function readSSE(res, onEvent) {
 // A run lives in the server process, so closing the tab leaves it running.
 // Reconnect with the last seq seen and the events missed in between are replayed.
 
-// One round of questions about a brief, before any run starts.
-// The planner receives answers inside the brief.
-export async function clarifyResearch(brief, model, context = null) {
-  const res = await fetch('/api/research/clarify', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({ brief, model, context }),
-  })
-  if (res.status === 400) throw new Error(await responseError(res))
-  return (await (await check(res)).json()).questions
+// Prepare from the ordinary assembled system/messages context before a research placeholder exists.
+export async function prepareResearch(body) {
+  const res = await fetch('/api/research/prepare', { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) })
+  if (res.status === 400 || res.status === 502) throw new Error(await responseError(res))
+  return (await check(res)).json()
 }
 
 export async function startResearch(body) {
@@ -178,8 +173,18 @@ export async function discardResearch(id) {
 
 // Tails a run until it ends. onEvent gets every event; the last one is kind 'final' and carries the payload.
 export async function streamResearch(id, after, onEvent, signal) {
-  const res = await check(
-    await fetch(`/api/research/${id}/stream?after=${after || 0}`, { headers: authHeaders(false), signal }),
-  )
-  await readSSE(res, onEvent)
+  const res = await fetch(`/api/research/${id}/stream?after=${after || 0}`, { headers: authHeaders(false), signal })
+  if (res.status === 404) {
+    try {
+      const detail = (await res.clone().json()).detail
+      if (detail?.code === 'no_such_run') {
+        const error = new Error(detail.message)
+        error.code = detail.code
+        throw error
+      }
+    } catch (error) {
+      if (error?.code === 'no_such_run') throw error
+    }
+  }
+  await readSSE(await check(res), onEvent)
 }

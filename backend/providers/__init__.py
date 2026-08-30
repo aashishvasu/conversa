@@ -9,6 +9,8 @@ from .dialects import (
     chat_completion_usage,
     chat_completions_kwargs,
     complete,
+    complete_messages,
+    complete_messages_kwargs,
     field,
     join_system,
     openai_messages,

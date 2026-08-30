@@ -170,7 +170,7 @@ def app_finders():
     return [finder for key, finder in keyed if key]
 
 
-async def _search_anthropic(query, model, limit, provider):
+async def _search_anthropic(query, model, limit, provider, search_prompt):
     tools = [{
         "type": providers.PROVIDERS[provider]["search_tool"],
         "name": "web_search",
@@ -180,7 +180,7 @@ async def _search_anthropic(query, model, limit, provider):
     message = await providers.CLIENTS[provider].messages.create(
         model=model,
         max_tokens=4096,
-        system=PROMPTS["search"],
+        system=search_prompt,
         messages=[{"role": "user", "content": query}],
         tools=tools,
     )
@@ -197,12 +197,12 @@ async def _search_anthropic(query, model, limit, provider):
     return hits[: limit * 3]
 
 
-async def _search_responses(query, model, limit, provider):
+async def _search_responses(query, model, limit, provider, search_prompt):
     tool = providers.PROVIDERS[provider]["search_tool"]
     kwargs = dict(
         model=model,
         input=query,
-        instructions=PROMPTS["search"],
+        instructions=search_prompt,
         max_output_tokens=4096,
         tools=[{"type": tool}],
         # Force hosted search so the response contains source citations.
@@ -230,7 +230,7 @@ def hosted_finder(provider):
     return HOSTED_FINDERS.get(entry["dialect"])
 
 
-async def search(query, model_id, limit=8):
+async def search(query, model_id, limit=8, search_prompt=None):
     """Source candidates for a query, deduped by canonical URL, newest search first.
 
     App finders run first when configured, so searching costs an HTTP request instead of a model call.
@@ -257,7 +257,7 @@ async def search(query, model_id, limit=8):
     if hits is None:
         if hosted is None:
             raise error
-        hits = await hosted(query, model, limit, provider)
+        hits = await hosted(query, model, limit, provider, search_prompt or PROMPTS["search"])
     seen, out = set(), []
     for hit in hits:
         canonical = fetcher.canonicalize(hit["url"])
@@ -269,7 +269,7 @@ async def search(query, model_id, limit=8):
     return out[:limit]
 
 
-async def note(question, page, model_id, spend=None):
+async def note(question, page, model_id, spend=None, note_prompt=None):
     """Cited notes from one fetched page, or None when the page has nothing to say."""
     prompt = NOTE_TEMPLATE.format(
         question=question,
@@ -277,7 +277,7 @@ async def note(question, page, model_id, spend=None):
         url=page["url"],
         content=page["content"],
     )
-    text = await complete(model_id, PROMPTS["note"], prompt, max_tokens=NOTE_MAX_TOKENS, spend=spend)
+    text = await complete(model_id, note_prompt or PROMPTS["note"], prompt, max_tokens=NOTE_MAX_TOKENS, spend=spend)
     return None if not text or NOTHING in text[:80] else text
 
 
@@ -314,7 +314,7 @@ async def _page(url, question, pages):
     return await pages.get(url, question)
 
 
-async def gather(question, search_model, note_model, limit=6, spend=None, on_source=None, pages=None):
+async def gather(question, search_model, note_model, limit=6, spend=None, on_source=None, pages=None, prompts=None):
     """Search, read, and take notes on one subquestion.
 
     Returns notes with their sources, plus the sources that failed, so a run can report what it could not read.
@@ -328,7 +328,10 @@ async def gather(question, search_model, note_model, limit=6, spend=None, on_sou
         return {"question": question, "notes": [], "failed": [result]}
 
     try:
-        sources = await search(question, search_model, limit=limit)
+        sources = await (
+            search(question, search_model, limit=limit, search_prompt=prompts.get("search"))
+            if prompts else search(question, search_model, limit=limit)
+        )
     except Exception as err:
         # A subquestion whose search fails becomes an empty section, leaving its siblings to finish.
         return barren(f"search failed: {err}")
@@ -341,7 +344,10 @@ async def gather(question, search_model, note_model, limit=6, spend=None, on_sou
             # Isolate source failures while allowing CancelledError (a BaseException) to stop the run.
             try:
                 page = await _page(source["url"], question, pages)
-                body = await note(question, page, note_model, spend=spend)
+                body = await (
+                    note(question, page, note_model, spend=spend, note_prompt=prompts.get("note"))
+                    if prompts else note(question, page, note_model, spend=spend)
+                )
                 result = (
                     {"url": page["url"], "title": page["title"] or source["title"], "note": body}
                     if body

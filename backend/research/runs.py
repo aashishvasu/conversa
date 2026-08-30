@@ -23,13 +23,15 @@ REPORT_MAX_TOKENS = 16000
 
 
 class Run:
-    def __init__(self, brief, models, depth, title=None):
-        self.id = uuid.uuid4().hex
+    def __init__(self, brief, models, depth, title=None, prompts=None, run_id=None):
+        self.id = run_id or uuid.uuid4().hex
         self.brief = brief
         # The planner receives clarifications in brief; the original question names the workspace.
         self.title = title or brief
         self.models = models  # {"search": id, "note": id, "report": id}
         self.depth = depth  # sources per subquestion
+        # Overrides remain local to this run; never mutate gather.PROMPTS for another request.
+        self.prompts = {**PROMPTS, **{k: v for k, v in (prompts or {}).items() if k in PROMPTS}}
         self.status = "running"
         self.phase = "plan"
         self.events = []
@@ -80,7 +82,7 @@ async def _run(run):
         run.emit("phase", phase="plan")
         # Planning uses medium effort because its subquestions determine every downstream call.
         planned = lines(
-            await complete(run.models["report"], PROMPTS["plan"], run.brief,
+            await complete(run.models["report"], run.prompts["plan"], run.brief,
                            max_tokens=PLAN_MAX_TOKENS, effort="medium", spend=run.spend),
             MAX_SUBQUESTIONS,
         )
@@ -94,7 +96,7 @@ async def _run(run):
             run.emit("phase", phase="gather", round=round_no + 1, questions=planned)
             found = await asyncio.gather(*(
                 gather(q, run.models["search"], run.models["note"], limit=run.depth, spend=run.spend,
-                       pages=run.pages, on_source=lambda q, r: run.emit("source", question=q, **r))
+                       pages=run.pages, prompts=run.prompts, on_source=lambda q, r: run.emit("source", question=q, **r))
                 for q in planned
             ))
             sections += found
@@ -105,7 +107,7 @@ async def _run(run):
             run.emit("phase", phase="gap")
             try:
                 verdict = await complete(
-                    run.models["report"], PROMPTS["gap"], _notes_prompt(run.brief, sections),
+                    run.models["report"], run.prompts["gap"], _notes_prompt(run.brief, sections),
                     max_tokens=PLAN_MAX_TOKENS, spend=run.spend,
                 )
             except Exception as err:
@@ -122,7 +124,7 @@ async def _run(run):
         run.emit("phase", phase="report", answered=len(found), planned=len(sections))
         try:
             report = await complete(
-                run.models["report"], PROMPTS["report"], _notes_prompt(run.brief, found),
+                run.models["report"], run.prompts["report"], _notes_prompt(run.brief, found),
                 max_tokens=REPORT_MAX_TOKENS, effort="medium", spend=run.spend,
             )
         except Exception as err:
@@ -163,12 +165,15 @@ def _notes_prompt(brief, sections):
     return "".join(parts)
 
 
-def start(brief, models, depth=6, title=None):
+def start(brief, models, depth=6, title=None, prompts=None, run_id=None):
+    """Start once for a browser-owned id, or return its retained in-memory run."""
     evict()
-    run = Run(brief, models, depth, title=title)
+    if run_id and (existing := RUNS.get(run_id)):
+        return existing, True
+    run = Run(brief, models, depth, title=title, prompts=prompts, run_id=run_id)
     RUNS[run.id] = run
     run.task = asyncio.create_task(_run(run))
-    return run
+    return run, False
 
 
 def forget(run_id):

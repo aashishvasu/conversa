@@ -2,6 +2,15 @@ import { globalSettings } from './store.js'
 
 // The settings surface: which keys exist per owner, and how an owner resolves against the global defaults.
 
+// Research preferences are global defaults with per-conversation overrides.
+// A run snapshots their effective values when it starts.
+export const RESEARCH_KEYS = [
+  'research_search_model',
+  'research_note_model',
+  'research_report_model',
+  'research_depth',
+]
+
 export const SETTING_KEYS = [
   'model',
   'temperature',
@@ -14,16 +23,7 @@ export const SETTING_KEYS = [
   'summarize_n',
   'use_recall',
   'use_cache',
-]
-
-// Research settings belong to a run, not to a conversation, so they get their own list.
-// Both lists resolve the same way: a per-owner override, falling back to the global default.
-// Three model tiers, because the stages have different quality bars: extraction reads one page at a time, orchestration makes short judgement calls, and the report is the only long-form writing.
-export const RESEARCH_KEYS = [
-  'research_search_model',
-  'research_note_model',
-  'research_report_model',
-  'research_depth',
+  ...RESEARCH_KEYS,
 ]
 
 // The one definition of the thinking-effort lever, rendered by the composer toolbar and both settings panels.
@@ -34,7 +34,7 @@ export const EFFORT_LEVELS = ['', 'low', 'medium', 'high']
 
 // A per-owner override falls back to the global default per key.
 // `??` so an explicit false/0 override is respected; only null/undefined inherits.
-// `owner` is a conversation with SETTING_KEYS, or a run with RESEARCH_KEYS.
+// `owner` is normally a conversation; a run carries its own completed snapshot.
 export function effectiveSettings(owner, keys = SETTING_KEYS) {
   const g = globalSettings.value || {}
   const out = {}

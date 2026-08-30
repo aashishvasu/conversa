@@ -90,6 +90,20 @@ async function onRestoreFile(e) {
       <ModelSelect :model-value="g.utility_model" :label="$t('settings.utilityModel')" @update:model-value="setGlobal('utility_model', $event)" />
     </div>
 
+    <div v-for="field in [
+      { key: 'research_search_model', label: $t('research.searchModel') },
+      { key: 'research_note_model', label: $t('research.notesModel') },
+      { key: 'research_report_model', label: $t('research.reportModel') },
+    ]" :key="field.key">
+      <label class="mb-1 block text-muted">{{ field.label }}</label>
+      <ModelSelect :model-value="g[field.key]" :label="field.label" @update:model-value="setGlobal(field.key, $event)" />
+    </div>
+
+    <div>
+      <label class="mb-1 block text-muted">{{ $t('research.sourcesPerQuestion') }}</label>
+      <UiNumberField :model-value="g.research_depth" :label="$t('research.sourcesPerQuestion')" :min="1" :max="12" @update:model-value="setGlobal('research_depth', $event)" />
+    </div>
+
     <div>
       <label class="mb-1 block text-muted">{{ $t('settings.temperature', { value: g.temperature }) }}</label>
       <UiSlider v-model="g.temperature" :label="$t('settings.temperature', { value: g.temperature })" :min="0" :max="1" :step="0.1" @value-commit="persistGlobal" />

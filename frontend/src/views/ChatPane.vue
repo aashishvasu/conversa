@@ -2,15 +2,16 @@
 import { Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Paperclip, Plus, RotateCcw, Send, SlidersHorizontal, Square, Telescope, X } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { EditableArea, EditableInput, EditablePreview, EditableRoot, Toggle, ToolbarRoot } from 'reka-ui'
-import { streamChat } from '../api/client.js'
+import { prepareResearch, streamChat } from '../api/client.js'
 import { useStreamGuard } from '../composables/useStreamGuard.js'
 import { refreshMemory } from '../jobs/memory.js'
 import { notify } from '../utils/notify.js'
 import { tr } from '../i18n.js'
 import { buildPayload, sendWindow } from '../prompt/payload.js'
-import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
+import { buildResearchInput } from '../prompt/research-input.js'
+import { effectiveSettings, EFFORT_LEVELS, RESEARCH_KEYS } from '../state/settings.js'
 import { addConvoUsage, recordUsage } from '../state/usage.js'
-import { activeRunOf, attachedDocs, createDoc, createImage, createRun, currentConversation, images, imagesOf, persistNow, releaseImages, sidebarOpen, workspaceOf } from '../state/store.js'
+import { activeRunOf, attachedDocs, createDoc, createImage, createRun, currentConversation, images, imagesOf, persistNow, releaseImages, removeRun, sidebarOpen, workspaceOf } from '../state/store.js'
 import { generateTitle } from '../jobs/titles.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { CHECK_SVG, COPY_SVG } from '../utils/md.js'
@@ -34,6 +35,7 @@ const input = ref('')
 const pendingImages = ref([])
 const imageInput = ref(null)
 const streaming = ref(false)
+const preparing = ref(false)
 const titling = ref(false)
 const panel = ref(null)
 const editingId = ref(null)
@@ -230,7 +232,7 @@ const researchMode = computed(() => convo.value?.mode === 'research')
 
 async function send() {
   const text = input.value.trim()
-  if ((!text && !pendingImages.value.length) || streaming.value || runActive.value || !convo.value) return
+  if ((!text && !pendingImages.value.length) || streaming.value || preparing.value || runActive.value || !convo.value) return
   const c = convo.value
   if (researchMode.value && !text) return
   const imageIds = pendingImages.value.map((image) => image.id)
@@ -239,7 +241,7 @@ async function send() {
   // Sending is an explicit jump to the present: follow the new turn even if the user had scrolled up, and re-arm the streaming autoscroll below.
   atBottom.value = true
   if (researchMode.value) {
-    sendResearch(c, text)
+    await sendResearch(c, text)
     scrollDown()
     return
   }
@@ -248,34 +250,82 @@ async function send() {
   runCompletion(c)
 }
 
-// A research send appends the request, its linked run, and the assistant placeholder ResearchBlock renders the lifecycle in.
-function sendResearch(c, text) {
-  const user = { id: crypto.randomUUID(), role: 'user', content: text, mode: 'research', createdAt: Date.now() }
-  const placeholder = { id: crypto.randomUUID(), role: 'assistant', content: '', mode: 'research', createdAt: Date.now() }
-  const r = createRun(c, user.id, placeholder.id, text)
-  user.runId = placeholder.runId = r.id
-  c.messages.push(user, placeholder)
-  if (c.title === tr('sidebar.newConversation')) c.title = text.slice(0, 60)
-  persistNow()
+function clarificationContent(questions) {
+  return questions.length
+    ? `Before I research this, please answer:\n\n${questions.map((question) => `- ${question}`).join('\n')}`
+    : 'Before I research this, please provide the missing detail.'
 }
 
-// Regenerate: re-stream from a message, discarding everything after it.
-// From an assistant turn, the turn itself is discarded too, back to the last user turn, which is kept.
-// System messages are never discarded (they're standing instructions).
+// Preparation sees the exact normal-chat context, including the request and no placeholder.
+// Regeneration passes the existing user message back through this same decision instead of inventing a second turn.
+async function routeResearch(c, user) {
+  preparing.value = true
+  const chatSettings = effectiveSettings(c)
+  const input = buildResearchInput(c, chatSettings, workspaceOf(c), attachedDocs(c), images.value)
+  try {
+    await persistNow()
+    const prepared = await prepareResearch({ ...input, model: chatSettings.model })
+    if (prepared.action === 'answer') {
+      runCompletion(c)
+      return
+    }
+    if (prepared.action === 'clarify') {
+      c.messages.push({
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: clarificationContent(prepared.questions),
+        // Normal text stays visible to preparation; this preserves the original standalone intent for export/debugging.
+        researchPreparation: { originalRequest: user.content, goal: prepared.goal, questions: prepared.questions },
+        createdAt: Date.now(),
+      })
+      await persistNow()
+      return
+    }
+
+    const placeholder = { id: crypto.randomUUID(), role: 'assistant', content: '', mode: 'research', createdAt: Date.now() }
+    const researchSettings = effectiveSettings(c, RESEARCH_KEYS)
+    const run = createRun(c, user.id, placeholder.id, input, prepared, researchSettings)
+    user.runId = placeholder.runId = run.id
+    c.messages.push(placeholder)
+    if (c.title === tr('sidebar.newConversation')) c.title = user.content.slice(0, 60)
+    // ResearchBlock owns the one initial POST after this durable record reaches IndexedDB.
+    await persistNow()
+  } catch (error) {
+    notify({ key: 'research:prepare', text: error.message, foreground: true })
+  } finally {
+    preparing.value = false
+  }
+}
+
+async function sendResearch(c, text) {
+  const user = { id: crypto.randomUUID(), role: 'user', content: text, mode: 'research', createdAt: Date.now() }
+  c.messages.push(user)
+  await routeResearch(c, user)
+}
+
+// Regenerate: discard the generated tail and repeat the originating user turn.
+// A research-enabled turn goes through preparation again, so the model still chooses answer, clarify, or research.
 function regenerate(m) {
-  // A research turn regenerates through its block's Run again, never through the chat completion path.
-  if (streaming.value || m.runId || !convo.value) return
+  if (streaming.value || preparing.value || runActive.value || !convo.value) return
   const c = convo.value
-  const idx = c.messages.findIndex((x) => x.id === m.id)
+  const idx = c.messages.findIndex((message) => message.id === m.id)
   if (idx < 0) return
   let cut = idx
   if (m.role === 'assistant') {
     while (cut >= 0 && c.messages[cut].role !== 'user') cut--
     if (cut < 0) return // no user turn before it, so nothing to regenerate from
   }
-  const removed = c.messages.slice(cut + 1).flatMap((x) => x.imageIds || [])
-  c.messages = c.messages.filter((x, i) => i <= cut || x.role === 'system')
+  const user = c.messages[cut]
+  const removed = c.messages.slice(cut + 1).flatMap((message) => message.imageIds || [])
+  c.messages = c.messages.filter((message, index) => index <= cut || message.role === 'system')
   releaseImages(removed)
+
+  if (user.mode === 'research') {
+    if (user.runId) removeRun(user.runId)
+    delete user.runId
+    void routeResearch(c, user)
+    return
+  }
   runCompletion(c)
 }
 
@@ -470,8 +520,8 @@ async function regenTitle() {
           ref="composerEl"
           v-model="input"
           rows="2"
-          :placeholder="runActive ? $t('chat.researchRunning') : `${researchMode ? $t('chat.researchPrompt') : $t('chat.messagePlaceholder')}  (${composerHint})`"
-          :disabled="runActive"
+          :placeholder="runActive || preparing ? $t('chat.researchRunning') : `${researchMode ? $t('chat.researchPrompt') : $t('chat.messagePlaceholder')}  (${composerHint})`"
+          :disabled="runActive || preparing"
           class="min-h-16 max-h-40 flex-1 resize-none rounded-md border border-edge bg-surface2 px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-60"
           @keydown="onComposerKeydown"
           @paste="onPaste"
@@ -480,7 +530,7 @@ async function regenTitle() {
             <UiIconButton class="h-auto w-10" :label="$t('chat.attachImages')" :disabled="researchMode" @click="imageInput.click()"><Paperclip :size="18" /></UiIconButton>
           </div>
         </div>
-        <UiIconButton v-if="!streaming" class="h-auto w-12" variant="primary" :label="researchMode ? $t('chat.startResearch') : $t('common.send')" :disabled="runActive" @click="send">
+        <UiIconButton v-if="!streaming" class="h-auto w-12" variant="primary" :label="researchMode ? $t('chat.startResearch') : $t('common.send')" :disabled="runActive || preparing" @click="send">
           <Telescope v-if="researchMode" :size="18" />
           <Send v-else :size="18" />
         </UiIconButton>

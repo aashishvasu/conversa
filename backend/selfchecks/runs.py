@@ -2,9 +2,10 @@
 
 import asyncio
 import time
+from contextlib import suppress
 
 from research import runs as r
-from research.runs import FINISHED_TTL, RUNS, Run, answered, evict, forget, result_payload
+from research.runs import FINISHED_TTL, PROMPTS, RUNS, Run, answered, evict, forget, result_payload
 
 # The payload's sections are the answered subquestions in report order, notes reduced to {note, url}.
 plan_sections = [
@@ -18,6 +19,13 @@ payload = result_payload("brief text", found, "REPORT_BODY")
 assert payload["report"] == {"name": "Research report.md", "text": "REPORT_BODY"}
 assert [s["question"] for s in payload["sections"]] == ["one", "three"], "sections follow the answered order"
 assert payload["sections"][0]["notes"] == [{"note": "NOTE_A", "url": "https://a.example/1"}], "notes carry note and url only"
+
+# Prompt overrides are copied to one run; a later request keeps the module defaults.
+custom = Run("goal", {"search": "m", "note": "m", "report": "m"}, 2, prompts={"plan": "CUSTOM_PLAN"})
+plain = Run("goal", {"search": "m", "note": "m", "report": "m"}, 2)
+assert custom.prompts["plan"] == "CUSTOM_PLAN"
+assert plain.prompts["plan"] == PROMPTS["plan"]
+assert PROMPTS["plan"] != "CUSTOM_PLAN", "per-run overrides never mutate global prompts"
 
 
 # Report failure preserves the gathered notes.
@@ -47,6 +55,42 @@ async def _resilience_checks():
     assert run.payload["sections"][0]["notes"], "and the note sections survive too"
 
 asyncio.run(_resilience_checks())
+
+
+async def _idempotent_start_check():
+    real_run = r._run
+
+    async def parked(_run):
+        await asyncio.Event().wait()
+
+    RUNS.clear()
+    r._run = parked
+    try:
+        first, created = r.start("goal", {"search": "m", "note": "m", "report": "m"}, run_id="browser-run")
+        duplicate, resumed = r.start("other goal", {"search": "m", "note": "m", "report": "m"}, run_id="browser-run")
+        assert created is False and resumed is True
+        assert duplicate is first and len(RUNS) == 1, "a duplicate browser start does not launch a second task"
+        assert first.id == "browser-run" and first.status == "running"
+        # A lost start response may be retried after completion; retention still returns that terminal run.
+        first.status = "done"
+        terminal, terminal_resumed = r.start("other goal", {"search": "m", "note": "m", "report": "m"}, run_id="browser-run")
+        assert terminal_resumed is True and terminal is first and len(RUNS) == 1
+        # Explicit collection (or a process restart, which has no RUNS entry) permits a replacement.
+        forget(first.id)
+        replacement, replaced = r.start("goal", {"search": "m", "note": "m", "report": "m"}, run_id="browser-run")
+        assert replaced is False and replacement is not first and replacement.id == "browser-run"
+        first.task.cancel()
+        replacement.task.cancel()
+        with suppress(asyncio.CancelledError):
+            await first.task
+        with suppress(asyncio.CancelledError):
+            await replacement.task
+    finally:
+        r._run = real_run
+        RUNS.clear()
+
+
+asyncio.run(_idempotent_start_check())
 
 # A collected run is forgotten, and an uncollected one is swept once it is past its window.
 # Retention is bounded by the next bit of research activity, and by the process ending.

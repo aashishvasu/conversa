@@ -2,6 +2,7 @@
 // Fails loudly if payload assembly breaks.
 import assert from 'node:assert'
 import { buildPayload, recallMessages } from '../prompt/payload.js'
+import { buildResearchInput } from '../prompt/research-input.js'
 
 const cards = [
   { id: '1', triggers: 'dragon, wyrm', content: 'DRAGON_LORE' },
@@ -183,5 +184,32 @@ assert.equal(typeof buildPayload(convo, wSettings, ws).system, 'string')
 const noStable = buildPayload(convo, { ...cSettings, send_system_prompt: false })
 assert.equal(typeof noStable.system, 'string', 'a bare convo has no cacheable prefix')
 assert.ok(noStable.system.includes('DRAGON_LORE'))
+
+// Research preparation uses normal assembled context, so a context-dependent request keeps its topic.
+const contextDependent = {
+  scanAssistant: false, cards: [], messages: [
+    { id: 'subject', role: 'user', content: 'We are choosing a database for Project Orion.' },
+    { id: 'request', role: 'user', content: 'Research this for a regulated launch.' },
+  ],
+}
+const normalContext = buildPayload(contextDependent, wSettings)
+const preparationContext = buildResearchInput(contextDependent, wSettings)
+assert.deepEqual(preparationContext, { system: normalContext.system, messages: normalContext.messages }, 'preparation receives buildPayload-equivalent context')
+assert.ok(preparationContext.messages.some((message) => message.content.includes('Project Orion')), 'the topic survives for a standalone prepared goal')
+
+// A short clarification answer can evict its request from the normal window, but preparation still receives its goal.
+const clarified = {
+  scanAssistant: false, cards: [], messages: [
+    { id: 'request', role: 'user', content: 'research this' },
+    { id: 'clarify', role: 'assistant', content: 'Which regulations?', researchPreparation: {
+      goal: 'Compare Project Orion database options for a regulated launch',
+      questions: ['Which regulations apply?'],
+    } },
+    { id: 'answer', role: 'user', content: 'HIPAA.' },
+  ],
+}
+const oneTurn = buildResearchInput(clarified, { ...wSettings, num_messages_to_send: 1 })
+assert.deepEqual(oneTurn.messages.map((message) => message.content), ['HIPAA.'], 'the normal window remains one turn')
+assert.ok(oneTurn.system.includes('Project Orion database options') && oneTurn.system.includes('Which regulations apply?'), 'pending preparation survives window trimming')
 
 console.log('payload selfcheck OK')
