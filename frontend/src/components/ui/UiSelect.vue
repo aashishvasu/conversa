@@ -1,5 +1,6 @@
 <script setup>
 import { Check, ChevronDown } from '@lucide/vue'
+import { computed } from 'vue'
 import {
   SelectContent,
   SelectItem,
@@ -20,15 +21,31 @@ const props = defineProps({
   placeholder: { type: String, default: '' },
   disabled: Boolean,
   compact: Boolean,
+  iconOnly: Boolean,
+  label: String,
 })
 const emit = defineEmits(['update:modelValue'])
 const EMPTY = '__conversa_empty__'
 const valueOf = (value) => value === '' || value === null ? EMPTY : value
+const tooltip = computed(() => {
+  if (props.modelValue === '' || props.modelValue === null) return props.label
+  return `${props.label}: ${props.options.find((option) => option.value === props.modelValue)?.label || props.modelValue}`
+})
 </script>
 
 <template>
   <SelectRoot :model-value="valueOf(modelValue)" :disabled="disabled" @update:model-value="emit('update:modelValue', $event === EMPTY ? '' : $event)">
     <SelectTrigger
+      v-if="iconOnly"
+      v-bind="$attrs"
+      :title="tooltip"
+      class="flex size-8 items-center justify-center gap-0.5 rounded-md border border-edge bg-surface2 text-muted outline-none transition-colors hover:bg-edge focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-app disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <slot name="trigger" />
+      <ChevronDown :size="12" />
+    </SelectTrigger>
+    <SelectTrigger
+      v-else
       v-bind="$attrs"
       class="flex w-full items-center justify-between gap-2 rounded-md border border-edge bg-surface2 px-3 text-left outline-none transition-colors hover:bg-edge focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-app disabled:cursor-not-allowed disabled:opacity-50"
       :class="compact ? 'h-8 text-xs' : 'h-9 text-sm'"

@@ -1,5 +1,5 @@
 <script setup>
-import { Check, ChevronsUpDown } from '@lucide/vue'
+import { Bot, Check, ChevronsUpDown } from '@lucide/vue'
 import { computed } from 'vue'
 import {
   ComboboxAnchor,
@@ -21,7 +21,7 @@ defineOptions({ inheritAttrs: false })
 
 const PROVIDER_LABELS = { anthropic: 'Anthropic', openai: 'OpenAI' }
 
-const props = defineProps({ modelValue: String, compact: Boolean, label: { type: String, required: true } })
+const props = defineProps({ modelValue: String, compact: Boolean, iconOnly: Boolean, label: { type: String, required: true } })
 const emit = defineEmits(['update:modelValue'])
 
 const groups = computed(() => {
@@ -34,6 +34,7 @@ const groups = computed(() => {
   return [...by].map(([provider, items]) => ({ key: provider, label: PROVIDER_LABELS[provider] || provider, items }))
 })
 const labelOf = (id) => models.value.find((model) => model.id === id)?.label || id || ''
+const tooltip = computed(() => `${props.label}: ${labelOf(props.modelValue)}`)
 </script>
 
 <template>
@@ -41,11 +42,12 @@ const labelOf = (id) => models.value.find((model) => model.id === id)?.label || 
     <ComboboxAnchor
       v-bind="$attrs"
       class="flex w-full items-center rounded-md border border-edge bg-surface2 outline-none transition-colors hover:bg-edge focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2 focus-within:ring-offset-app"
-      :class="compact ? 'h-8 text-xs' : 'h-9 text-sm'"
+      :class="[compact ? 'h-8 text-xs' : 'h-9 text-sm', iconOnly && '!w-10']"
     >
-      <ComboboxInput :display-value="labelOf" :aria-label="label" class="min-w-0 flex-1 bg-transparent px-3 outline-none" />
-      <ComboboxTrigger class="flex h-full w-8 shrink-0 items-center justify-center text-muted outline-none" :aria-label="$t('common.openOptions')">
-        <ChevronsUpDown :size="14" />
+      <ComboboxInput :display-value="labelOf" :aria-label="label" :class="iconOnly ? 'sr-only' : 'min-w-0 flex-1 bg-transparent px-3 outline-none'" />
+      <ComboboxTrigger class="flex h-full shrink-0 items-center justify-center gap-0.5 text-muted outline-none" :class="iconOnly ? 'w-full' : 'w-8'" :aria-label="tooltip" :title="tooltip">
+        <Bot v-if="iconOnly" :size="14" />
+        <ChevronsUpDown :size="iconOnly ? 12 : 14" />
       </ComboboxTrigger>
     </ComboboxAnchor>
     <ComboboxPortal>

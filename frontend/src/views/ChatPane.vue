@@ -1,5 +1,5 @@
 <script setup>
-import { Bot, Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Paperclip, Plus, RotateCcw, Send, SlidersHorizontal, Square, Telescope, X } from '@lucide/vue'
+import { Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Paperclip, Plus, RotateCcw, Send, SlidersHorizontal, Square, Telescope, X } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { EditableArea, EditableInput, EditablePreview, EditableRoot, Toggle, ToolbarRoot } from 'reka-ui'
 import { streamChat } from '../api/client.js'
@@ -419,34 +419,31 @@ async function regenTitle() {
     <!-- Toolbar + composer -->
     <div class="border-t border-edge">
       <div class="flex items-center gap-2 px-3 py-1.5">
-        <div class="flex min-w-0 items-center gap-1 text-muted">
-          <Bot :size="14" class="shrink-0" />
-          <ModelSelect
-            :model-value="effectiveSettings(convo).model"
-            :label="$t('common.model')"
-            class="max-w-[9rem]"
-            compact
-            @update:model-value="setModel"
-          />
-        </div>
-        <div class="flex items-center gap-1 text-muted">
-          <Brain :size="14" class="shrink-0" />
-          <UiSelect
-            :model-value="effectiveSettings(convo).effort || ''"
-            :aria-label="$t('settings.thinkingEffort')"
-            :options="EFFORT_LEVELS.map(value => ({ value, label: $t(`effort.${value || 'off'}`) }))"
-            compact
-            class="!w-24"
-            @update:model-value="setThinking"
-          />
-        </div>
+        <ModelSelect
+          :model-value="effectiveSettings(convo).model"
+          :label="$t('common.model')"
+          icon-only
+          compact
+          @update:model-value="setModel"
+        />
+        <UiSelect
+          :model-value="effectiveSettings(convo).effort || ''"
+          :label="$t('settings.thinkingEffort')"
+          :aria-label="$t('settings.thinkingEffort')"
+          :options="EFFORT_LEVELS.map(value => ({ value, label: $t(`effort.${value || 'off'}`) }))"
+          icon-only
+          @update:model-value="setThinking"
+        >
+          <template #trigger><Brain :size="14" /></template>
+        </UiSelect>
         <Toggle
           :model-value="researchMode"
-          class="flex h-8 items-center gap-1 rounded-md border border-edge bg-surface2 px-2 text-xs text-muted outline-none transition-colors hover:bg-edge hover:text-base data-[state=on]:border-accent data-[state=on]:bg-accent data-[state=on]:text-on-accent focus-visible:ring-2 focus-visible:ring-focus"
+          :title="$t('chat.research')"
+          class="flex size-8 items-center justify-center rounded-md border border-edge bg-surface2 text-muted outline-none transition-colors hover:bg-edge hover:text-base data-[state=on]:border-accent data-[state=on]:bg-accent data-[state=on]:text-on-accent focus-visible:ring-2 focus-visible:ring-focus"
           :aria-label="researchMode ? $t('chat.researchOn') : $t('chat.researchOff')"
           @update:model-value="toggleResearch"
         >
-          <Telescope :size="14" /> {{ $t('chat.research') }}
+          <Telescope :size="14" />
         </Toggle>
         <span v-if="convoSpend.calls" class="inline-flex h-8 items-center rounded bg-surface2 px-2 text-xs text-muted">
           <SpendBadge :spend="convoSpend" />
