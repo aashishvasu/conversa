@@ -260,7 +260,7 @@
     "empty": "Keine Nutzung in diesem Zeitraum.",
     "kind": "Art",
     "usage": "Nutzung",
-    "summary": "{calls} Aufrufe · {tokens} Tsd. Token · {amount}",
+    "summary": "{calls} Aufrufe · {tokens} Token · {amount}",
     "unpriced": "{count} Aufruf nutzte ein Modell ohne veröffentlichten Preis und wurde mit dem Ersatzpreis geschätzt | {count} Aufrufe nutzten ein Modell ohne veröffentlichten Preis und wurden mit dem Ersatzpreis geschätzt",
     "estimated": "Nach veröffentlichten Preisen geschätzt"
   },

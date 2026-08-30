@@ -260,7 +260,7 @@
     "empty": "Aucune utilisation sur cette période.",
     "kind": "Type",
     "usage": "Utilisation",
-    "summary": "{calls} requêtes · {tokens} k jetons · {amount}",
+    "summary": "{calls} requêtes · {tokens} jetons · {amount}",
     "unpriced": "{count} requête a utilisé un modèle sans tarif publié et a été estimée au tarif de secours | {count} requêtes ont utilisé un modèle sans tarif publié et ont été estimées au tarif de secours",
     "estimated": "Estimation d'après les tarifs publiés"
   },

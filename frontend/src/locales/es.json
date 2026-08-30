@@ -260,7 +260,7 @@
     "empty": "No hay uso en este periodo.",
     "kind": "Tipo",
     "usage": "Uso",
-    "summary": "{calls} peticiones · {tokens} mil tokens · {amount}",
+    "summary": "{calls} peticiones · {tokens} tokens · {amount}",
     "unpriced": "{count} petición usó un modelo sin tarifa publicada y se estimó con la tarifa de respaldo | {count} peticiones usaron un modelo sin tarifa publicada y se estimaron con la tarifa de respaldo",
     "estimated": "Estimación según las tarifas publicadas"
   },

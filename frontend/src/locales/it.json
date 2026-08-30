@@ -260,7 +260,7 @@
     "empty": "Nessun utilizzo nel periodo selezionato.",
     "kind": "Tipo",
     "usage": "Utilizzo",
-    "summary": "{calls} richieste · {tokens} mila token · {amount}",
+    "summary": "{calls} richieste · {tokens} token · {amount}",
     "unpriced": "{count} richiesta ha usato un modello senza tariffa pubblicata ed è stata stimata con la tariffa di riserva | {count} richieste hanno usato un modello senza tariffa pubblicata e sono state stimate con la tariffa di riserva",
     "estimated": "Stima basata sulle tariffe pubblicate"
   },
