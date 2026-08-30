@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { EFFORT_LEVELS } from '../state/settings.js'
 import { downloadExport, globalSettings, importData, modelSupportsCache, models, persistGlobal, restoreData, snapshotInfo } from '../state/store.js'
 import { convertImport } from '../state/importers.js'
-import { enterToSend, fontScale, locale, restorePrefs } from '../utils/prefs.js'
+import { enterToSend, fontScale, locale, restorePrefs, showThinkingAndSearch } from '../utils/prefs.js'
 import { locales, setLocale, tr } from '../i18n.js'
 import { restoreTheme } from '../utils/theme.js'
 import { confirmDelete } from '../utils/confirm.js'
@@ -143,6 +143,8 @@ async function onRestoreFile(e) {
     </div>
 
     <UiSwitch v-model="enterToSend" :label="$t('settings.enterSends')" />
+
+    <UiSwitch v-model="showThinkingAndSearch" :label="$t('settings.showThinkingAndSearch')" />
 
     <div>
       <label class="mb-1 block text-muted">{{ $t('settings.backup') }}</label>

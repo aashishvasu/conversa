@@ -41,6 +41,7 @@ setGlobalSettings({ temperature: 0.7 })
 recordUsage('chat', { model: 'claude-sonnet-5', input: 100, output: 50, cache_read: 0, cache_write: 0, usd: 0.01 })
 const snapshot = exportData()
 assert.equal(snapshot.version, 2, 'full export is versioned')
+assert.equal(snapshot.prefs.showThinkingAndSearch, true, 'thinking and search show by default')
 assert.ok(snapshot.exportedAt, 'full export is dated')
 assert.equal(snapshotInfo(snapshot)?.runs, 1, 'snapshot reports run count')
 assert.ok(Array.isArray(snapshot.docs), 'the doc store joins the full export')
@@ -54,7 +55,7 @@ const prefs = await restoreData({
   runs: [{ id: 'restored-r', convoId: 'restored' }, { id: 'restored-orphan' }],
   settings: { temperature: 0.2 },
   usage: { '2020-01-01': { m: { chat: { calls: 1, input: 1, output: 1, cacheRead: 0, cacheWrite: 0, usd: 1, unpriced: 0 } } } },
-  prefs: { theme: 'light', fontScale: 1.1, enterToSend: false },
+  prefs: { theme: 'light', fontScale: 1.1, enterToSend: false, showThinkingAndSearch: false },
 })
 all = exportData()
 assert.deepEqual(all.conversations.map((c) => c.id), ['restored'], 'restore replaces conversations')
@@ -62,6 +63,7 @@ assert.deepEqual(all.workspaces.map((w) => w.id), ['restored-w'], 'restore repla
 assert.deepEqual(all.runs.map((r) => r.id), ['restored-r'], 'restore replaces runs and drops a pre-conversational record')
 assert.equal(globalSettings.value.temperature, 0.2, 'restore merges saved settings')
 assert.equal(prefs.theme, 'light', 'restore returns prefs for the browser caller')
+assert.equal(prefs.showThinkingAndSearch, false, 'restore returns the thinking and search preference')
 assert.deepEqual(usageDays(), { '2020-01-01': { m: { chat: { calls: 1, input: 1, output: 1, cacheRead: 0, cacheWrite: 0, usd: 1, unpriced: 0 } } } }, 'a snapshot with a usage field replaces the ledger')
 await assert.rejects(() => restoreData(exportData('restored')), /Not a conversa snapshot/, 'partial export cannot replace a library')
 

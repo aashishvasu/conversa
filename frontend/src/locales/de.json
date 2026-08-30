@@ -60,6 +60,7 @@
     "backup": "Datensicherung (vollständiger App-Schnappschuss)",
     "fontSize": "Schriftgröße: {size}%",
     "enterSends": "Eingabetaste sendet (aus: Umschalt+Eingabe sendet, Eingabe fügt eine neue Zeile ein)",
+    "showThinkingAndSearch": "Denken und Suche anzeigen",
     "memory": "Gedächtnis (wird nach jeder Chat-Antwort aktualisiert)",
     "memoryEmpty": "(leer; wird bei längeren Unterhaltungen automatisch erstellt)",
     "scanAssistant": "Assistentenantworten auf Kartenauslöser prüfen",

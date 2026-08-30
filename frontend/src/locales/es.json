@@ -60,6 +60,7 @@
     "backup": "Copia de seguridad (instantánea completa)",
     "fontSize": "Tamaño del texto: {size}%",
     "enterSends": "Intro envía el mensaje (desactivado: Mayús+Intro envía e Intro añade una línea)",
+    "showThinkingAndSearch": "Mostrar razonamiento y búsqueda",
     "memory": "Memoria (se actualiza tras cada respuesta del chat)",
     "memoryEmpty": "(vacía; se crea automáticamente cuando crece la conversación)",
     "scanAssistant": "Buscar activadores de tarjetas en las respuestas",

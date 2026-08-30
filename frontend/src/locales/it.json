@@ -60,6 +60,7 @@
     "backup": "Backup (istantanea completa)",
     "fontSize": "Dimensione testo: {size}%",
     "enterSends": "Invio spedisce il messaggio (disattivato: Maiusc+Invio spedisce, Invio va a capo)",
+    "showThinkingAndSearch": "Mostra ragionamento e ricerca",
     "memory": "Memoria (aggiornata dopo ogni risposta della chat)",
     "memoryEmpty": "(vuota; viene creata automaticamente quando la conversazione si allunga)",
     "scanAssistant": "Cerca attivatori delle schede nelle risposte",

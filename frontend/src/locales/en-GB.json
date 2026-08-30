@@ -60,6 +60,7 @@
     "backup": "Backup (full app snapshot)",
     "fontSize": "Font size: {size}%",
     "enterSends": "Enter sends message (off: Shift+Enter sends, Enter makes a new line)",
+    "showThinkingAndSearch": "Show thinking and search",
     "memory": "Memory (auto-refreshes after each chat reply)",
     "memoryEmpty": "(empty; builds automatically as the conversation grows)",
     "scanAssistant": "Scan assistant messages for card triggers",

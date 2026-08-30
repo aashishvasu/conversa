@@ -14,7 +14,7 @@ import { activeRunOf, attachedDocs, createDoc, createImage, createRun, currentCo
 import { generateTitle } from '../jobs/titles.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { CHECK_SVG, COPY_SVG } from '../utils/md.js'
-import { enterToSend, fontScale } from '../utils/prefs.js'
+import { enterToSend, fontScale, showThinkingAndSearch } from '../utils/prefs.js'
 import CardsPanel from '../components/CardsPanel.vue'
 import DebugPanel from '../components/DebugPanel.vue'
 import MessageBubble from '../components/MessageBubble.vue'
@@ -45,6 +45,7 @@ const activeId = ref(null) // tapped bubble: shows its action toolbar (mobile ha
 const streamId = ref(null)
 const liveTrace = ref([])
 const liveOpen = ref(true)
+const showTrace = computed(() => convo.value?.showThinkingAndSearch ?? showThinkingAndSearch.value)
 const atBottom = ref(true)
 const scroller = ref(null)
 let controller = null
@@ -167,6 +168,7 @@ async function runCompletion(c) {
       assistant.content += t
     }, controller.signal, (type, value) => {
       guard.heartbeat()
+      if (!showTrace.value) return
       const last = liveTrace.value.at(-1) // coalesce a run of thinking deltas into one entry
       if (type === 'thinking' && last?.type === 'thinking') last.text += value
       else if (type === 'results') liveTrace.value.push({ type, links: value })
@@ -385,7 +387,7 @@ async function regenTitle() {
             :editing="editingId === m.id"
             :active="activeId === m.id"
             :window-start="windowStartId === m.id"
-            :trace="m.id === streamId ? liveTrace : null"
+            :trace="showTrace && m.id === streamId ? liveTrace : null"
             :trace-open="liveOpen"
             :images="imagesOf(m)"
             @activate="activeId = m.id"

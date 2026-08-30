@@ -60,6 +60,7 @@
     "backup": "Sauvegarde (instantané complet)",
     "fontSize": "Taille du texte : {size} %",
     "enterSends": "Entrée envoie le message (désactivé : Maj+Entrée envoie, Entrée ajoute une ligne)",
+    "showThinkingAndSearch": "Afficher la réflexion et la recherche",
     "memory": "Mémoire (actualisée après chaque réponse du chat)",
     "memoryEmpty": "(vide ; se crée automatiquement lorsque la conversation s'allonge)",
     "scanAssistant": "Rechercher les déclencheurs de fiches dans les réponses",
