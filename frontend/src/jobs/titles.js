@@ -17,6 +17,7 @@ export async function generateTitle(convo, model) {
   const out = await utilityCall(convo, {
     model,
     max_tokens: 20,
+    effort: '',
     temperature: 0.5,
     system: 'Reply with only a short conversation title. No quotes, no trailing punctuation, no preamble.',
     messages: [{ role: 'user', content: user }],

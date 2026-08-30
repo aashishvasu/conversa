@@ -22,6 +22,7 @@ from providers import (
     parse_models,
     resolve_model,
     response_frame,
+    responses_kwargs,
     responses_usage,
     split_model,
     takes_reasoning,
@@ -86,6 +87,11 @@ chat = chat_completions_kwargs(
 assert chat["messages"][0] == {"role": "system", "content": "stable\n\nvolatile"}, chat
 assert chat["messages"][1]["content"] == "hi" and chat["temperature"] == 0.3, chat
 assert "temperature" not in chat_completions_kwargs("some-model", [], None, 2048)
+responses = responses_kwargs("deepseek", "deepseek-v4-flash", [{"role": "user", "content": "hi"}], None, 20, "", 0.5)
+assert responses["reasoning"] == {"effort": "none"} and "temperature" not in responses, responses
+responses = responses_kwargs("deepseek", "deepseek-v4-flash", [], None, 20, "low", 0.5)
+assert responses["reasoning"] == {"effort": "low", "summary": "auto"}, responses
+assert responses["max_output_tokens"] == 32000, responses
 assert join_system(["stable", ""]) == "stable" and join_system("plain") == "plain"
 vision = [{"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/webp", "data": "DATA"}}, {"type": "text", "text": "look"}]}]
 assert openai_messages(vision, True)[0]["content"] == [{"type": "input_image", "image_url": "data:image/webp;base64,DATA"}, {"type": "input_text", "text": "look"}]

@@ -239,6 +239,31 @@ def openai_messages(messages: list[dict], responses: bool) -> list[dict]:
     return out
 
 
+def responses_kwargs(
+    provider: str,
+    model: str,
+    messages: list[dict],
+    system: str | list[str] | None,
+    max_tokens: int,
+    effort: str,
+    temperature: float,
+) -> dict:
+    kwargs = {"model": model, "input": openai_messages(messages, True), "max_output_tokens": max_tokens, "stream": True}
+    if system:
+        kwargs["instructions"] = join_system(system)
+    if takes_reasoning(provider, model):
+        if effort:
+            kwargs["reasoning"] = {"effort": effort, "summary": "auto"}
+            kwargs["max_output_tokens"] = max(max_tokens, REASONING_OUTPUT_FLOOR)
+        elif provider == "deepseek":
+            kwargs["reasoning"] = {"effort": "none"}
+    else:
+        kwargs["temperature"] = temperature
+    if search_tool := PROVIDERS[provider].get("search_tool"):
+        kwargs["tools"] = [{"type": search_tool}]
+    return kwargs
+
+
 async def _responses_stream(
     provider: str,
     model: str,
@@ -248,18 +273,9 @@ async def _responses_stream(
     effort: str,
     temperature: float,
 ) -> AsyncIterator[dict]:
-    kwargs = {"model": model, "input": openai_messages(messages, True), "max_output_tokens": max_tokens, "stream": True}
-    if system:
-        kwargs["instructions"] = join_system(system)
-    if takes_reasoning(provider, model):
-        if effort:
-            kwargs["reasoning"] = {"effort": effort, "summary": "auto"}
-            kwargs["max_output_tokens"] = max(max_tokens, REASONING_OUTPUT_FLOOR)
-    else:
-        kwargs["temperature"] = temperature
-    if search_tool := PROVIDERS[provider].get("search_tool"):
-        kwargs["tools"] = [{"type": search_tool}]
-    stream = await CLIENTS[provider].responses.create(**kwargs)
+    stream = await CLIENTS[provider].responses.create(**responses_kwargs(
+        provider, model, messages, system, max_tokens, effort, temperature
+    ))
     async for event in stream:
         if frame := response_frame(event):
             yield frame

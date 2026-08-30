@@ -5,6 +5,7 @@ import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
 import { globalSettings, modelSupportsCache, saveAsTemplate, workspaces } from '../state/store.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { tr } from '../i18n.js'
+import { showThinkingAndSearch } from '../utils/prefs.js'
 import ModelSelect from './ModelSelect.vue'
 import UiButton from './ui/UiButton.vue'
 import UiIconButton from './ui/UiIconButton.vue'
@@ -18,12 +19,15 @@ const props = defineProps({ convo: Object })
 // Override helpers: an empty override inherits the global default.
 const eff = (k) => props.convo.settings[k] ?? globalSettings.value[k]
 const cacheSupported = computed(() => modelSupportsCache(eff('model')))
+const showTrace = computed(() => props.convo.showThinkingAndSearch ?? showThinkingAndSearch.value)
 const overridden = (k) => props.convo.settings[k] !== undefined
 const setOv = (k, v) => {
   if (v === null || v === '') delete props.convo.settings[k]
   else props.convo.settings[k] = v
 }
 const reset = (k) => delete props.convo.settings[k]
+const setShowTrace = (value) => { props.convo.showThinkingAndSearch = value }
+const resetShowTrace = () => delete props.convo.showThinkingAndSearch
 
 const templateSaved = ref(false)
 function makeTemplate() {
@@ -140,6 +144,10 @@ async function clearMemory() {
     </div>
 
     <hr class="border-edge" />
+
+    <UiSwitch :model-value="showTrace" :label="$t('settings.showThinkingAndSearch')" @update:model-value="setShowTrace">
+      <template v-if="convo.showThinkingAndSearch !== undefined" #action><UiIconButton class="!size-6" :label="$t('settings.inheritGlobal')" @click="resetShowTrace"><RotateCcw :size="12" /></UiIconButton></template>
+    </UiSwitch>
 
     <UiSwitch v-model="convo.scanAssistant" :label="$t('settings.scanAssistant')" />
 

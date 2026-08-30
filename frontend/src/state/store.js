@@ -2,7 +2,7 @@ import { delMany, get, getMany, keys, set, setMany } from 'idb-keyval'
 import { computed, reactive, ref, watch } from 'vue'
 import { foldRunUsage, replaceUsage, usageDays } from './usage.js'
 import { dismiss, notify } from '../utils/notify.js'
-import { enterToSend, fontScale, locale } from '../utils/prefs.js'
+import { enterToSend, fontScale, locale, showThinkingAndSearch } from '../utils/prefs.js'
 import { isDark } from '../utils/theme.js'
 import { tr } from '../i18n.js'
 
@@ -417,7 +417,7 @@ function wire(value) {
 }
 
 function snapshotPrefs() {
-  return { theme: isDark.value ? 'dark' : 'light', fontScale: fontScale.value, enterToSend: enterToSend.value, locale: locale.value }
+  return { theme: isDark.value ? 'dark' : 'light', fontScale: fontScale.value, enterToSend: enterToSend.value, showThinkingAndSearch: showThinkingAndSearch.value, locale: locale.value }
 }
 
 // Everything IndexedDB holds that is the user's, not the deployment's: conversations, workspaces, docs, runs, edited settings, and the usage ledger.

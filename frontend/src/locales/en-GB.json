@@ -60,6 +60,7 @@
     "backup": "Backup (full app snapshot)",
     "fontSize": "Font size: {size}%",
     "enterSends": "Enter sends message (off: Shift+Enter sends, Enter makes a new line)",
+    "showThinkingAndSearch": "Show thinking and search",
     "memory": "Memory (auto-refreshes after each chat reply)",
     "memoryEmpty": "(empty; builds automatically as the conversation grows)",
     "scanAssistant": "Scan assistant messages for card triggers",
@@ -260,7 +261,7 @@
     "empty": "No usage in this range.",
     "kind": "Kind",
     "usage": "Usage",
-    "summary": "{calls} calls · {tokens}k tokens · {amount}",
+    "summary": "{calls} calls · {tokens} tokens · {amount}",
     "unpriced": "{count} call used a model with no published rate, estimated at the fallback rate | {count} calls used a model with no published rate, estimated at the fallback rate",
     "estimated": "Estimated from published rates"
   },

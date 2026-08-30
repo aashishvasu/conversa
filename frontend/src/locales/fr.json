@@ -60,6 +60,7 @@
     "backup": "Sauvegarde (instantané complet)",
     "fontSize": "Taille du texte : {size} %",
     "enterSends": "Entrée envoie le message (désactivé : Maj+Entrée envoie, Entrée ajoute une ligne)",
+    "showThinkingAndSearch": "Afficher la réflexion et la recherche",
     "memory": "Mémoire (actualisée après chaque réponse du chat)",
     "memoryEmpty": "(vide ; se crée automatiquement lorsque la conversation s'allonge)",
     "scanAssistant": "Rechercher les déclencheurs de fiches dans les réponses",
@@ -260,7 +261,7 @@
     "empty": "Aucune utilisation sur cette période.",
     "kind": "Type",
     "usage": "Utilisation",
-    "summary": "{calls} requêtes · {tokens} k jetons · {amount}",
+    "summary": "{calls} requêtes · {tokens} jetons · {amount}",
     "unpriced": "{count} requête a utilisé un modèle sans tarif publié et a été estimée au tarif de secours | {count} requêtes ont utilisé un modèle sans tarif publié et ont été estimées au tarif de secours",
     "estimated": "Estimation d'après les tarifs publiés"
   },

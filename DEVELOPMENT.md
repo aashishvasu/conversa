@@ -116,7 +116,7 @@ The event mapping onto conversa's own SSE frames:
 | `search` / `fetch` | `response.output_item.done` where the item is a `web_search_call` (`action.type` of `search` or `open_page`) |
 | `results` | `response.output_text.annotation.added` with a `url_citation` |
 
-`reasoning_prefixes` in `providers/openai.py` decides which OpenAI models take `reasoning.effort` and reject `temperature`; DeepSeek's missing list means every model in its file reasons.
+`reasoning_prefixes` in `providers/openai.py` decides which OpenAI models take `reasoning.effort` and reject `temperature`; DeepSeek's missing list means every model in its file supports reasoning. An empty effort sends DeepSeek `reasoning: {effort: "none"}` because its provider default enables thinking.
 `summary: "auto"` is what makes reasoning text stream.
 Effort remains a hint: at `low` with a short system prompt these models often return no reasoning item, which reaches the UI as an empty trace.
 `field()` reads SDK objects and plain dicts alike, so an annotation shape that changes between SDK versions costs one trace event and the stream continues.
@@ -151,7 +151,7 @@ The wire format for extended thinking split across model generations, so one bra
 `display: summarized` supplies text for ChatPane's live thinking trace; Anthropic's `omitted` default yields empty thinking blocks.
 Unknown model ids are treated as modern.
 `LEGACY_MODELS` in `providers/anthropic.py` is a hand-maintained set of older ids, so adding a pre-4.6 model to `MODELS` means adding its id there too.
-The three lever words (`low` / `medium` / `high`) are `EFFORT_VALUES`; Claude, OpenAI, and DeepSeek accept them verbatim. The generic compatibility path sends no effort parameter because chat.completions has no standard name for it.
+The three lever words (`low` / `medium` / `high`) are `EFFORT_VALUES`; Claude, OpenAI, and DeepSeek accept them verbatim. The empty app value means thinking off and maps to DeepSeek's `none`; the generic compatibility path sends no effort parameter because chat.completions has no standard name for it.
 Covered by `python -m selfchecks.providers`.
 
 ### How a request is assembled (`frontend/src/prompt/cards.js`)

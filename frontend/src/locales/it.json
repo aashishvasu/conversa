@@ -60,6 +60,7 @@
     "backup": "Backup (istantanea completa)",
     "fontSize": "Dimensione testo: {size}%",
     "enterSends": "Invio spedisce il messaggio (disattivato: Maiusc+Invio spedisce, Invio va a capo)",
+    "showThinkingAndSearch": "Mostra ragionamento e ricerca",
     "memory": "Memoria (aggiornata dopo ogni risposta della chat)",
     "memoryEmpty": "(vuota; viene creata automaticamente quando la conversazione si allunga)",
     "scanAssistant": "Cerca attivatori delle schede nelle risposte",
@@ -260,7 +261,7 @@
     "empty": "Nessun utilizzo nel periodo selezionato.",
     "kind": "Tipo",
     "usage": "Utilizzo",
-    "summary": "{calls} richieste · {tokens} mila token · {amount}",
+    "summary": "{calls} richieste · {tokens} token · {amount}",
     "unpriced": "{count} richiesta ha usato un modello senza tariffa pubblicata ed è stata stimata con la tariffa di riserva | {count} richieste hanno usato un modello senza tariffa pubblicata e sono state stimate con la tariffa di riserva",
     "estimated": "Stima basata sulle tariffe pubblicate"
   },
