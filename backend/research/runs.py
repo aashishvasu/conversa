@@ -4,10 +4,11 @@ A run is an asyncio.Task plus its event list, held in the RUNS dict for the life
 That is what survives a client closing the tab.
 A process restart ends every run, and the brief lives in the browser, so the recovery is to start it again.
 Phases are plan, gather, gap, report; the gather stage itself lives in gather.py.
-The finished payload is the research result: the report plus its per-subquestion note sections.
+The finished payload is the research result: a short summary, the report, and its per-subquestion note sections.
 """
 
 import asyncio
+import re
 import time
 import uuid
 
@@ -62,13 +63,27 @@ def answered(sections):
     return [s for s in sections if s["notes"]]
 
 
+def report_summary(report):
+    """Return at most two paragraphs from the report model's Summary section."""
+    match = re.search(r"(?im)^##\s+summary\s*$", report)
+    if not match:
+        return ""
+    body = report[match.end():]
+    next_section = re.search(r"(?m)^##\s+", body)
+    if next_section:
+        body = body[:next_section.start()]
+    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n\s*\n", body) if paragraph.strip()]
+    return "\n\n".join(paragraphs[:2])
+
+
 def result_payload(title, sections, report):
-    """The provider-blind research result: report text plus the notes behind each answered subquestion.
+    """The provider-blind research result: its summary, report, and answered note sections.
 
     Section order matches the report's `qN` headings, so a client can cite either against the other.
     """
     return {
         "name": title[:60],
+        "summary": report_summary(report),
         "report": {"name": "Research report.md", "text": report},
         "sections": [
             {"question": s["question"], "notes": [{"note": n["note"], "url": n["url"]} for n in s["notes"]]}

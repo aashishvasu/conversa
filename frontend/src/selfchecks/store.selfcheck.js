@@ -173,7 +173,7 @@ assert.equal(activeRunOf(rc.id), lr, 'a running run does')
 const frame = {
   status: 'done',
   phase: 'done',
-  payload: { name: 'Find things', report: { name: 'Research report.md', text: 'REPORT' }, sections: [] },
+  payload: { name: 'Find things', summary: 'A concise model-written summary.', report: { name: 'Research report.md', text: 'REPORT' }, sections: [] },
   spend: { models: { m: { calls: 1, input: 10, output: 5, cache_read: 0, cache_write: 0, usd: 0.01, unpriced: 0 } } },
 }
 const ledgerBefore = JSON.stringify(usageDays())
@@ -182,7 +182,8 @@ const reportOut = docsOf(rc).find((d) => d.id === lr.reportDocId)
 assert.ok(reportOut, 'the report doc is attached to the conversation')
 assert.deepEqual(reportOut.source, { kind: 'research', runId: lr.id, convoId: rc.id, messageId: 'rh' }, 'the doc carries full lineage')
 assert.equal(holder.docId, lr.reportDocId, 'the result message points at the report')
-assert.equal(holder.content, 'REPORT', 'the report is the assistant turn content')
+assert.equal(holder.content, 'Your "Find things" research document is ready.\n\nA concise model-written summary.', 'the assistant turn links the result with its short model-written summary')
+assert.equal(reportOut.text, 'REPORT', 'the full Q&A report stays in the attached document')
 assert.notEqual(JSON.stringify(usageDays()), ledgerBefore, 'finished spend folds into the ledger')
 const ledgerAfter = JSON.stringify(usageDays())
 finishRun(lr, frame)

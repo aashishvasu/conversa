@@ -253,8 +253,8 @@ export function finishRun(run, frame) {
       const msg = convo.messages.find((m) => m.id === run.resultMessageId)
       if (msg) {
         msg.docId = doc.id
-        // The attached document remains durable, and the report is also the assistant turn's content.
-        msg.content = frame.payload.report.text
+        const ready = `Your "${frame.payload.name}" research document is ready.`
+        msg.content = frame.payload.summary ? `${ready}\n\n${frame.payload.summary}` : ready
       }
     }
   }

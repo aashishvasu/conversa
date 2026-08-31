@@ -51,7 +51,7 @@ One question per line, no numbering, no preamble.""",
     "report": (
         "You write a research report from notes.\n\n"
         "One `## ` section per subquestion, in the order given, each headed `## qN. <the subquestion>` so a "
-        "reader can cite a section by its number. Open with a short `## Summary` answering the brief directly.\n\n"
+        "reader can cite a section by its number. Open with a `## Summary` that answers the brief directly in one or two short paragraphs.\n\n"
         "Every claim carries its source as a markdown link. Where notes disagree, say so and attribute both sides "
         "rather than picking silently. Where the notes do not answer part of the brief, say that plainly in one line.\n\n"
         "The notes are all you have. Add nothing from your own knowledge, and write no closing section."

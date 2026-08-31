@@ -33,5 +33,6 @@ assert.ok(!/streaming\.value \|\| m\.runId/.test(chatPane), 'research-linked tur
 assert.ok(/user\.mode === 'research'/.test(chatPane), 'regeneration routes research-enabled turns through preparation again')
 assert.ok(/prepareResearch\(\{ \.\.\.input, model: chatSettings\.model \}\)/.test(chatPane), 'the selected chat model makes the routing decision')
 assert.ok(/failures >= MAX_STREAM_RETRIES[\s\S]*applyFailure/.test(researchBlock), 'exhausted stream retries land in a terminal client state')
+assert.ok(/title: current\.prepared\.goal/.test(researchBlock), 'the prepared goal names the report')
 
 console.log('research lifecycle selfcheck OK')

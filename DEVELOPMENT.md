@@ -60,8 +60,8 @@ Each first-class provider has one file exporting a `PROVIDER` dict. `providers/r
 
 `runs.py` owns the run lifecycle: a run is an `asyncio.Task` plus an event list held in the `RUNS` dict.
 Runs continue after the client closes its tab and end when the process restarts. The browser stores the brief.
-The client half of a run lives on the conversation that sent it. A research-enabled send first appends the user message, captures normal-chat context, and asks the conversation's selected chat model to answer, clarify, or research; answer is the default, and only research creates a pane. Clarification is a normal assistant message; research persists a linked durable run, browser-generated backend id, and placeholder before it starts the task. Repeating that id returns the active backend run, while a process restart permits replacement and resets stale replay events. `ResearchBlock.vue` resumes a saved start and renders the lifecycle. Start or stream failures land in `error`, which releases the conversation lock; regenerating the turn discards that failed client run and goes through preparation again.
-`finishRun` (store.js) is the save-before-forget contract: the final frame writes the report into the doc store, attaches it to the conversation and result message, folds spend into the ledger once, and only after persisting does the client ask the backend to forget the run.
+The client half of a run lives on the conversation that sent it. A research-enabled send first appends the user message, captures normal-chat context, and asks the conversation's selected chat model to answer, clarify, or research; answer is the default, and only research creates a pane. Clarification is a normal assistant message; research persists a linked durable run, browser-generated backend id, and placeholder before it starts the task. The prepared goal names the report and its chat handoff. Repeating that id returns the active backend run, while a process restart permits replacement and resets stale replay events. `ResearchBlock.vue` resumes a saved start and renders the lifecycle. Start or stream failures land in `error`, which releases the conversation lock; regenerating the turn discards that failed client run and goes through preparation again.
+`finishRun` (store.js) is the save-before-forget contract: the final frame writes the full Q&A report into the doc store, attaches it to the conversation, turns the result message into a short handoff plus the report model's Summary section, folds spend into the ledger once, and only after persisting does the client ask the backend to forget the run.
 
 Phases are plan, gather, gap, report.
 Gather fans out one coroutine per subquestion under a semaphore; each searches, fetches, and writes notes, then drops the document.
@@ -77,7 +77,7 @@ A source failure drops that source; a search failure drops that subquestion; a r
 The SSE stream emits a 1-second `tick` to keep idle proxies open during long phases.
 
 `PROMPTS` is the tuning surface and a request may override any key.
-The finished payload is the research result: `{name, report: {name, text}, sections: [{question, notes: [{note, url}]}]}`, sections in the report's `qN` heading order.
+The finished payload is the research result: `{name, summary, report: {name, text}, sections: [{question, notes: [{note, url}]}]}`. `summary` is at most the first two paragraphs of the report model's `## Summary`; sections follow the report's `qN` heading order.
 
 ### Fetching (`backend/research/fetcher.py`, `backend/research/topic.py`)
 

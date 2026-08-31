@@ -5,7 +5,7 @@ import time
 from contextlib import suppress
 
 from research import runs as r
-from research.runs import FINISHED_TTL, PROMPTS, RUNS, Run, answered, evict, forget, result_payload
+from research.runs import FINISHED_TTL, PROMPTS, RUNS, Run, answered, evict, forget, report_summary, result_payload
 
 # The payload's sections are the answered subquestions in report order, notes reduced to {note, url}.
 plan_sections = [
@@ -15,8 +15,11 @@ plan_sections = [
 ]
 found = answered(plan_sections)
 assert [s["question"] for s in found] == ["one", "three"], found
-payload = result_payload("brief text", found, "REPORT_BODY")
-assert payload["report"] == {"name": "Research report.md", "text": "REPORT_BODY"}
+report = "## Summary\n\nFIRST\n\nSECOND\n\nTHIRD\n\n## q1. one\n\nREPORT_BODY"
+payload = result_payload("brief text", found, report)
+assert payload["summary"] == "FIRST\n\nSECOND", "the assistant handoff keeps at most two model-written paragraphs"
+assert report_summary("## q1. no summary") == "", "a malformed report never becomes a long chat message"
+assert payload["report"] == {"name": "Research report.md", "text": report}
 assert [s["question"] for s in payload["sections"]] == ["one", "three"], "sections follow the answered order"
 assert payload["sections"][0]["notes"] == [{"note": "NOTE_A", "url": "https://a.example/1"}], "notes carry note and url only"
 

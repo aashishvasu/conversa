@@ -19,18 +19,17 @@ const subquestions = computed(() => run.value?.events?.find((event) => event.kin
 const sources = computed(() => run.value?.events?.filter((event) => event.kind === 'source') || [])
 const read = computed(() => sources.value.filter((source) => !source.error).length)
 const spend = computed(() => run.value?.spend || { calls: 0, input: 0, output: 0, usd: 0, unpriced: 0 })
-const reportText = computed(() => reportDoc.value?.text || run.value?.payload?.report?.text || props.message.content || '')
+const responseText = computed(() => props.message.content || '')
 const traceOpen = ref(false)
 const error = ref('')
 const MAX_STREAM_RETRIES = 5
 let abort = null
 
 function requestBody(current) {
-  const title = props.convo.messages.find((message) => message.id === current.promptMessageId)?.content || current.prepared.goal
   return {
     id: current.serverId,
     goal: current.prepared.goal,
-    title,
+    title: current.prepared.goal,
     depth: current.settings.research_depth,
     models: {
       search: current.settings.research_search_model,
@@ -168,7 +167,7 @@ onUnmounted(() => abort?.abort())
       </CollapsibleContent>
     </CollapsibleRoot>
 
-    <div v-if="reportText" class="md mt-3 [overflow-wrap:anywhere]" v-html="renderMarkdown(reportText)"></div>
+    <div v-if="responseText" class="md mt-3 [overflow-wrap:anywhere]" v-html="renderMarkdown(responseText)"></div>
     <p v-if="reportDoc" class="mt-2 text-xs text-muted">{{ $t('research.attached', { name: reportDoc.name }) }}</p>
     <p v-if="error || run.error" class="mt-2 text-xs text-danger">{{ error || run.error }}</p>
     <UiButton v-if="run.status === 'error' || (error && running)" class="mt-2" size="compact" @click="retry"><Play :size="12" /> {{ $t('research.runAgain') }}</UiButton>
