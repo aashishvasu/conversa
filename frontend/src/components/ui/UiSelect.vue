@@ -39,7 +39,7 @@ const tooltip = computed(() => {
       v-if="iconOnly"
       v-bind="$attrs"
       :title="tooltip"
-      class="flex size-8 items-center justify-center gap-0.5 rounded-md border border-edge bg-surface2 text-muted outline-none transition-colors hover:bg-edge focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-app disabled:cursor-not-allowed disabled:opacity-50"
+      class="flex h-8 w-10 items-center justify-center gap-0.5 rounded-md border border-edge bg-surface2 text-muted outline-none transition-colors hover:bg-edge focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-app disabled:cursor-not-allowed disabled:opacity-50"
     >
       <slot name="trigger" />
       <ChevronDown :size="12" />
