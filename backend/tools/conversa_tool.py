@@ -15,6 +15,10 @@ class ToolUnavailable(Exception):
     """Raised when a tool cannot run in the current environment."""
 
 
+class ToolFailed(Exception):
+    """Raised when one otherwise-available tool call fails."""
+
+
 class ToolRejected(Exception):
     """Raised when app policy forbids an operation and hosted fallback."""
 
@@ -91,5 +95,7 @@ async def execute_tool(tool: ConversaTool, call: ToolCall) -> ToolResult:
         return _error(call, "tool_rejected", str(error) or "tool request was rejected")
     except ToolUnavailable as error:
         return _error(call, "tool_unavailable", str(error) or "tool is unavailable")
+    except ToolFailed as error:
+        return _error(call, "tool_error", str(error) or "tool execution failed")
     trace = json.loads(_json(output.trace)) if output.trace is not None else None
     return ToolResult(call.id, call.name, _json(output.value), trace)

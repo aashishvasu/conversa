@@ -46,7 +46,15 @@ async def checks():
     search.search = real_search
     assert unavailable.error == "tool_unavailable", unavailable
 
-    rejected = await execute_tool(tools["fetch_url"], ToolCall("f3", "fetch_url", {"url": "file:///etc/passwd", "topic": "passwords"}))
+    async def failed_fetch(_url, _topic):
+        raise fetch.FetchError("timed out")
+
+    fetch.fetch = failed_fetch
+    failed = await execute_tool(tools["fetch_url"], ToolCall("f3", "fetch_url", {"url": "https://example.com/slow", "topic": "slow"}))
+    fetch.fetch = real_fetch
+    assert failed.error == "tool_error", failed
+
+    rejected = await execute_tool(tools["fetch_url"], ToolCall("f4", "fetch_url", {"url": "file:///etc/passwd", "topic": "passwords"}))
     assert rejected.error == "tool_rejected", rejected
 
 

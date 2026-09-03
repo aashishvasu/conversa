@@ -3,7 +3,7 @@
 import asyncio
 
 import providers.dialects as dialects
-from tools import ConversaTool, ToolArguments, ToolCall, ToolOutput, ToolRejected, ToolUnavailable
+from tools import ConversaTool, ToolArguments, ToolCall, ToolFailed, ToolOutput, ToolRejected, ToolUnavailable
 
 
 class Obj:
@@ -216,6 +216,28 @@ async def check_hosted_fallback() -> None:
     assert {"text": "hosted"} in frames, frames
 
 
+async def check_call_failure_keeps_tools() -> None:
+    async def failed(_arguments: CountArguments):
+        raise ToolFailed("request failed")
+
+    failed_tool = ConversaTool("lookup", "Look up a count.", CountArguments, failed)
+    first = Obj(content=[{"type": "tool_use", "id": "failed", "name": "lookup", "input": {"count": 1}}], usage=usage(1, 1))
+    final = Obj(content=[{"type": "text", "text": "recovered"}], usage=usage(1, 1))
+    client = AnthropicClient([
+        AnthropicStream([], first),
+        AnthropicStream([Obj(type="content_block_delta", delta=Obj(type="text_delta", text="recovered"))], final),
+    ])
+    original = dialects.CLIENTS["anthropic"]
+    dialects.CLIENTS["anthropic"] = client
+    try:
+        frames = await collect(dialects.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [failed_tool]))
+    finally:
+        dialects.CLIENTS["anthropic"] = original
+    assert client.messages.requests[1]["tools"] == dialects.anthropic_tools([failed_tool]), client.messages.requests[1]
+    assert any((frame.get("tool", {}).get("trace") or {}).get("code") == "tool_error" for frame in frames), frames
+    assert {"text": "recovered"} in frames, frames
+
+
 async def check_policy_rejection_blocks_fallback() -> None:
     async def mixed(arguments: CountArguments):
         if arguments.count == 1:
@@ -298,6 +320,7 @@ async def main() -> None:
     await check_anthropic()
     await check_invalid_arguments_and_budget()
     await check_hosted_fallback()
+    await check_call_failure_keeps_tools()
     await check_policy_rejection_blocks_fallback()
     await check_responses()
     await check_compatible_omits_tools()

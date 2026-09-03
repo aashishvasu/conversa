@@ -3,7 +3,7 @@
 from pydantic import BaseModel, Field
 
 from . import fetch, search
-from .conversa_tool import ConversaTool, ToolArguments, ToolOutput, ToolRejected, ToolUnavailable
+from .conversa_tool import ConversaTool, ToolArguments, ToolFailed, ToolOutput, ToolRejected, ToolUnavailable
 
 
 class SearchWebArguments(ToolArguments):
@@ -52,7 +52,7 @@ async def fetch_url(arguments: FetchUrlArguments) -> ToolOutput:
     except fetch.FetchPolicyError as error:
         raise ToolRejected(str(error)) from error
     except fetch.FetchError as error:
-        raise ToolUnavailable("app URL fetch failed") from error
+        raise ToolFailed("app URL fetch failed") from error
     result = FetchUrlOutput.model_validate(page)
     return ToolOutput(result, {"url": result.url, "title": result.title, "kind": result.kind})
 
