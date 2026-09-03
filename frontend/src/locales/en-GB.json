@@ -119,10 +119,6 @@
     "attachDoc": "+ Attach a document ({count} available) | + Attach a document ({count} available)",
     "attach": "Attach",
     "assistantInstructions": "Instructions for the assistant…",
-    "fetchPlaceholder": "https://… fetch a page as context",
-    "topicPlaceholder": "What should the model look for? (optional)",
-    "fetching": "Fetching…",
-    "fetch": "Fetch",
     "help": "System and pinned messages are always sent in chats. They ignore the messages-to-send limit. Editing here and in the conversation changes the same message."
   },
   "debug": {

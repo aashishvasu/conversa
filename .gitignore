@@ -17,6 +17,6 @@ backend/static/
 .claude/
 .pi/
 standards/
-tools/
+/tools/
 CLAUDE.md
 AGENTS.md

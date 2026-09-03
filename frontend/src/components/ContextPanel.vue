@@ -1,7 +1,6 @@
 <script setup>
 import { Trash2, X } from '@lucide/vue'
-import { computed, ref } from 'vue'
-import { fetchUrl } from '../api/client.js'
+import { computed } from 'vue'
 import { deleteDoc, docs, docsOf, removeDocRef } from '../state/store.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { tr } from '../i18n.js'
@@ -47,31 +46,6 @@ async function destroyDoc(id) {
     deleteDoc(id)
   }
 }
-
-// A fetched page lands as a system message, so it edits, deletes and sends like any other context.
-const pageUrl = ref('')
-const fetching = ref(false)
-const fetchError = ref('')
-async function addPage() {
-  const url = pageUrl.value.trim()
-  if (!url || fetching.value) return
-  fetching.value = true
-  fetchError.value = ''
-  try {
-    const page = await fetchUrl(url)
-    props.convo.messages.unshift({
-      id: crypto.randomUUID(),
-      role: 'system',
-      content: `Reference page "${page.title || page.url}" (${page.url}):\n\n${page.content}`,
-      createdAt: Date.now(),
-    })
-    pageUrl.value = ''
-  } catch (e) {
-    fetchError.value = e.message
-  } finally {
-    fetching.value = false
-  }
-}
 </script>
 
 <template>
@@ -92,18 +66,6 @@ async function addPage() {
     <p v-if="!contextMessages.length" class="text-muted">{{ $t('context.empty') }}</p>
 
     <UiButton class="w-full" @click="addSystem">{{ $t('context.addSystem') }}</UiButton>
-
-    <div class="flex gap-2">
-      <input
-        v-model="pageUrl" type="url" :placeholder="$t('context.fetchPlaceholder')"
-        class="min-w-0 flex-1 rounded-md border border-edge bg-surface2 px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-focus"
-        @keydown.enter.prevent="addPage"
-      />
-      <UiButton class="shrink-0" :loading="fetching" @click="addPage">
-        {{ fetching ? $t('context.fetching') : $t('context.fetch') }}
-      </UiButton>
-    </div>
-    <p v-if="fetchError" class="text-xs text-danger">{{ fetchError }}</p>
 
     <hr class="border-edge" />
 

@@ -12,7 +12,6 @@ load_dotenv()
 
 from api.auth import router as auth_router  # noqa: E402
 from api.chat import router as chat_router  # noqa: E402
-from api.fetch import router as fetch_router  # noqa: E402
 from api.research import router as research_router  # noqa: E402
 
 app = FastAPI(title="conversa")
@@ -25,7 +24,6 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(research_router)
-app.include_router(fetch_router)
 
 # Serve the built SPA in production (same origin, so no CORS needed).
 # API lives under /api.

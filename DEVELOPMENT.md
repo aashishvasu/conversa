@@ -29,7 +29,7 @@ Browser (Vue SPA, IndexedDB)  --HTTPS-->  FastAPI  --streaming-->  Model APIs
 
 ### Backend endpoints (`backend/api/`)
 
-`main.py` is assembly only: it constructs the app and includes one router per route group from `api/` (`auth`, `chat`, `research`, `fetch`), with SSE framing shared through `api/sse.py`.
+`main.py` is assembly only: it constructs the app and includes one router per route group from `api/` (`auth`, `chat`, `research`), with SSE framing shared through `api/sse.py`.
 
 - `POST /api/login`: exchanges `APP_PASSWORD` (constant-time compared) for a signed, expiring JWT.
 - `POST /api/refresh`: trades a still-valid token for a fresh full-TTL one.
@@ -37,11 +37,10 @@ Browser (Vue SPA, IndexedDB)  --HTTPS-->  FastAPI  --streaming-->  Model APIs
 - `GET  /api/settings`: global setting defaults from env vars, plus `config_errors` (see Providers below).
 - `GET  /api/models`: selectable models as `{id, label, provider, supports_cache}`, filtered to configured providers. `supports_cache` is a dialect property (Anthropic only), not a per-model one; `SettingsPanel.vue`/`GlobalSettings.vue` disable the cache checkbox and explain why when the effective model can't use it. Effort has the same gap (`takes_reasoning()`'s `reasoning_prefixes` check) and is not flagged yet.
 - `POST /api/chat`: streams a completion as SSE from the provider that owns the requested model.
-  The server environment supplies API keys. The provider layer translates `effort`, attaches configured hosted tools, and emits text, thinking, and tool-trace events (`search`, `fetch`, `results`), plus one `usage` frame (`{model, input, output, cache_read, cache_write, usd, unpriced}`, priced server-side) before `done`.
+  Normal conversation requests expose app-owned `search_web` and `fetch_url` tools; utility calls set `allow_tools: false`. The provider layer translates client tool calls and results, while `tools/runner.py` validates and executes them under round and call limits. Tool traces omit fetched page bodies. If an app tool is unavailable, the remaining turn may use the selected provider's hosted web tools.
+  A tool-assisted turn may make several provider generations. One final `usage` frame carries their summed tokens and cost plus `calls`, followed by `done`.
   `api/sse.py` JSON-encodes each event so newlines and special characters remain inside one SSE frame.
   A list-valued `system` is `[stable, volatile]`: the Anthropic dialect marks the first block for prompt caching (`use_cache`, off by default); the other dialects rejoin it.
-- `POST /api/fetch`: returns readable markdown from a URL (`backend/research/fetcher.py`).
-  With a `topic`, `backend/research/topic.py` returns the sections matching that topic.
 - `POST /api/research/prepare`: receives the normal assembled `system` and `messages` context before a placeholder exists. It returns validated JSON: `{action, goal, questions}`. `goal` stands alone, so every later research stage receives the subject and constraints rather than a phrase such as “research this”.
 - `POST /api/research`: starts a run from a prepared goal and browser-generated id. A repeated retained id returns `{resumed: true, status, phase}` until forget or TTL eviction; a new backend process can replace it with `{resumed: false}`.
   `GET /api/research/{id}` reads its state, `GET /api/research/{id}/stream` replays from `?after=<seq>` then tails live as SSE, `DELETE /api/research/{id}` cancels it.
@@ -53,8 +52,8 @@ Production serves the SPA and API from one origin through the `StaticFiles` moun
 
 ### Provider layer (`backend/providers/`)
 
-Each first-class provider has one file exporting a `PROVIDER` dict. `providers/registry.py` combines them and owns keys, clients, model ids, and defaults; `providers/dialects.py` owns request construction, provider event parsing, streaming, and `complete()`.
-`providers/__init__.py` is the import facade. `api/` owns the FastAPI boundary and SSE framing, `research/gather.py` owns gathering, and `research/runs.py` owns the run loop. Dependency direction is `api/`, `gather`, and `runs` -> `providers`.
+Each first-class provider has one file exporting a `PROVIDER` dict. `providers/registry.py` combines them and owns keys, clients, model ids, and defaults; `providers/dialects.py` owns request construction, provider event parsing, streaming, and `complete()`; `providers/tool_use.py` translates provider tool schemas, calls, and continuations.
+`providers/__init__.py` is the import facade. `tools/conversa_tool.py` defines the provider-neutral tool contract, `tools/runner.py` executes calls, and the other `tools/` modules own web search and fetching. `api/` owns the FastAPI boundary and SSE framing, `research/gather.py` owns gathering, and `research/runs.py` owns the run loop.
 
 ### Research runs (`backend/research/runs.py`, `backend/research/gather.py`)
 
@@ -65,12 +64,12 @@ The client half of a run lives on the conversation that sent it. A research-enab
 
 Phases are plan, gather, gap, report.
 Gather fans out one coroutine per subquestion under a semaphore; each searches, fetches, and writes notes, then drops the document.
-The search, fetch and note-taking stages live in `gather.py`, with `PageCache`, `Spend`, and the prompts; `runs.py` imports them.
-A run retains notes and source URLs. Page bodies are released after note-taking, keeping retained memory proportional to the notes.
+The prompts and note-taking stage live in `gather.py`; app search, fetching, topic selection, and page caching live in `tools/` and are shared with normal chat.
+A run retains notes and source URLs. Fetched page bodies live only in the bounded process cache.
 
 `search()` tries configured app finders in Exa, Brave, SearXNG order, then the search model's hosted tool. Each query logs its finder to the uvicorn console; a failed finder logs its error before the next attempt.
-`BLOCKED_DOMAINS` controls hosted-tool source quality by asking Anthropic for replacements and filtering results from other finders through `is_blocked`.
-Subquestions overlap enough that one canonical source gets picked repeatedly, so `PageCache` downloads each URL once per run and topic-selects it per subquestion, which keeps the notes distinct while paying for one fetch.
+`BLOCKED_DOMAINS` filters every finder and asks Anthropic hosted search for replacement sources.
+The process-local page cache keys full extracted pages by canonical URL. Topic selection runs per caller, so overlapping subquestions and later chat turns share one download while receiving distinct extracts.
 
 A research run makes about 30 model calls. The SDK retries transient failures up to 5 times.
 A source failure drops that source; a search failure drops that subquestion; a report failure returns the collected notes.
@@ -79,12 +78,15 @@ The SSE stream emits a 1-second `tick` to keep idle proxies open during long pha
 `PROMPTS` is the tuning surface and a request may override any key.
 The finished payload is the research result: `{name, summary, report: {name, text}, sections: [{question, notes: [{note, url}]}]}`. `summary` is at most the first two paragraphs of the report model's `## Summary`; sections follow the report's `qN` heading order.
 
-### Fetching (`backend/research/fetcher.py`, `backend/research/topic.py`)
+### App tools and fetching (`backend/tools/`)
 
-Ported from [magpi](https://github.com/grainologic/magpi) (MIT). trafilatura extracts HTML and keeps fenced code blocks; a content-type branch handles JSON and plain text; a Wayback lookup retries 403/404/410/451.
+`conversa_tool.py` defines strict Pydantic arguments, normalized calls and results, and the split between model-facing content and browser-safe trace data. `web.py` declares `search_web` and `fetch_url`. The app tools are offered to Anthropic and Responses models; generic chat-completions endpoints receive no tool declarations.
 
-`assert_public_target()` is the security boundary for caller-supplied URLs. It accepts HTTP(S) public targets and checks every redirect hop before following it.
-DNS resolution and connection remain separate, permitting rebinding between them. A pinned-IP transport would close that gap.
+`fetch.py` and `topic.py` are ported from [magpi](https://github.com/grainologic/magpi) (MIT). trafilatura extracts HTML and keeps fenced code blocks; a content-type branch handles JSON and plain text; a Wayback lookup retries 403/404/410/451.
+
+`assert_public_target()` is the security boundary for caller-supplied URLs. It accepts HTTP(S) public targets and checks every redirect hop before following it. Policy rejections never delegate to provider-hosted fetching. DNS resolution and connection remain separate, permitting rebinding between them. A pinned-IP transport would close that gap.
+
+`PageCache` retains full extracted pages in process memory for `FETCH_CACHE_TTL_SECONDS` (1800 by default), expires entries lazily, and evicts least-recently-used content above 2,000,000 characters. It has no timer. A backend restart clears it.
 
 ### The provider registry (`backend/providers/`)
 
@@ -227,7 +229,7 @@ Repeated controls compose Reka primitives behind conversa-owned styling: Button,
 |------|----------------|
 | `state/store.js` | Reactive conversation, workspace, document, image, and research-run state; IndexedDB persistence; versioned export/import; and replace-all snapshot restore. A run is a research turn's client record, linked to its conversation and messages; `finishRun` lands the final frame (report doc, links, one spend fold). Also `downloadText()`, the one way a doc leaves the browser as a file. Image bytes use individual keys so archive flushes never rewrite them. IndexedDB is best-effort storage, so `initStore()` requests `navigator.storage.persist()`, and a failed write raises a notification with an export offer while the data is still intact in memory. |
 | `state/settings.js` | The settings surface: `SETTING_KEYS` includes research preferences, `RESEARCH_KEYS` names their subset, and `EFFORT_LEVELS` is the single thinking-effort lever. Conversations override global defaults; a run snapshots its effective research values. |
-| `api/client.js` | Auth (token in localStorage), `fetchSettings`/`fetchModels`, `fetchUrl`, and the research calls (`prepareResearch`, `startResearch`, `streamResearch`, `discardResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
+| `api/client.js` | Auth (token in localStorage), settings/models, chat text and tool traces, and the research calls (`prepareResearch`, `startResearch`, `streamResearch`, `discardResearch`). `streamChat` and the research stream share one `readSSE` reader, since both servers frame identically. Provider-blind. |
 | `prompt/cards.js` | Pure card concerns: trigger matching, force overrides, `effectiveCards`, and the card builder's parsing half: `CARDGEN_SYSTEM` (the prompt that teaches the trigger syntax) and `parseGeneratedCards()` (fence- and prose-tolerant JSON parsing, strict on shape). Vue-free, so it runs in Node. |
 | `prompt/payload.js` / `prompt/research-input.js` | Request assembly: `buildPayload`, the send window, and lexical recall; `buildResearchInput` captures its `{system, messages}` context for preparation. With `use_cache` on, `buildPayload` returns `system` as `[stable, volatile]`. Both are Vue-free. |
 | `jobs/memory.js` | Background sliding-window summarization. |
@@ -246,7 +248,7 @@ Repeated controls compose Reka primitives behind conversa-owned styling: Button,
 | `components/MessageBubble.vue` | One message: image thumbnails, view/edit bubble, pin/copy/delete/regenerate/save-as-document actions, and the live thinking/search trace while it streams (ephemeral, dropped on reload). List and stream mutations stay in ChatPane, behind events. |
 | `components/ModelSelect.vue` | The grouped, searchable Reka Combobox rendered in the composer, settings, and research controls. |
 | `views/Login.vue` | Password prompt shown until a token exists. |
-| `components/ContextPanel.vue` | Edits system + pinned messages together. Also the URL fetch box: a fetched page lands as a system message, so it edits, deletes and sends like any other context. Also the document picker: attach any stored doc to the conversation, detach it, or delete it from the store. |
+| `components/ContextPanel.vue` | Edits system + pinned messages together. Also the document picker: attach any stored doc to the conversation, detach it, or delete it from the store. |
 | `components/DocRow.vue` | One document row shared by WorkspacePanel and ContextPanel: rendered preview, download, remove, and the revise action (utility model rewrites the text, prior version kept for undo). |
 | `components/ResearchBlock.vue` | A research turn's timeline item keyed off `message.runId`: reconnect-on-mount, live plan/source trace, cancellation, final-save-before-forget, and the report as primary assistant content. It has no draft controls. |
 | `components/CardsPanel.vue` | Card editor with live "active" indicators. For a convo in a workspace, lists the workspace's cards read-only above the convo's own. Also reused by WorkspacePanel as the shared-card editor (a workspace passes as `convo`; its missing messages/settings are guarded). The card builder lives here: pasted text goes to the utility model, and the parsed cards are appended to whichever owner the panel got, which is what makes it work in both scopes. |
@@ -314,9 +316,12 @@ cd backend                                    # .venv/Scripts on Windows, .venv/
 .venv/Scripts/python -m selfchecks.providers  # registry, request builders, cache split, and all three event mappings
 .venv/Scripts/python -m selfchecks.api        # SSE JSON framing
 .venv/Scripts/python -m selfchecks.auth       # token mint/verify roundtrip, require_auth rejections
-.venv/Scripts/python -m selfchecks.fetcher    # SSRF guard, URL canonicalization
+.venv/Scripts/python -m selfchecks.fetcher    # SSRF guard, cache TTL/single-flight/eviction, URL canonicalization
 .venv/Scripts/python -m selfchecks.topic      # section ranking, headingless fallback
-.venv/Scripts/python -m selfchecks.gather     # blocklist matching, finder parsing + precedence, list parsing, page cache, source-failure isolation
+.venv/Scripts/python -m selfchecks.tools      # provider-neutral definitions, strict arguments, result/trace split
+.venv/Scripts/python -m selfchecks.web_tools  # search/fetch declarations and trace body omission
+.venv/Scripts/python -m selfchecks.tool_runner # Anthropic/Responses loops, budgets, fallback, usage folds
+.venv/Scripts/python -m selfchecks.gather     # finder precedence, hosted fallback, list parsing, source-failure isolation
 .venv/Scripts/python -m selfchecks.runs       # payload shape, failed-report recovery, forget and evict
 ```
 

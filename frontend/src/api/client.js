@@ -91,22 +91,9 @@ export async function fetchModels() {
   return (await check(await fetch('/api/models', { headers: authHeaders(false) }))).json()
 }
 
-// Fetch a page as readable markdown.
-// The server does it because CORS blocks the browser from nearly every page.
-// A 400 carries the reason (blocked target, unreachable host, no readable content), which is the part worth showing.
-export async function fetchUrl(url, topic) {
-  const res = await fetch('/api/fetch', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({ url, topic }),
-  })
-  if (res.status === 400) throw new Error(await responseError(res))
-  return (await check(res)).json()
-}
-
 // Streams assistant text.
-// Calls onText(chunk) per token; onTrace(type, value) for non-visible activity (type 'thinking' | 'search' -> string, 'results' -> [{title,url}]);
-// onUsage(usage) once per generation with {model, input, output, cache_read, cache_write, usd, unpriced}; resolves when done.
+// Calls onText(chunk) per token; onTrace(type, value) for non-visible activity; onUsage(usage) once per turn.
+// Resolves when done.
 export async function streamChat(payload, onText, signal, onTrace, onUsage) {
   const res = await check(
     await fetch('/api/chat', {
@@ -124,6 +111,7 @@ export async function streamChat(payload, onText, signal, onTrace, onUsage) {
     else if (data.search && onTrace) onTrace('search', data.search)
     else if (data.fetch && onTrace) onTrace('fetch', data.fetch)
     else if (data.results && onTrace) onTrace('results', data.results)
+    else if (data.tool && onTrace) onTrace('tool', data.tool)
     else if (data.usage && onUsage) onUsage(data.usage)
   })
 }

@@ -73,6 +73,19 @@ const windowStartId = computed(() =>
 // This conversation's running spend.
 const convoSpend = computed(() => convo.value?.usage || { calls: 0, input: 0, output: 0, usd: 0, unpriced: 0 })
 
+function traceText(value) {
+  return typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value)
+}
+function addTrace(type, value) {
+  const last = liveTrace.value.at(-1)
+  if (type === 'thinking' && last?.type === 'thinking') last.text += value
+  else if (type === 'results') liveTrace.value.push({ type, links: value })
+  else if (type === 'tool') {
+    const { id, name, status, trace } = value
+    liveTrace.value.push({ id, type, text: [name, status, traceText(trace)].filter(Boolean).join('\n') })
+  } else liveTrace.value.push({ type, text: value })
+}
+
 function setModel(id) {
   convo.value.settings.model = id
 }
@@ -159,7 +172,7 @@ async function runCompletion(c) {
   guard.start()
   let assistant = null
   try {
-    const payload = buildPayload(c, settings, workspaceOf(c), attachedDocs(c), images.value) // built BEFORE the empty assistant placeholder
+    const payload = { ...buildPayload(c, settings, workspaceOf(c), attachedDocs(c), images.value), allow_tools: true } // built BEFORE the empty assistant placeholder
     c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() })
     assistant = c.messages.at(-1) // the reactive proxy, so streamed tokens render live
     liveTrace.value = []
@@ -171,10 +184,7 @@ async function runCompletion(c) {
     }, controller.signal, (type, value) => {
       guard.heartbeat()
       if (!showTrace.value) return
-      const last = liveTrace.value.at(-1) // coalesce a run of thinking deltas into one entry
-      if (type === 'thinking' && last?.type === 'thinking') last.text += value
-      else if (type === 'results') liveTrace.value.push({ type, links: value })
-      else liveTrace.value.push({ type, text: value })
+      addTrace(type, value)
     }, (usage) => {
       addConvoUsage(c, usage)
       recordUsage('chat', usage)

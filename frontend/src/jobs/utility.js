@@ -7,7 +7,7 @@ import { addConvoUsage, recordUsage } from '../state/usage.js'
 export async function utilityCall(owner, payload) {
   const attempt = async () => {
     let out = ''
-    await streamChat(payload, (t) => (out += t), null, null, (usage) => {
+    await streamChat({ ...payload, allow_tools: false }, (t) => (out += t), null, null, (usage) => {
       addConvoUsage(owner, usage)
       recordUsage('utility', usage)
     })

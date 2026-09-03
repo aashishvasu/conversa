@@ -119,10 +119,6 @@
     "attachDoc": "+ Adjuntar un documento ({count} disponible) | + Adjuntar un documento ({count} disponibles)",
     "attach": "Adjuntar",
     "assistantInstructions": "Instrucciones para el asistente…",
-    "fetchPlaceholder": "https://… añadir una página como contexto",
-    "topicPlaceholder": "¿Qué debe buscar el modelo? (opcional)",
-    "fetching": "Obteniendo…",
-    "fetch": "Obtener",
     "help": "Los mensajes de sistema y los mensajes fijados siempre se envían en los chats. No cuentan para el límite de mensajes. Editarlos aquí o en la conversación modifica el mismo mensaje."
   },
   "debug": {

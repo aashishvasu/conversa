@@ -119,10 +119,6 @@
     "attachDoc": "+ Joindre un document ({count} disponible) | + Joindre un document ({count} disponibles)",
     "attach": "Joindre",
     "assistantInstructions": "Instructions pour l'assistant…",
-    "fetchPlaceholder": "https://… ajouter une page au contexte",
-    "topicPlaceholder": "Que doit chercher le modèle ? (facultatif)",
-    "fetching": "Récupération…",
-    "fetch": "Récupérer",
     "help": "Les messages système et épinglés sont toujours envoyés dans les chats. Ils ne comptent pas dans la limite de messages. Les modifier ici ou dans la conversation revient au même."
   },
   "debug": {

@@ -119,10 +119,6 @@
     "attachDoc": "+ Allega un documento ({count} disponibile) | + Allega un documento ({count} disponibili)",
     "attach": "Allega",
     "assistantInstructions": "Istruzioni per l'assistente…",
-    "fetchPlaceholder": "https://… aggiungi una pagina al contesto",
-    "topicPlaceholder": "Cosa deve cercare il modello? (facoltativo)",
-    "fetching": "Recupero…",
-    "fetch": "Recupera",
     "help": "I messaggi di sistema e quelli fissati vengono sempre inviati nelle chat. Non rientrano nel limite dei messaggi. Modificarli qui o nella conversazione modifica lo stesso messaggio."
   },
   "debug": {

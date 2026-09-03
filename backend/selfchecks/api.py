@@ -2,13 +2,15 @@
 
 from pydantic import ValidationError
 
-from api.chat import Msg
+from api.chat import ChatRequest, Msg
 from api.research import PREPARE_SYSTEM, parse_prepare_response
 from api.sse import sse
 
 assert sse(text="a\nb") == 'data: {"text": "a\\nb"}\n\n'
 image = Msg.model_validate({"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/webp", "data": "x"}}]})
 assert image.content[0].source.media_type == "image/webp"
+assert not ChatRequest(messages=[]).allow_tools
+assert ChatRequest(messages=[], allow_tools=True).allow_tools
 try:
     Msg.model_validate({"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/avif", "data": "x"}}]})
 except ValidationError:

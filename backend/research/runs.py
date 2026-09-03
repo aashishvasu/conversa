@@ -13,7 +13,7 @@ import time
 import uuid
 
 from providers import Spend, complete
-from research.gather import PROMPTS, PageCache, gather, lines
+from research.gather import PROMPTS, gather, lines
 
 RUNS = {}
 FINISHED_TTL = 3600  # a finished run is evicted this long after the client could have collected it
@@ -37,7 +37,6 @@ class Run:
         self.phase = "plan"
         self.events = []
         self.spend = Spend()
-        self.pages = PageCache()
         self.payload = None
         self.error = None
         self.finished_at = None
@@ -111,7 +110,7 @@ async def _run(run):
             run.emit("phase", phase="gather", round=round_no + 1, questions=planned)
             found = await asyncio.gather(*(
                 gather(q, run.models["search"], run.models["note"], limit=run.depth, spend=run.spend,
-                       pages=run.pages, prompts=run.prompts, on_source=lambda q, r: run.emit("source", question=q, **r))
+                       prompts=run.prompts, on_source=lambda q, r: run.emit("source", question=q, **r))
                 for q in planned
             ))
             sections += found
@@ -164,7 +163,6 @@ The gathered notes follow.
         run.error = str(err)
         run.emit("error", message=str(err))
     finally:
-        run.pages.clear()  # the corpus was only ever needed to produce the notes
         run.finished_at = time.time()
 
 
