@@ -1,5 +1,5 @@
 # Stage 1: build the Vue SPA
-FROM node:22-alpine AS frontend
+FROM node:24-alpine AS frontend
 WORKDIR /app/frontend
 # npm here, pnpm for local dev: corepack/pnpm is flaky in the container build.
 # The repo has no package-lock.json, so each build resolves the package.json ranges fresh.

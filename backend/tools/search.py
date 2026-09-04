@@ -4,7 +4,9 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 
-import httpx
+import httpx2
+
+httpx = httpx2
 
 from tools.fetch import REQUEST_TIMEOUT, canonicalize
 
