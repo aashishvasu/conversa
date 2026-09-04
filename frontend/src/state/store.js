@@ -473,10 +473,14 @@ export function snapshotInfo(data) {
 // Export a workspace document from IndexedDB.
 export function downloadText(name, text, type = 'text/markdown') {
   const a = document.createElement('a')
-  a.href = URL.createObjectURL(new Blob([text], { type }))
+  const url = URL.createObjectURL(new Blob([text], { type }))
+  a.href = url
   a.download = name
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(a.href)
+  a.remove()
+  // Revoke on a later task: some browsers only read the blob once the download starts.
+  setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
 // Download an export file: everything, or one conversation when id is given.

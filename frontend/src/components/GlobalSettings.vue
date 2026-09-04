@@ -8,6 +8,7 @@ import { locales, setLocale, tr } from '../i18n.js'
 import { restoreTheme } from '../utils/theme.js'
 import { confirmDelete } from '../utils/confirm.js'
 import ModelSelect from './ModelSelect.vue'
+import TransferControls from './TransferControls.vue'
 import UiButton from './ui/UiButton.vue'
 import UiNumberField from './ui/UiNumberField.vue'
 import UiSelect from './ui/UiSelect.vue'
@@ -186,6 +187,11 @@ async function resetDefaults() {
       </div>
       <p class="mt-1 text-xs text-muted">{{ $t('import.nextChatWarning') }}</p>
       <p v-if="importMsg" class="mt-1 text-xs text-muted">{{ importMsg }}</p>
+    </div>
+
+    <div>
+      <label class="mb-1 block text-muted">{{ $t('transfer.heading') }}</label>
+      <TransferControls scope="snapshot" />
     </div>
   </div>
 </template>

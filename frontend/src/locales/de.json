@@ -236,6 +236,7 @@
     "deleteTemplate": "Vorlage löschen",
     "newConversation": "Neue Unterhaltung",
     "exportConversation": "Unterhaltung exportieren",
+    "transferConversation": "Unterhaltung übertragen",
     "noResearch": "Noch keine Recherche-Unterhaltungen.",
     "newResearch": "Neue Recherche-Unterhaltung",
     "newWorkspace": "Neuer Arbeitsbereich",
@@ -249,6 +250,24 @@
     "logOut": "Abmelden",
     "messageCount": "{count} Nachricht | {count} Nachrichten",
     "menu": "Menü"
+  },
+  "transfer": {
+    "heading": "Auf ein anderes Gerät übertragen",
+    "helpSnapshot": "Erzeugt einen Code, mit dem ein anderer Browser diesen Schnappschuss wiederherstellen kann.",
+    "helpConversation": "Erzeugt einen Code, mit dem ein anderer Browser diese Unterhaltung importieren kann.",
+    "createSnapshot": "Übertragungscode für Schnappschuss erstellen",
+    "createConversation": "Übertragungscode für Unterhaltung erstellen",
+    "copy": "Kopieren",
+    "copied": "Kopiert",
+    "expires": "Läuft ab: {date}",
+    "retrieveHelp": "Übertragungscode von einem anderen Gerät einfügen.",
+    "retrievePlaceholder": "Übertragungscode",
+    "retrieve": "Abrufen",
+    "badPhrase": "Übertragungscode eingeben: fünf durch Bindestriche getrennte Wörter.",
+    "createFailed": "Übertragung konnte nicht erstellt werden: {error}",
+    "retrieveFailed": "Übertragung konnte nicht abgerufen werden: {error}",
+    "retrieveLabel": "Übertragungscode",
+    "notSnapshot": "Kein conversa-Schnappschuss"
   },
   "usage": {
     "title": "Nutzung",
@@ -293,6 +312,9 @@
     "notExport": "Keine gültige Conversa-Exportdatei",
     "notSnapshot": "Keine gültige Conversa-Datensicherung",
     "noSuchRun": "Dieser Recherchelauf ist nicht mehr verfügbar",
-    "unknownEffort": "Unbekannter Denkaufwand: {effort}"
+    "unknownEffort": "Unbekannter Denkaufwand: {effort}",
+    "noSuchTransfer": "Keine Übertragung passt zu diesem Code, oder sie ist abgelaufen",
+    "transferTooLarge": "Diese Übertragung überschreitet das Serverlimit",
+    "transfersFull": "Der Übertragungsspeicher ist voll, versuchen Sie es später erneut"
   }
 }

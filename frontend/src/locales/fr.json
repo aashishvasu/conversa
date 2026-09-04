@@ -236,6 +236,7 @@
     "deleteTemplate": "Supprimer le modèle",
     "newConversation": "Nouvelle conversation",
     "exportConversation": "Exporter la conversation",
+    "transferConversation": "Transférer la conversation",
     "noResearch": "Aucune conversation de recherche pour le moment.",
     "newResearch": "Nouvelle conversation de recherche",
     "newWorkspace": "Nouvel espace de travail",
@@ -249,6 +250,24 @@
     "logOut": "Se déconnecter",
     "messageCount": "{count} message | {count} messages",
     "menu": "Menu"
+  },
+  "transfer": {
+    "heading": "Transférer vers un autre appareil",
+    "helpSnapshot": "Génère un code permettant à un autre navigateur de restaurer cet instantané.",
+    "helpConversation": "Génère un code permettant à un autre navigateur d'importer cette conversation.",
+    "createSnapshot": "Créer un code de transfert d'instantané",
+    "createConversation": "Créer un code de transfert de conversation",
+    "copy": "Copier",
+    "copied": "Copié",
+    "expires": "Expire le {date}",
+    "retrieveHelp": "Collez un code de transfert provenant d'un autre appareil.",
+    "retrievePlaceholder": "code de transfert",
+    "retrieve": "Récupérer",
+    "badPhrase": "Saisissez un code de transfert : cinq mots séparés par des tirets.",
+    "createFailed": "Impossible de créer le transfert : {error}",
+    "retrieveFailed": "Impossible de récupérer le transfert : {error}",
+    "retrieveLabel": "Code de transfert",
+    "notSnapshot": "Ce n'est pas une sauvegarde Conversa"
   },
   "usage": {
     "title": "Utilisation",
@@ -293,6 +312,9 @@
     "notExport": "Ce fichier n'est pas une exportation Conversa",
     "notSnapshot": "Ce fichier n'est pas une sauvegarde Conversa",
     "noSuchRun": "Cette recherche n'est plus disponible",
-    "unknownEffort": "Niveau de réflexion inconnu : {effort}"
+    "unknownEffort": "Niveau de réflexion inconnu : {effort}",
+    "noSuchTransfer": "Aucun transfert ne correspond à ce code, ou il a expiré",
+    "transferTooLarge": "Ce transfert dépasse la limite du serveur",
+    "transfersFull": "Le stockage des transferts est plein, réessayez plus tard"
   }
 }

@@ -236,6 +236,7 @@
     "deleteTemplate": "Elimina modello",
     "newConversation": "Nuova conversazione",
     "exportConversation": "Esporta conversazione",
+    "transferConversation": "Trasferisci conversazione",
     "noResearch": "Non ci sono ancora conversazioni di ricerca.",
     "newResearch": "Nuova conversazione di ricerca",
     "newWorkspace": "Nuovo spazio di lavoro",
@@ -249,6 +250,24 @@
     "logOut": "Esci",
     "messageCount": "{count} messaggio | {count} messaggi",
     "menu": "Menu"
+  },
+  "transfer": {
+    "heading": "Trasferisci su un altro dispositivo",
+    "helpSnapshot": "Genera un codice che consente a un altro browser di ripristinare questa istantanea.",
+    "helpConversation": "Genera un codice che consente a un altro browser di importare questa conversazione.",
+    "createSnapshot": "Crea codice di trasferimento istantanea",
+    "createConversation": "Crea codice di trasferimento conversazione",
+    "copy": "Copia",
+    "copied": "Copiato",
+    "expires": "Scade il {date}",
+    "retrieveHelp": "Incolla un codice di trasferimento da un altro dispositivo.",
+    "retrievePlaceholder": "codice di trasferimento",
+    "retrieve": "Recupera",
+    "badPhrase": "Inserisci un codice di trasferimento: cinque parole separate da trattini.",
+    "createFailed": "Impossibile creare il trasferimento: {error}",
+    "retrieveFailed": "Impossibile recuperare il trasferimento: {error}",
+    "retrieveLabel": "Codice di trasferimento",
+    "notSnapshot": "Non è un backup di Conversa"
   },
   "usage": {
     "title": "Utilizzo",
@@ -293,6 +312,9 @@
     "notExport": "Il file non è un'esportazione di Conversa",
     "notSnapshot": "Il file non è un backup di Conversa",
     "noSuchRun": "Questa ricerca non è più disponibile",
-    "unknownEffort": "Livello di ragionamento sconosciuto: {effort}"
+    "unknownEffort": "Livello di ragionamento sconosciuto: {effort}",
+    "noSuchTransfer": "Nessun trasferimento corrisponde a questo codice, oppure è scaduto",
+    "transferTooLarge": "Questo trasferimento supera il limite del server",
+    "transfersFull": "L'archivio dei trasferimenti è pieno, riprova più tardi"
   }
 }

@@ -236,6 +236,7 @@
     "deleteTemplate": "Delete template",
     "newConversation": "New conversation",
     "exportConversation": "Export conversation",
+    "transferConversation": "Transfer conversation",
     "noResearch": "No research conversations yet.",
     "newResearch": "New research conversation",
     "newWorkspace": "New workspace",
@@ -249,6 +250,24 @@
     "logOut": "Log out",
     "messageCount": "{count} msg | {count} msgs",
     "menu": "Menu"
+  },
+  "transfer": {
+    "heading": "Transfer to another device",
+    "helpSnapshot": "Generate a code that lets another browser restore this snapshot.",
+    "helpConversation": "Generate a code that lets another browser import this conversation.",
+    "createSnapshot": "Create snapshot transfer code",
+    "createConversation": "Create conversation transfer code",
+    "copy": "Copy",
+    "copied": "Copied",
+    "expires": "Expires {date}",
+    "retrieveHelp": "Paste a transfer code from another device.",
+    "retrievePlaceholder": "transfer code",
+    "retrieve": "Retrieve",
+    "badPhrase": "Enter a transfer code: five words separated by hyphens.",
+    "createFailed": "Could not create the transfer: {error}",
+    "retrieveFailed": "Could not retrieve the transfer: {error}",
+    "retrieveLabel": "Transfer code",
+    "notSnapshot": "Not a conversa snapshot"
   },
   "usage": {
     "title": "Usage",
@@ -293,6 +312,9 @@
     "notExport": "Not a conversa export",
     "notSnapshot": "Not a conversa snapshot",
     "noSuchRun": "This research run is no longer available",
-    "unknownEffort": "Unknown thinking effort: {effort}"
+    "unknownEffort": "Unknown thinking effort: {effort}",
+    "noSuchTransfer": "No transfer matches that code, or it has expired",
+    "transferTooLarge": "This transfer is too large for the server's limit",
+    "transfersFull": "The transfer store is full, try again later"
   }
 }

@@ -236,6 +236,7 @@
     "deleteTemplate": "Eliminar plantilla",
     "newConversation": "Nueva conversación",
     "exportConversation": "Exportar conversación",
+    "transferConversation": "Transferir conversación",
     "noResearch": "Todavía no hay conversaciones de investigación.",
     "newResearch": "Nueva conversación de investigación",
     "newWorkspace": "Nuevo espacio de trabajo",
@@ -249,6 +250,24 @@
     "logOut": "Cerrar sesión",
     "messageCount": "{count} mensaje | {count} mensajes",
     "menu": "Menú"
+  },
+  "transfer": {
+    "heading": "Transferir a otro dispositivo",
+    "helpSnapshot": "Genera un código para que otro navegador restaure esta instantánea.",
+    "helpConversation": "Genera un código para que otro navegador importe esta conversación.",
+    "createSnapshot": "Crear código de transferencia de instantánea",
+    "createConversation": "Crear código de transferencia de conversación",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "expires": "Caduca el {date}",
+    "retrieveHelp": "Pega un código de transferencia de otro dispositivo.",
+    "retrievePlaceholder": "código de transferencia",
+    "retrieve": "Recuperar",
+    "badPhrase": "Introduce un código de transferencia: cinco palabras separadas por guiones.",
+    "createFailed": "No se pudo crear la transferencia: {error}",
+    "retrieveFailed": "No se pudo recuperar la transferencia: {error}",
+    "retrieveLabel": "Código de transferencia",
+    "notSnapshot": "No es una copia de seguridad de Conversa"
   },
   "usage": {
     "title": "Uso",
@@ -293,6 +312,9 @@
     "notExport": "El archivo no es una exportación de Conversa",
     "notSnapshot": "El archivo no es una copia de seguridad de Conversa",
     "noSuchRun": "Esta investigación ya no está disponible",
-    "unknownEffort": "Nivel de razonamiento desconocido: {effort}"
+    "unknownEffort": "Nivel de razonamiento desconocido: {effort}",
+    "noSuchTransfer": "Ninguna transferencia coincide con ese código, o ha caducado",
+    "transferTooLarge": "Esta transferencia supera el límite del servidor",
+    "transfersFull": "El almacén de transferencias está lleno; inténtalo de nuevo más tarde"
   }
 }

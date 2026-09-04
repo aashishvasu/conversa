@@ -20,7 +20,7 @@ function authHeaders(json = true) {
   return h
 }
 
-const ERROR_KEYS = { no_such_run: 'errors.noSuchRun', unknown_effort: 'errors.unknownEffort' }
+const ERROR_KEYS = { no_such_run: 'errors.noSuchRun', unknown_effort: 'errors.unknownEffort', no_such_transfer: 'errors.noSuchTransfer', transfer_too_large: 'errors.transferTooLarge', transfers_full: 'errors.transfersFull' }
 
 async function responseError(res) {
   try {
@@ -133,6 +133,20 @@ async function readSSE(res, onEvent) {
       if (line.startsWith('data: ')) onEvent(JSON.parse(line.slice(6)))
     }
   }
+}
+
+// --- Transient transfers ---------------------------------------------------------------
+// An export payload is held on the server under a phrase for a short TTL, then
+// retrieved by pasting the phrase on another device. Phrases never appear in URLs.
+
+export async function createTransfer(scope, data) {
+  const res = await fetch('/api/transfers', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ scope, data }) })
+  if (res.status === 413 || res.status === 507) throw new Error(await responseError(res))
+  return (await check(res)).json()
+}
+
+export async function retrieveTransfer(phrase) {
+  return (await check(await fetch('/api/transfers/retrieve', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ phrase }) }))).json()
 }
 
 // --- Research runs ---------------------------------------------------------------------
