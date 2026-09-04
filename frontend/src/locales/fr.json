@@ -58,6 +58,8 @@
     "cacheHelp": "Réutilise l'invite de l'espace de travail, les messages système et les documents joints d'un tour de chat à l'autre. Le tarif dépend du fournisseur.",
     "appearance": "Apparence et saisie. Ces réglages ne concernent que ce navigateur.",
     "backup": "Sauvegarde (instantané complet)",
+  "reset": "Réinitialiser les réglages",
+  "resetHelp": "Rétablit les réglages globaux de ce navigateur. Les conversations restent inchangées.",
     "fontSize": "Taille du texte : {size} %",
     "enterSends": "Entrée envoie le message (désactivé : Maj+Entrée envoie, Entrée ajoute une ligne)",
     "showThinkingAndSearch": "Afficher la réflexion et la recherche",
@@ -109,7 +111,8 @@
     "deleteWorkspace": "Supprimer l'espace de travail « {name} » ? Ses conversations seront conservées en dehors de celui-ci.",
     "deleteTemplate": "Supprimer ce modèle ?",
     "deleteConversation": "Supprimer cette conversation ? Cette action est irréversible.",
-    "restore": "Restaurer {conversations} conversations, {workspaces} espaces de travail, {docs} documents, {images} images et {runs} recherches du {date} ? Les données de ce navigateur seront remplacées."
+    "restore": "Restaurer {conversations} conversations, {workspaces} espaces de travail, {docs} documents, {images} images et {runs} recherches du {date} ? Les données de ce navigateur seront remplacées.",
+  "resetSettings": "Rétablir les réglages globaux aux valeurs par défaut du déploiement ? Les conversations, espaces de travail, documents et recherches sont conservés."
   },
   "context": {
     "empty": "Aucun message système ou épinglé pour le moment.",

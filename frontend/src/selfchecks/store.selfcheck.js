@@ -1,6 +1,6 @@
 // Run: node src/selfchecks/store.selfcheck.js.
 import assert from 'node:assert'
-import { activePane, activeRunOf, attachedDocs, conversations, createConversation, createDoc, createFromTemplate, createRun, createWorkspace, deleteConversation, deleteDoc, deleteWorkspace, docsOf, exportData, finishRun, globalSettings, importData, modelSupportsCache, models, removeDocRef, restoreData, runById, saveAsTemplate, selectConversation, setGlobalSettings, snapshotInfo, undoDocRevision, updateDocText, workspaceOf } from '../state/store.js'
+import { activePane, activeRunOf, attachedDocs, conversations, createConversation, createDoc, createFromTemplate, createRun, createWorkspace, deleteConversation, deleteDoc, deleteWorkspace, docsOf, exportData, finishRun, globalSettings, importData, modelSupportsCache, models, removeDocRef, resetGlobalSettings, restoreData, runById, saveAsTemplate, selectConversation, setGlobalSettings, snapshotInfo, undoDocRevision, updateDocText, workspaceOf } from '../state/store.js'
 // recordUsage/usageDays operate on in-memory state; initUsage() itself needs a real IndexedDB and is not called here, the same reason this file never calls initStore() either.
 import { recordUsage, usageDays } from '../state/usage.js'
 
@@ -38,6 +38,9 @@ assert.equal(fromT.workspaceId, null, 'member convo left the deleted workspace')
 assert.equal(t.workspaceId, null, 'member template left the deleted workspace')
 
 setGlobalSettings({ temperature: 0.7 })
+globalSettings.value.temperature = 0.2
+resetGlobalSettings()
+assert.equal(globalSettings.value.temperature, 0.7, 'reset restores server defaults')
 recordUsage('chat', { model: 'claude-sonnet-5', input: 100, output: 50, cache_read: 0, cache_write: 0, usd: 0.01 })
 const snapshot = exportData()
 assert.equal(snapshot.version, 2, 'full export is versioned')

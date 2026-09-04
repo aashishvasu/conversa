@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { EFFORT_LEVELS } from '../state/settings.js'
-import { downloadExport, globalSettings, importData, modelSupportsCache, models, persistGlobal, restoreData, snapshotInfo } from '../state/store.js'
+import { downloadExport, globalSettings, importData, modelSupportsCache, models, persistGlobal, resetGlobalSettings, restoreData, snapshotInfo } from '../state/store.js'
 import { convertImport } from '../state/importers.js'
 import { enterToSend, fontScale, locale, restorePrefs, showThinkingAndSearch } from '../utils/prefs.js'
 import { locales, setLocale, tr } from '../i18n.js'
@@ -68,6 +68,10 @@ async function onRestoreFile(e) {
   } catch (err) {
     importMsg.value = tr('import.restoreFailed', { error: err.message })
   }
+}
+
+async function resetDefaults() {
+  if (await confirmDelete(tr('confirm.resetSettings'), tr('settings.reset'))) resetGlobalSettings()
 }
 </script>
 
@@ -159,6 +163,12 @@ async function onRestoreFile(e) {
     <UiSwitch v-model="enterToSend" :label="$t('settings.enterSends')" />
 
     <UiSwitch v-model="showThinkingAndSearch" :label="$t('settings.showThinkingAndSearch')" />
+
+    <div>
+      <label class="mb-1 block text-muted">{{ $t('settings.reset') }}</label>
+      <UiButton @click="resetDefaults">{{ $t('settings.reset') }}</UiButton>
+      <p class="mt-1 text-xs text-muted">{{ $t('settings.resetHelp') }}</p>
+    </div>
 
     <div>
       <label class="mb-1 block text-muted">{{ $t('settings.backup') }}</label>

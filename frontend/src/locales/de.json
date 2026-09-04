@@ -58,6 +58,8 @@
     "cacheHelp": "Verwendet den Arbeitsbereich-Prompt, Systemnachrichten und angehängte Dokumente in weiteren Chat-Runden wieder. Die Preise hängen vom Anbieter ab.",
     "appearance": "Darstellung und Eingabe. Gilt nur für diesen Browser.",
     "backup": "Datensicherung (vollständiger App-Schnappschuss)",
+  "reset": "Standardeinstellungen zurücksetzen",
+  "resetHelp": "Stellt die globalen Einstellungen dieses Browsers wieder her. Chats bleiben unverändert.",
     "fontSize": "Schriftgröße: {size}%",
     "enterSends": "Eingabetaste sendet (aus: Umschalt+Eingabe sendet, Eingabe fügt eine neue Zeile ein)",
     "showThinkingAndSearch": "Denken und Suche anzeigen",
@@ -109,7 +111,8 @@
     "deleteWorkspace": "Arbeitsbereich \"{name}\" löschen? Seine Unterhaltungen bleiben erhalten und werden nur herausgelöst.",
     "deleteTemplate": "Diese Vorlage löschen?",
     "deleteConversation": "Diese Unterhaltung löschen? Dies kann nicht rückgängig gemacht werden.",
-    "restore": "{conversations} Unterhaltungen, {workspaces} Arbeitsbereiche, {docs} Dokumente, {images} Bilder und {runs} Rechercheläufe vom {date} wiederherstellen? Dadurch werden die Daten in diesem Browser ersetzt."
+    "restore": "{conversations} Unterhaltungen, {workspaces} Arbeitsbereiche, {docs} Dokumente, {images} Bilder und {runs} Rechercheläufe vom {date} wiederherstellen? Dadurch werden die Daten in diesem Browser ersetzt.",
+  "resetSettings": "Globale Einstellungen auf die Bereitstellungsstandardwerte zurücksetzen? Unterhaltungen, Arbeitsbereiche, Dokumente und Rechercheläufe bleiben erhalten."
   },
   "context": {
     "empty": "Noch keine Systemnachrichten oder angehefteten Nachrichten.",

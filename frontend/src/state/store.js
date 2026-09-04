@@ -1,4 +1,4 @@
-import { delMany, get, getMany, keys, set, setMany } from 'idb-keyval'
+import { del, delMany, get, getMany, keys, set, setMany } from 'idb-keyval'
 import { computed, reactive, ref, watch } from 'vue'
 import { foldRunUsage, replaceUsage, usageDays } from './usage.js'
 import { dismiss, notify } from '../utils/notify.js'
@@ -28,6 +28,7 @@ export const sidebarOpen = ref(false) // mobile drawer toggle; desktop ignores i
 
 let loaded = false
 let savedGlobal = null // user's edited global defaults, loaded from IDB
+let serverDefaults = null
 
 // Loads persisted state.
 // Call once before showing the UI.
@@ -400,7 +401,8 @@ function hoistInlineDocs(workspaces, docs) {
   }
 }
 
-export function setGlobalSettings(serverDefaults) {
+export function setGlobalSettings(defaults) {
+  serverDefaults = { ...defaults }
   // Server defaults seed any missing keys; the user's saved edits win.
   globalSettings.value = { ...serverDefaults, ...(savedGlobal || {}) }
   if (currentId.value) return
@@ -413,6 +415,12 @@ export function setGlobalSettings(serverDefaults) {
 export function persistGlobal() {
   savedGlobal = { ...globalSettings.value }
   set(GLOBAL_KEY, savedGlobal)
+}
+
+export function resetGlobalSettings() {
+  savedGlobal = null
+  globalSettings.value = { ...serverDefaults }
+  if (loaded) del(GLOBAL_KEY)
 }
 
 const SNAPSHOT_VERSION = 2

@@ -109,7 +109,8 @@
     "deleteWorkspace": "Eliminare lo spazio di lavoro “{name}”? Le sue conversazioni verranno conservate al di fuori dello spazio.",
     "deleteTemplate": "Eliminare questo modello?",
     "deleteConversation": "Eliminare questa conversazione? L'operazione non può essere annullata.",
-    "restore": "Ripristinare {conversations} conversazioni, {workspaces} spazi di lavoro, {docs} documenti, {images} immagini e {runs} ricerche del {date}? I dati di questo browser verranno sostituiti."
+    "restore": "Ripristinare {conversations} conversazioni, {workspaces} spazi di lavoro, {docs} documenti, {images} immagini e {runs} ricerche del {date}? I dati di questo browser verranno sostituiti.",
+  "resetSettings": "Ripristinare le impostazioni globali ai valori predefiniti della distribuzione? Conversazioni, spazi di lavoro, documenti e ricerche vengono mantenuti."
   },
   "context": {
     "empty": "Non ci sono ancora messaggi di sistema o messaggi fissati.",
