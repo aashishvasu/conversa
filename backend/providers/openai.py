@@ -11,8 +11,8 @@ REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 
 # USD per million tokens, input then output. Update when published rates change.
 PRICES = {
-    "gpt-5.6-sol": (5, 30), "gpt-5.6-terra": (2, 12), "gpt-5.6-luna": (0.20, 1.20),
-    "gpt-5.5": (5, 30),
+    "gpt-5.6-sol": (4, 20), "gpt-5.6-terra": (2, 12), "gpt-5.6-luna": (0.20, 1.20),
+    "gpt-5.5": (5, 30), "gpt-5-mini": (0.25, 2.0),
 }
 
 PROVIDER = {

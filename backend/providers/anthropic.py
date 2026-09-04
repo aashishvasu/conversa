@@ -25,9 +25,10 @@ LEGACY_EFFORT_BUDGETS = {"low": 4000, "medium": 10000, "high": 24000}
 
 # USD per million tokens, input then output, bare model id -> rate. Update when published rates change.
 PRICES = {
+    "claude-fable-5-1": (10, 50), "claude-mythos-5-1": (10, 50),
     "claude-fable-5": (10, 50), "claude-mythos-5": (10, 50),
     "claude-opus-5": (5, 25), "claude-opus-4-8": (5, 25), "claude-opus-4-7": (5, 25),
-    "claude-opus-4-6": (5, 25), "claude-sonnet-5": (3, 15), "claude-sonnet-4-6": (3, 15),
+    "claude-opus-4-6": (5, 25), "claude-sonnet-5": (2, 10), "claude-sonnet-4-6": (3, 15),
     "claude-haiku-4-5": (1, 5),
 }
 
@@ -40,7 +41,7 @@ PROVIDER = {
     "prices": PRICES,
     # Bare model ids belong to Anthropic (see split_model).
     "models": (
-        "claude-fable-5:Fable 5,"
+        "claude-fable-5-1:Fable 5.1,claude-fable-5:Fable 5,"
         "claude-opus-5:Opus 5,claude-sonnet-5:Sonnet 5,claude-opus-4-8:Opus 4.8,"
         "claude-sonnet-4-6:Sonnet 4.6,claude-haiku-4-5:Haiku 4.5"
     ),

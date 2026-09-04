@@ -145,11 +145,11 @@ assert join_model("openai", "gpt-x") == "openai/gpt-x"
 
 # cost(): base rate, then each of cache write, cache read, and hosted search priced independently.
 usd, priced = cost("anthropic", "claude-sonnet-5", 1_000_000, 0)
-assert priced and usd == 3.0, usd
+assert priced and usd == 2.0, usd
 usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, cache_write=1_000_000)
-assert usd == 3.75, usd  # 3 * 1.25
+assert usd == 2.5, usd  # 2 * 1.25
 usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, cache_read=1_000_000)
-assert usd == 0.3, usd  # 3 * 0.1
+assert usd == 0.2, usd  # 2 * 0.1
 usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, search_requests=1000)
 assert usd == 10.0, usd
 usd, priced = cost("anthropic", "unknown-model-xyz", 1_000_000, 1_000_000)
