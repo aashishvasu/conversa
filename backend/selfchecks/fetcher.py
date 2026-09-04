@@ -2,9 +2,8 @@
 
 import asyncio
 
-from research.fetcher import FetchError, assert_public_target, canonicalize, is_private_ip
+from tools.fetch import FetchError, PageCache, assert_public_target, canonicalize, is_private_ip
 
-# The guard is the security boundary, so it gets the asserts.
 for blocked in (
     "127.0.0.1", "10.0.0.1", "192.168.1.1", "172.16.0.1", "169.254.169.254",
     "0.0.0.0", "100.64.0.1", "::1", "fc00::1", "fe80::1", "::ffff:10.0.0.1",
@@ -29,17 +28,99 @@ async def _guard_checks():
         except FetchError:
             continue
         raise AssertionError(f"should have been blocked: {bad}")
-    await assert_public_target("https://example.com/ok")  # public names pass
+    await assert_public_target("https://example.com/ok")
+
 
 asyncio.run(_guard_checks())
 
-# Canonicalization: variants of one page collapse to one key.
 same = {
     canonicalize("https://Example.com/a/b/?b=2&a=1#frag"),
     canonicalize("https://example.com/a/b?a=1&b=2"),
     canonicalize("https://example.com/a/b/?a=1&utm_source=x&b=2&fbclid=y"),
 }
 assert len(same) == 1, same
-assert canonicalize("https://example.com/") == "https://example.com/", "root slash kept"
+assert canonicalize("https://example.com/") == "https://example.com/"
+
+
+async def _cache_checks():
+    now = [0.0]
+    calls = []
+
+    async def fake_fetch(url):
+        calls.append(url)
+        await asyncio.sleep(0.01)
+        return {
+            "url": url,
+            "title": "title",
+            "kind": "article",
+            "content": "# Alpha\nalpha alpha\n\n# Beta\nbeta beta",
+        }
+
+    cache = PageCache(fake_fetch, clock=lambda: now[0], ttl=10, max_chars=1000)
+    alpha, beta, again = await asyncio.gather(
+        cache.get("https://Example.com/page/?b=2&a=1#fragment", "alpha"),
+        cache.get("https://example.com/page?a=1&b=2", "beta"),
+        cache.get("https://example.com/page/?a=1&b=2", "alpha"),
+    )
+    assert len(calls) == 1, calls
+    assert alpha["content"].startswith("# Alpha")
+    assert beta["content"].startswith("# Beta")
+    assert again["content"].startswith("# Alpha")
+    assert cache.inflight == {}, cache.inflight
+
+    now[0] = 10.0
+    await cache.get("https://example.com/page?a=1&b=2", "alpha")
+    assert len(calls) == 2, calls
+
+    async def sized_fetch(url):
+        return {"url": url, "title": None, "kind": "text", "content": url[-1] * 10}
+
+    lru = PageCache(sized_fetch, ttl=100, max_chars=25)
+    await lru.get("https://example.com/a")
+    await lru.get("https://example.com/b")
+    await lru.get("https://example.com/a")
+    await lru.get("https://example.com/c")
+    assert "https://example.com/a" in lru.pages, lru.pages
+    assert "https://example.com/b" not in lru.pages, lru.pages
+    assert lru.size <= 25, lru.size
+
+    oversized_calls = 0
+
+    async def oversized_fetch(url):
+        nonlocal oversized_calls
+        oversized_calls += 1
+        await asyncio.sleep(0.01)
+        return await sized_fetch(url)
+
+    oversized = PageCache(oversized_fetch, ttl=100, max_chars=5)
+    await asyncio.gather(oversized.get("https://example.com/z"), oversized.get("https://example.com/z"))
+    assert oversized_calls == 1, oversized_calls
+    assert oversized.pages == {} and oversized.size == 0, oversized.pages
+
+    failures = 0
+
+    async def failing_fetch(url):
+        nonlocal failures
+        failures += 1
+        await asyncio.sleep(0.01)
+        raise FetchError("unavailable")
+
+    failed = PageCache(failing_fetch, ttl=100)
+    errors = await asyncio.gather(
+        failed.get("https://example.com/fail"),
+        failed.get("https://example.com/fail"),
+        return_exceptions=True,
+    )
+    assert failures == 1 and all(isinstance(error, FetchError) for error in errors), (failures, errors)
+    try:
+        await failed.get("https://example.com/fail")
+    except FetchError:
+        pass
+    else:
+        raise AssertionError("failed fetch was returned")
+    assert failures == 2 and failed.pages == {} and failed.inflight == {}, (failures, failed.pages, failed.inflight)
+
+
+asyncio.run(_cache_checks())
 
 print("fetcher selfcheck OK")

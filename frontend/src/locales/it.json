@@ -64,6 +64,8 @@
     "memory": "Memoria (aggiornata dopo ogni risposta della chat)",
     "memoryEmpty": "(vuota; viene creata automaticamente quando la conversazione si allunga)",
     "scanAssistant": "Cerca attivatori delle schede nelle risposte",
+    "reset": "Ripristina impostazioni predefinite",
+    "resetHelp": "Ripristina le impostazioni globali di questo browser. Le chat non vengono modificate.",
     "templateCreated": "Modello creato",
     "saveTemplate": "Salva una copia come modello",
     "workspaceHelp": "Spazio di lavoro (prompt, schede e documenti condivisi nella chat)"
@@ -109,7 +111,8 @@
     "deleteWorkspace": "Eliminare lo spazio di lavoro “{name}”? Le sue conversazioni verranno conservate al di fuori dello spazio.",
     "deleteTemplate": "Eliminare questo modello?",
     "deleteConversation": "Eliminare questa conversazione? L'operazione non può essere annullata.",
-    "restore": "Ripristinare {conversations} conversazioni, {workspaces} spazi di lavoro, {docs} documenti, {images} immagini e {runs} ricerche del {date}? I dati di questo browser verranno sostituiti."
+    "restore": "Ripristinare {conversations} conversazioni, {workspaces} spazi di lavoro, {docs} documenti, {images} immagini e {runs} ricerche del {date}? I dati di questo browser verranno sostituiti.",
+    "resetSettings": "Ripristinare le impostazioni globali ai valori predefiniti della distribuzione? Conversazioni, spazi di lavoro, documenti e ricerche vengono mantenuti."
   },
   "context": {
     "empty": "Non ci sono ancora messaggi di sistema o messaggi fissati.",
@@ -119,10 +122,6 @@
     "attachDoc": "+ Allega un documento ({count} disponibile) | + Allega un documento ({count} disponibili)",
     "attach": "Allega",
     "assistantInstructions": "Istruzioni per l'assistente…",
-    "fetchPlaceholder": "https://… aggiungi una pagina al contesto",
-    "topicPlaceholder": "Cosa deve cercare il modello? (facoltativo)",
-    "fetching": "Recupero…",
-    "fetch": "Recupera",
     "help": "I messaggi di sistema e quelli fissati vengono sempre inviati nelle chat. Non rientrano nel limite dei messaggi. Modificarli qui o nella conversazione modifica lo stesso messaggio."
   },
   "debug": {

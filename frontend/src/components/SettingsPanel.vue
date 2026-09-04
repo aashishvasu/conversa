@@ -66,6 +66,26 @@ async function clearMemory() {
       <ModelSelect :model-value="eff('utility_model')" :label="$t('settings.utilityModel')" @update:model-value="setOv('utility_model', $event)" />
     </div>
 
+    <div v-for="field in [
+      { key: 'research_search_model', label: $t('research.searchModel') },
+      { key: 'research_note_model', label: $t('research.notesModel') },
+      { key: 'research_report_model', label: $t('research.reportModel') },
+    ]" :key="field.key">
+      <div class="mb-1 flex items-center justify-between text-muted">
+        <label>{{ field.label }}</label>
+        <UiIconButton v-if="overridden(field.key)" class="!size-6" :label="$t('settings.inheritGlobal')" @click="reset(field.key)"><RotateCcw :size="12" /></UiIconButton>
+      </div>
+      <ModelSelect :model-value="eff(field.key)" :label="field.label" @update:model-value="setOv(field.key, $event)" />
+    </div>
+
+    <div>
+      <div class="mb-1 flex items-center justify-between text-muted">
+        <span>{{ $t('research.sourcesPerQuestion') }}</span>
+        <UiIconButton v-if="overridden('research_depth')" class="!size-6" :label="$t('settings.inheritGlobal')" @click="reset('research_depth')"><RotateCcw :size="12" /></UiIconButton>
+      </div>
+      <UiNumberField :model-value="eff('research_depth')" :label="$t('research.sourcesPerQuestion')" :min="1" :max="12" @update:model-value="setOv('research_depth', $event)" />
+    </div>
+
     <div>
       <div class="mb-1 flex items-center justify-between text-muted">
         <span>{{ $t('settings.temperature', { value: eff('temperature') }) }}</span>

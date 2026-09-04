@@ -16,7 +16,7 @@ backend/static/
 # These configure the assistants used to work on conversa, so they are not part of conversa.
 .claude/
 .pi/
+standards/
+/tools/
 CLAUDE.md
-CONVENTIONS.md
 AGENTS.md
-tools/

@@ -9,7 +9,8 @@ from .dialects import (
     chat_completion_usage,
     chat_completions_kwargs,
     complete,
-    field,
+    complete_messages,
+    complete_messages_kwargs,
     join_system,
     openai_messages,
     response_frame,
@@ -17,6 +18,14 @@ from .dialects import (
     responses_usage,
     stream_chat,
     takes_reasoning,
+)
+from .tool_use import (
+    anthropic_tool_calls,
+    anthropic_tools,
+    field,
+    responses_tool_calls,
+    responses_tools,
+    tool_schema,
 )
 from .registry import (
     ALL_MODELS,

@@ -10,8 +10,8 @@ function blankRow() {
   return { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, usd: 0, unpriced: 0 }
 }
 
-// Shared accumulation: row.calls takes an explicit count so a single generation (always 1) and an already-aggregated fold (its own call count) use the same field summation.
-// fields.unpriced is a boolean on a single generation's frame and a count on an aggregated fold;
+// Shared accumulation: row.calls takes an explicit count so a streamed turn and an already-aggregated fold use the same field summation.
+// fields.unpriced is a boolean on a single-call frame and a count on an aggregated fold;
 // Number() normalizes both to how many of these calls had no published rate.
 function addFields(row, calls, fields) {
   row.calls += calls
@@ -24,12 +24,12 @@ function addFields(row, calls, fields) {
   return row
 }
 
-// Pure: folds one generation's usage frame into a days object and returns it.
+// Pure: folds a usage frame into a days object and returns it.
 // day defaults to today (UTC date, matching the stamp store.js already uses for research exports).
 export function addUsage(days, kind, model, usage, day = new Date().toISOString().slice(0, 10)) {
   const models = (days[day] ??= {})
   const kinds = (models[model] ??= {})
-  return addFields((kinds[kind] ??= blankRow()), 1, usage)
+  return addFields((kinds[kind] ??= blankRow()), usage.calls ?? 1, usage)
 }
 
 // Pure: folds an already-aggregated per-model row (a research run's Spend.as_dict().models entry) into the ledger, carrying its own call count rather than counting the fold as a single call.
@@ -63,7 +63,7 @@ export function usageRows(days, start = '', end = '') {
 export function addConvoUsage(convo, usage) {
   if (!usage) return
   convo.usage ??= blankRow()
-  addFields(convo.usage, 1, usage)
+  addFields(convo.usage, usage.calls ?? 1, usage)
 }
 
 // --- Stateful layer, persisted like store.js ------------------------------------------
@@ -93,7 +93,7 @@ export function replaceUsage(days) {
   persist()
 }
 
-// Record one generation's usage frame under a kind (chat, utility, research).
+// Record a usage frame under a kind (chat, utility, research).
 export function recordUsage(kind, usage) {
   if (!usage?.model) return
   addUsage(state.days, kind, usage.model, usage)

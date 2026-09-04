@@ -91,22 +91,9 @@ export async function fetchModels() {
   return (await check(await fetch('/api/models', { headers: authHeaders(false) }))).json()
 }
 
-// Fetch a page as readable markdown.
-// The server does it because CORS blocks the browser from nearly every page.
-// A 400 carries the reason (blocked target, unreachable host, no readable content), which is the part worth showing.
-export async function fetchUrl(url, topic) {
-  const res = await fetch('/api/fetch', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({ url, topic }),
-  })
-  if (res.status === 400) throw new Error(await responseError(res))
-  return (await check(res)).json()
-}
-
 // Streams assistant text.
-// Calls onText(chunk) per token; onTrace(type, value) for non-visible activity (type 'thinking' | 'search' -> string, 'results' -> [{title,url}]);
-// onUsage(usage) once per generation with {model, input, output, cache_read, cache_write, usd, unpriced}; resolves when done.
+// Calls onText(chunk) per token; onTrace(type, value) for non-visible activity; onUsage(usage) once per turn.
+// Resolves when done.
 export async function streamChat(payload, onText, signal, onTrace, onUsage) {
   const res = await check(
     await fetch('/api/chat', {
@@ -124,6 +111,7 @@ export async function streamChat(payload, onText, signal, onTrace, onUsage) {
     else if (data.search && onTrace) onTrace('search', data.search)
     else if (data.fetch && onTrace) onTrace('fetch', data.fetch)
     else if (data.results && onTrace) onTrace('results', data.results)
+    else if (data.tool && onTrace) onTrace('tool', data.tool)
     else if (data.usage && onUsage) onUsage(data.usage)
   })
 }
@@ -151,16 +139,11 @@ async function readSSE(res, onEvent) {
 // A run lives in the server process, so closing the tab leaves it running.
 // Reconnect with the last seq seen and the events missed in between are replayed.
 
-// One round of questions about a brief, before any run starts.
-// The planner receives answers inside the brief.
-export async function clarifyResearch(brief, model, context = null) {
-  const res = await fetch('/api/research/clarify', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({ brief, model, context }),
-  })
-  if (res.status === 400) throw new Error(await responseError(res))
-  return (await (await check(res)).json()).questions
+// Prepare from the ordinary assembled system/messages context before a research placeholder exists.
+export async function prepareResearch(body) {
+  const res = await fetch('/api/research/prepare', { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) })
+  if (res.status === 400 || res.status === 502) throw new Error(await responseError(res))
+  return (await check(res)).json()
 }
 
 export async function startResearch(body) {
@@ -178,8 +161,18 @@ export async function discardResearch(id) {
 
 // Tails a run until it ends. onEvent gets every event; the last one is kind 'final' and carries the payload.
 export async function streamResearch(id, after, onEvent, signal) {
-  const res = await check(
-    await fetch(`/api/research/${id}/stream?after=${after || 0}`, { headers: authHeaders(false), signal }),
-  )
-  await readSSE(res, onEvent)
+  const res = await fetch(`/api/research/${id}/stream?after=${after || 0}`, { headers: authHeaders(false), signal })
+  if (res.status === 404) {
+    try {
+      const detail = (await res.clone().json()).detail
+      if (detail?.code === 'no_such_run') {
+        const error = new Error(detail.message)
+        error.code = detail.code
+        throw error
+      }
+    } catch (error) {
+      if (error?.code === 'no_such_run') throw error
+    }
+  }
+  await readSSE(await check(res), onEvent)
 }

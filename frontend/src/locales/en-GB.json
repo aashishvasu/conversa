@@ -58,6 +58,8 @@
     "cacheHelp": "Reuses the workspace prompt, system messages, and attached documents across chat turns. Pricing varies by provider.",
     "appearance": "Appearance & input. Applies to this browser only.",
     "backup": "Backup (full app snapshot)",
+  "reset": "Reset defaults",
+  "resetHelp": "Restores this browser's global settings. Chats are unchanged.",
     "fontSize": "Font size: {size}%",
     "enterSends": "Enter sends message (off: Shift+Enter sends, Enter makes a new line)",
     "showThinkingAndSearch": "Show thinking and search",
@@ -109,7 +111,8 @@
     "deleteWorkspace": "Delete workspace \"{name}\"? Its conversations are kept and just leave the workspace.",
     "deleteTemplate": "Delete this template?",
     "deleteConversation": "Delete this conversation? This cannot be undone.",
-    "restore": "Restore {conversations} conversations, {workspaces} workspaces, {docs} documents, {images} images and {runs} research runs from {date}? This replaces this browser's data."
+    "restore": "Restore {conversations} conversations, {workspaces} workspaces, {docs} documents, {images} images and {runs} research runs from {date}? This replaces this browser's data.",
+  "resetSettings": "Reset global settings to deployment defaults? Conversations, workspaces, documents and research runs stay."
   },
   "context": {
     "empty": "No system or pinned messages yet.",
@@ -119,10 +122,6 @@
     "attachDoc": "+ Attach a document ({count} available) | + Attach a document ({count} available)",
     "attach": "Attach",
     "assistantInstructions": "Instructions for the assistant…",
-    "fetchPlaceholder": "https://… fetch a page as context",
-    "topicPlaceholder": "What should the model look for? (optional)",
-    "fetching": "Fetching…",
-    "fetch": "Fetch",
     "help": "System and pinned messages are always sent in chats. They ignore the messages-to-send limit. Editing here and in the conversation changes the same message."
   },
   "debug": {

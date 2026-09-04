@@ -1,6 +1,6 @@
 """Selfcheck: python -m selfchecks.topic"""
 
-from research.topic import match_topic, split_sections
+from tools.topic import match_topic, split_sections
 
 doc = """# Library overview
 

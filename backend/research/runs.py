@@ -4,15 +4,16 @@ A run is an asyncio.Task plus its event list, held in the RUNS dict for the life
 That is what survives a client closing the tab.
 A process restart ends every run, and the brief lives in the browser, so the recovery is to start it again.
 Phases are plan, gather, gap, report; the gather stage itself lives in gather.py.
-The finished payload is the research result: the report plus its per-subquestion note sections.
+The finished payload is the research result: a short summary, the report, and its per-subquestion note sections.
 """
 
 import asyncio
+import re
 import time
 import uuid
 
 from providers import Spend, complete
-from research.gather import PROMPTS, PageCache, gather, lines
+from research.gather import PROMPTS, gather, lines
 
 RUNS = {}
 FINISHED_TTL = 3600  # a finished run is evicted this long after the client could have collected it
@@ -23,18 +24,19 @@ REPORT_MAX_TOKENS = 16000
 
 
 class Run:
-    def __init__(self, brief, models, depth, title=None):
-        self.id = uuid.uuid4().hex
+    def __init__(self, brief, models, depth, title=None, prompts=None, run_id=None):
+        self.id = run_id or uuid.uuid4().hex
         self.brief = brief
         # The planner receives clarifications in brief; the original question names the workspace.
         self.title = title or brief
         self.models = models  # {"search": id, "note": id, "report": id}
         self.depth = depth  # sources per subquestion
+        # Overrides remain local to this run; never mutate gather.PROMPTS for another request.
+        self.prompts = {**PROMPTS, **{k: v for k, v in (prompts or {}).items() if k in PROMPTS}}
         self.status = "running"
         self.phase = "plan"
         self.events = []
         self.spend = Spend()
-        self.pages = PageCache()
         self.payload = None
         self.error = None
         self.finished_at = None
@@ -60,13 +62,27 @@ def answered(sections):
     return [s for s in sections if s["notes"]]
 
 
+def report_summary(report):
+    """Return at most two paragraphs from the report model's Summary section."""
+    match = re.search(r"(?im)^##\s+summary\s*$", report)
+    if not match:
+        return ""
+    body = report[match.end():]
+    next_section = re.search(r"(?m)^##\s+", body)
+    if next_section:
+        body = body[:next_section.start()]
+    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n\s*\n", body) if paragraph.strip()]
+    return "\n\n".join(paragraphs[:2])
+
+
 def result_payload(title, sections, report):
-    """The provider-blind research result: report text plus the notes behind each answered subquestion.
+    """The provider-blind research result: its summary, report, and answered note sections.
 
     Section order matches the report's `qN` headings, so a client can cite either against the other.
     """
     return {
         "name": title[:60],
+        "summary": report_summary(report),
         "report": {"name": "Research report.md", "text": report},
         "sections": [
             {"question": s["question"], "notes": [{"note": n["note"], "url": n["url"]} for n in s["notes"]]}
@@ -80,7 +96,7 @@ async def _run(run):
         run.emit("phase", phase="plan")
         # Planning uses medium effort because its subquestions determine every downstream call.
         planned = lines(
-            await complete(run.models["report"], PROMPTS["plan"], run.brief,
+            await complete(run.models["report"], run.prompts["plan"], run.brief,
                            max_tokens=PLAN_MAX_TOKENS, effort="medium", spend=run.spend),
             MAX_SUBQUESTIONS,
         )
@@ -94,7 +110,7 @@ async def _run(run):
             run.emit("phase", phase="gather", round=round_no + 1, questions=planned)
             found = await asyncio.gather(*(
                 gather(q, run.models["search"], run.models["note"], limit=run.depth, spend=run.spend,
-                       pages=run.pages, on_source=lambda q, r: run.emit("source", question=q, **r))
+                       prompts=run.prompts, on_source=lambda q, r: run.emit("source", question=q, **r))
                 for q in planned
             ))
             sections += found
@@ -105,7 +121,7 @@ async def _run(run):
             run.emit("phase", phase="gap")
             try:
                 verdict = await complete(
-                    run.models["report"], PROMPTS["gap"], _notes_prompt(run.brief, sections),
+                    run.models["report"], run.prompts["gap"], _notes_prompt(run.brief, sections),
                     max_tokens=PLAN_MAX_TOKENS, spend=run.spend,
                 )
             except Exception as err:
@@ -122,7 +138,7 @@ async def _run(run):
         run.emit("phase", phase="report", answered=len(found), planned=len(sections))
         try:
             report = await complete(
-                run.models["report"], PROMPTS["report"], _notes_prompt(run.brief, found),
+                run.models["report"], run.prompts["report"], _notes_prompt(run.brief, found),
                 max_tokens=REPORT_MAX_TOKENS, effort="medium", spend=run.spend,
             )
         except Exception as err:
@@ -147,7 +163,6 @@ The gathered notes follow.
         run.error = str(err)
         run.emit("error", message=str(err))
     finally:
-        run.pages.clear()  # the corpus was only ever needed to produce the notes
         run.finished_at = time.time()
 
 
@@ -163,12 +178,15 @@ def _notes_prompt(brief, sections):
     return "".join(parts)
 
 
-def start(brief, models, depth=6, title=None):
+def start(brief, models, depth=6, title=None, prompts=None, run_id=None):
+    """Start once for a browser-owned id, or return its retained in-memory run."""
     evict()
-    run = Run(brief, models, depth, title=title)
+    if run_id and (existing := RUNS.get(run_id)):
+        return existing, True
+    run = Run(brief, models, depth, title=title, prompts=prompts, run_id=run_id)
     RUNS[run.id] = run
     run.task = asyncio.create_task(_run(run))
-    return run
+    return run, False
 
 
 def forget(run_id):

@@ -14,6 +14,7 @@ from providers import (
     chat_completion_frames,
     chat_completion_usage,
     chat_completions_kwargs,
+    complete_messages_kwargs,
     cost,
     field,
     join_model,
@@ -96,6 +97,17 @@ assert join_system(["stable", ""]) == "stable" and join_system("plain") == "plai
 vision = [{"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/webp", "data": "DATA"}}, {"type": "text", "text": "look"}]}]
 assert openai_messages(vision, True)[0]["content"] == [{"type": "input_image", "image_url": "data:image/webp;base64,DATA"}, {"type": "input_text", "text": "look"}]
 assert openai_messages(vision, False)[0]["content"] == [{"type": "image_url", "image_url": {"url": "data:image/webp;base64,DATA"}}, {"type": "text", "text": "look"}]
+
+# Preparation uses the same dialect conversion as chat, despite being a non-streaming call.
+prepared_anthropic = complete_messages_kwargs("anthropic", "claude-opus-4-8", vision, ["stable", "volatile"], 1024, "")
+assert prepared_anthropic["system"] == anthropic_system(["stable", "volatile"]), prepared_anthropic
+assert prepared_anthropic["messages"] == vision, prepared_anthropic
+prepared_responses = complete_messages_kwargs("deepseek", "deepseek-v4-flash", vision, ["stable", "volatile"], 1024, "")
+assert prepared_responses["input"] == openai_messages(vision, True), prepared_responses
+assert prepared_responses["instructions"] == "stable\n\nvolatile", prepared_responses
+assert prepared_responses["reasoning"] == {"effort": "none"}, prepared_responses
+prepared_chat = complete_messages_kwargs("compatible", "some-model", vision, ["stable", "volatile"], 1024, "")
+assert prepared_chat["messages"] == [{"role": "system", "content": "stable\n\nvolatile"}, *openai_messages(vision, False)], prepared_chat
 
 assert anthropic_frame(Obj(type="content_block_delta", delta=Obj(type="text_delta", text="hello"))) == {"text": "hello"}
 assert anthropic_frame(Obj(type="content_block_delta", delta=Obj(type="thinking_delta", thinking="hmm"))) == {"think": "hmm"}

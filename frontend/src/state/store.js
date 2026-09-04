@@ -1,4 +1,4 @@
-import { delMany, get, getMany, keys, set, setMany } from 'idb-keyval'
+import { del, delMany, get, getMany, keys, set, setMany } from 'idb-keyval'
 import { computed, reactive, ref, watch } from 'vue'
 import { foldRunUsage, replaceUsage, usageDays } from './usage.js'
 import { dismiss, notify } from '../utils/notify.js'
@@ -28,6 +28,7 @@ export const sidebarOpen = ref(false) // mobile drawer toggle; desktop ignores i
 
 let loaded = false
 let savedGlobal = null // user's edited global defaults, loaded from IDB
+let serverDefaults = null
 
 // Loads persisted state.
 // Call once before showing the UI.
@@ -184,25 +185,26 @@ export function selectConversation(id) {
 }
 
 // --- Runs ---------------------------------------------------------------------
-// A run is a research turn's client record: brief, clarifying exchange, events, spend, and the final payload.
+// A run is a research turn's client record: immutable prepared input, events, spend, and the final payload.
 // It belongs to the conversation that sent it (convoId, promptMessageId, resultMessageId) and dies with it.
 // A record without a convoId is a pre-conversational leftover that renders nowhere (its applied report lives on as a workspace doc), so validRun drops it at every entry path.
 
-export function createRun(convo, promptMessageId, resultMessageId, brief) {
+export function createRun(convo, promptMessageId, resultMessageId, input, prepared, settings) {
+  const id = crypto.randomUUID()
   const r = {
-    id: crypto.randomUUID(),
+    id,
     convoId: convo.id,
     promptMessageId,
     resultMessageId,
     reportDocId: null,
     sourceWorkspaceId: convo.workspaceId, // lineage: the shared context the run was planned under
-    brief,
-    clarified: false, // the one automatic clarify call has come back (with or without questions)
-    questions: [],
-    answers: '',
-    settings: {}, // research_* overrides for this run, resolved against the global defaults
-    serverId: null,
-    status: 'draft',
+    // Snapshot these before the POST. A later settings edit cannot change an in-flight turn.
+    input: structuredClone(input),
+    prepared: structuredClone(prepared),
+    settings: structuredClone(settings),
+    // The backend accepts this browser-generated id idempotently, so it survives a lost start response.
+    serverId: id,
+    status: 'starting',
     phase: '',
     events: [],
     spend: null,
@@ -220,9 +222,13 @@ export function runById(id) {
   return state.runs.find((r) => r.id === id) || null
 }
 
+export function removeRun(id) {
+  state.runs = state.runs.filter((run) => run.id !== id)
+}
+
 // The run blocking new sends in this conversation, or null.
 export function activeRunOf(convoId) {
-  return state.runs.find((r) => r.convoId === convoId && r.status === 'running') || null
+  return state.runs.find((r) => r.convoId === convoId && ['starting', 'running'].includes(r.status)) || null
 }
 
 // Land a run's final stream frame: status, then the report into the doc store, then the spend fold.
@@ -248,8 +254,8 @@ export function finishRun(run, frame) {
       const msg = convo.messages.find((m) => m.id === run.resultMessageId)
       if (msg) {
         msg.docId = doc.id
-        // What later turns' models see in place of the block: the outcome, and where the full text sits.
-        msg.content = `Research complete. The report is attached to this conversation as "${doc.name}".`
+        const ready = `Your "${frame.payload.name}" research document is ready.`
+        msg.content = frame.payload.summary ? `${ready}\n\n${frame.payload.summary}` : ready
       }
     }
   }
@@ -395,7 +401,8 @@ function hoistInlineDocs(workspaces, docs) {
   }
 }
 
-export function setGlobalSettings(serverDefaults) {
+export function setGlobalSettings(defaults) {
+  serverDefaults = { ...defaults }
   // Server defaults seed any missing keys; the user's saved edits win.
   globalSettings.value = { ...serverDefaults, ...(savedGlobal || {}) }
   if (currentId.value) return
@@ -408,6 +415,12 @@ export function setGlobalSettings(serverDefaults) {
 export function persistGlobal() {
   savedGlobal = { ...globalSettings.value }
   set(GLOBAL_KEY, savedGlobal)
+}
+
+export function resetGlobalSettings() {
+  savedGlobal = null
+  globalSettings.value = { ...serverDefaults }
+  if (loaded) del(GLOBAL_KEY)
 }
 
 const SNAPSHOT_VERSION = 2
@@ -479,7 +492,8 @@ function validConversation(c) {
 }
 
 function validRun(r) {
-  return Boolean(r?.id && r.convoId)
+  // The retired draft format has no immutable prepared input and cannot resume honestly.
+  return Boolean(r?.id && r.convoId && r.input && r.prepared?.goal && r.settings)
 }
 
 function addMissing(target, values) {

@@ -13,6 +13,7 @@ from providers import (
     CONFIG_ERRORS, DEFAULT_EFFORT, DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_TEMPERATURE,
     DEFAULT_UTILITY_MODEL, EFFORT_VALUES, MODELS, resolve_model, stream_chat,
 )
+from tools.web import WEB_TOOLS
 
 DEFAULT_NUM_MESSAGES = int(os.environ.get("DEFAULT_NUM_MESSAGES", "20"))
 DEFAULT_SEND_SYSTEM = os.environ.get("DEFAULT_SEND_SYSTEM_PROMPT", "true").lower() == "true"
@@ -56,6 +57,7 @@ class ChatRequest(BaseModel):
     temperature: float | None = None
     max_tokens: int | None = None
     effort: str | None = None  # "" | low | medium | high; empty/None = thinking off
+    allow_tools: bool = False
 
 
 @router.get("/api/settings")
@@ -107,5 +109,7 @@ async def chat(req: ChatRequest, _=Depends(require_auth)):
         max_tokens,
         effort,
         req.temperature if req.temperature is not None else DEFAULT_TEMPERATURE,
+        tools=WEB_TOOLS if req.allow_tools else None,
+        allow_hosted_tools=req.allow_tools,
     )
     return StreamingResponse(sse_stream(events), media_type="text/event-stream")

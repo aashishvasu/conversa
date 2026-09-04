@@ -19,6 +19,10 @@ assert.ok(!days['2026-08-24']['claude-haiku-4-5'].chat, 'kinds do not bleed into
 assert.equal(days['2026-08-24']['claude-sonnet-5'].research, undefined, 'a different day is a different bucket')
 assert.equal(days['2026-08-25']['claude-sonnet-5'].research.calls, 1)
 
+const aggregatedDays = {}
+addUsage(aggregatedDays, 'chat', 'batched-model', { calls: 3, input: 60, output: 30, usd: 0.003 }, '2026-08-25')
+assert.equal(aggregatedDays['2026-08-25']['batched-model'].chat.calls, 3, 'an aggregated frame carries its call count into the daily ledger')
+
 // missing fields on a frame default to 0 rather than throwing (an unpriced or partial frame)
 addUsage(days, 'chat', 'x', {}, '2026-08-26')
 assert.deepEqual(days['2026-08-26'].x.chat, { calls: 1, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, usd: 0, unpriced: 0 })
@@ -53,8 +57,10 @@ addConvoUsage(convo, { input: 20, output: 0, cache_read: 100, usd: 0.0002 })
 assert.equal(convo.usage.calls, 2)
 assert.equal(convo.usage.input, 30)
 assert.equal(convo.usage.cacheRead, 100)
+addConvoUsage(convo, { calls: 3, input: 30, output: 15, usd: 0.003 })
+assert.equal(convo.usage.calls, 5, 'an aggregated frame carries its call count into the conversation total')
 addConvoUsage(convo, null) // a missing/unpriced usage frame is a no-op, not a crash
-assert.equal(convo.usage.calls, 2, 'a null usage frame does not count as a call')
+assert.equal(convo.usage.calls, 5, 'a null usage frame does not count as a call')
 
 // The stateful layer: replaceUsage/usageDays operate on in-memory state directly.
 // initUsage() itself is not called here: it awaits idb-keyval's get(), which needs a real

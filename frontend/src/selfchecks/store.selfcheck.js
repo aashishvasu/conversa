@@ -1,6 +1,6 @@
 // Run: node src/selfchecks/store.selfcheck.js.
 import assert from 'node:assert'
-import { activePane, activeRunOf, attachedDocs, conversations, createConversation, createDoc, createFromTemplate, createRun, createWorkspace, deleteConversation, deleteDoc, deleteWorkspace, docsOf, exportData, finishRun, globalSettings, importData, modelSupportsCache, models, removeDocRef, restoreData, runById, saveAsTemplate, selectConversation, setGlobalSettings, snapshotInfo, undoDocRevision, updateDocText, workspaceOf } from '../state/store.js'
+import { activePane, activeRunOf, attachedDocs, conversations, createConversation, createDoc, createFromTemplate, createRun, createWorkspace, deleteConversation, deleteDoc, deleteWorkspace, docsOf, exportData, finishRun, globalSettings, importData, modelSupportsCache, models, removeDocRef, resetGlobalSettings, restoreData, runById, saveAsTemplate, selectConversation, setGlobalSettings, snapshotInfo, undoDocRevision, updateDocText, workspaceOf } from '../state/store.js'
 // recordUsage/usageDays operate on in-memory state; initUsage() itself needs a real IndexedDB and is not called here, the same reason this file never calls initStore() either.
 import { recordUsage, usageDays } from '../state/usage.js'
 
@@ -22,7 +22,7 @@ await importData({ conversations: [], workspaces: [{ id: w.id, name: 'clobber?' 
 const wss = exportData().workspaces
 assert.equal(wss.length, 2, 'new workspace added')
 assert.equal(wss.find((x) => x.id === w.id).name, 'W1', 'existing workspace not overwritten')
-assert.deepEqual(exportData().runs.map((r) => r.id), ['r1'], 'run merge preserves a new linked run and drops a pre-conversational record')
+assert.deepEqual(exportData().runs.map((r) => r.id), [], 'old draft and pre-conversational run records are dropped')
 
 assert.equal(workspaceOf({ workspaceId: 'nope' }), null)
 assert.equal(workspaceOf(null), null)
@@ -38,12 +38,15 @@ assert.equal(fromT.workspaceId, null, 'member convo left the deleted workspace')
 assert.equal(t.workspaceId, null, 'member template left the deleted workspace')
 
 setGlobalSettings({ temperature: 0.7 })
+globalSettings.value.temperature = 0.2
+resetGlobalSettings()
+assert.equal(globalSettings.value.temperature, 0.7, 'reset restores server defaults')
 recordUsage('chat', { model: 'claude-sonnet-5', input: 100, output: 50, cache_read: 0, cache_write: 0, usd: 0.01 })
 const snapshot = exportData()
 assert.equal(snapshot.version, 2, 'full export is versioned')
 assert.equal(snapshot.prefs.showThinkingAndSearch, true, 'thinking and search show by default')
 assert.ok(snapshot.exportedAt, 'full export is dated')
-assert.equal(snapshotInfo(snapshot)?.runs, 1, 'snapshot reports run count')
+assert.equal(snapshotInfo(snapshot)?.runs, 0, 'snapshot omits dropped legacy runs')
 assert.ok(Array.isArray(snapshot.docs), 'the doc store joins the full export')
 assert.deepEqual(snapshot.usage, usageDays(), 'the usage ledger joins the full export')
 assert.ok(!Object.hasOwn(snapshot, 'models'), 'the server-owned models cache is not the user\'s data to back up')
@@ -60,7 +63,7 @@ const prefs = await restoreData({
 all = exportData()
 assert.deepEqual(all.conversations.map((c) => c.id), ['restored'], 'restore replaces conversations')
 assert.deepEqual(all.workspaces.map((w) => w.id), ['restored-w'], 'restore replaces workspaces')
-assert.deepEqual(all.runs.map((r) => r.id), ['restored-r'], 'restore replaces runs and drops a pre-conversational record')
+assert.deepEqual(all.runs.map((r) => r.id), [], 'restore drops legacy research records')
 assert.equal(globalSettings.value.temperature, 0.2, 'restore merges saved settings')
 assert.equal(prefs.theme, 'light', 'restore returns prefs for the browser caller')
 assert.equal(prefs.showThinkingAndSearch, false, 'restore returns the thinking and search preference')
@@ -151,18 +154,29 @@ rc.mode = 'research'
 const prompt = { id: 'rp', role: 'user', content: 'find things', mode: 'research' }
 const holder = { id: 'rh', role: 'assistant', content: '', mode: 'research' }
 rc.messages.push(prompt, holder)
-const lr = createRun(rc, 'rp', 'rh', 'find things')
+const researchInput = { system: 'PROJECT_ORION', messages: [{ role: 'user', content: 'find things' }] }
+const prepared = { action: 'research', goal: 'Compare Project Orion launch options', questions: [] }
+const researchSettings = { research_search_model: 'search', research_note_model: 'note', research_report_model: 'report', research_depth: 4 }
+const lr = createRun(rc, 'rp', 'rh', researchInput, prepared, researchSettings)
 prompt.runId = holder.runId = lr.id
 assert.equal(runById(lr.id), lr)
 assert.equal(lr.convoId, rc.id, 'a run belongs to the conversation that sent it')
-assert.equal(activeRunOf(rc.id), null, 'a draft run does not block the conversation')
+assert.equal(lr.status, 'starting', 'a durable run exists before the backend POST')
+assert.deepEqual(lr.input, researchInput, 'the assembled context is snapshotted')
+assert.deepEqual(lr.settings, researchSettings, 'effective research settings are snapshotted')
+researchInput.system = 'CHANGED'
+researchSettings.research_depth = 12
+assert.equal(lr.input.system, 'PROJECT_ORION', 'later edits do not mutate run input')
+assert.equal(lr.settings.research_depth, 4, 'later edits do not mutate run settings')
+assert.equal(lr.serverId, lr.id, 'the browser persists one id for its client and server run')
+assert.equal(activeRunOf(rc.id), lr, 'a starting run blocks a duplicate send')
 lr.status = 'running'
 assert.equal(activeRunOf(rc.id), lr, 'a running run does')
 
 const frame = {
   status: 'done',
   phase: 'done',
-  payload: { name: 'Find things', report: { name: 'Research report.md', text: 'REPORT' }, sections: [] },
+  payload: { name: 'Find things', summary: 'A concise model-written summary.', report: { name: 'Research report.md', text: 'REPORT' }, sections: [] },
   spend: { models: { m: { calls: 1, input: 10, output: 5, cache_read: 0, cache_write: 0, usd: 0.01, unpriced: 0 } } },
 }
 const ledgerBefore = JSON.stringify(usageDays())
@@ -171,7 +185,8 @@ const reportOut = docsOf(rc).find((d) => d.id === lr.reportDocId)
 assert.ok(reportOut, 'the report doc is attached to the conversation')
 assert.deepEqual(reportOut.source, { kind: 'research', runId: lr.id, convoId: rc.id, messageId: 'rh' }, 'the doc carries full lineage')
 assert.equal(holder.docId, lr.reportDocId, 'the result message points at the report')
-assert.ok(holder.content.includes(reportOut.name), 'the placeholder gains model-facing content')
+assert.equal(holder.content, 'Your "Find things" research document is ready.\n\nA concise model-written summary.', 'the assistant turn links the result with its short model-written summary')
+assert.equal(reportOut.text, 'REPORT', 'the full Q&A report stays in the attached document')
 assert.notEqual(JSON.stringify(usageDays()), ledgerBefore, 'finished spend folds into the ledger')
 const ledgerAfter = JSON.stringify(usageDays())
 finishRun(lr, frame)
