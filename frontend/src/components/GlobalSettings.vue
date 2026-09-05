@@ -1,5 +1,6 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger, TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import { EFFORT_LEVELS } from '../state/settings.js'
 import { downloadExport, globalSettings, importData, modelSupportsCache, models, persistGlobal, resetGlobalSettings, restoreData, snapshotInfo } from '../state/store.js'
 import { convertImport } from '../state/importers.js'
@@ -10,23 +11,42 @@ import { confirmDelete } from '../utils/confirm.js'
 import ModelSelect from './ModelSelect.vue'
 import TransferControls from './TransferControls.vue'
 import UiButton from './ui/UiButton.vue'
+import UiDisclosure from './ui/UiDisclosure.vue'
 import UiNumberField from './ui/UiNumberField.vue'
 import UiSelect from './ui/UiSelect.vue'
 import UiSlider from './ui/UiSlider.vue'
 import UiSwitch from './ui/UiSwitch.vue'
 
-// Edits the global defaults inherited by conversations without an override.
-const g = globalSettings // ref auto-unwraps in template
+const g = globalSettings
 const cacheSupported = computed(() => modelSupportsCache(g.value.model))
+const importInput = ref(null)
+const restoreInput = ref(null)
 
-// Model selects emit their value; assign and persist it in one handler.
 const setGlobal = (k, v) => {
   g.value[k] = v
   persistGlobal()
 }
-// fontScale / enterToSend are frontend-only prefs; their own watchers persist on change.
 
 const importMsg = ref('')
+const resetOpen = ref(false)
+const resetTrigger = ref(null)
+const resetConfirm = ref(null)
+
+function focusButton(button) {
+  const el = button?.$el || button
+  el?.focus?.()
+}
+
+watch(resetOpen, async (open, wasOpen) => {
+  if (open && !wasOpen) {
+    await nextTick()
+    if (resetOpen.value) focusButton(resetConfirm.value)
+  }
+  if (!open && wasOpen) {
+    await nextTick()
+    if (!resetOpen.value) focusButton(resetTrigger.value)
+  }
+})
 
 function nextChatReport(report) {
   const parts = []
@@ -38,9 +58,17 @@ function nextChatReport(report) {
   return parts.join(' ')
 }
 
+function openImportPicker() {
+  importInput.value?.click()
+}
+
+function openRestorePicker() {
+  restoreInput.value?.click()
+}
+
 async function onImportFile(e) {
   const file = e.target.files[0]
-  e.target.value = '' // so picking the same file again re-fires @change
+  e.target.value = ''
   if (!file) return
   try {
     const data = JSON.parse(await file.text())
@@ -71,127 +99,164 @@ async function onRestoreFile(e) {
   }
 }
 
-async function resetDefaults() {
-  if (await confirmDelete(tr('confirm.resetSettings'), tr('settings.reset'))) resetGlobalSettings()
+function closeReset() {
+  resetOpen.value = false
+}
+
+function resetDefaults() {
+  resetGlobalSettings()
+  resetOpen.value = false
 }
 </script>
 
 <template>
   <div class="space-y-4 text-sm">
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('common.language') }}</label>
-      <UiSelect :model-value="locale" :aria-label="$t('common.language')" :options="Object.entries(locales).map(([value, label]) => ({ value, label }))" @update:model-value="setLocale" />
-    </div>
-
     <p class="text-muted">{{ $t('settings.intro') }}</p>
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('common.model') }}</label>
-      <ModelSelect :model-value="g.model" :label="$t('common.model')" @update:model-value="setGlobal('model', $event)" />
-    </div>
+    <TabsRoot default-value="chat" class="space-y-3">
+      <TabsList class="flex gap-0.5 overflow-x-auto border-b border-edge py-2">
+        <TabsTrigger
+          v-for="tab in ['chat', 'context', 'research', 'interface', 'data']"
+          :key="tab"
+          :value="tab"
+          class="shrink-0 rounded-md px-3 py-1.5 text-sm text-muted outline-none transition-colors hover:bg-surface2 focus-visible:ring-2 focus-visible:ring-focus data-[state=active]:bg-accent/10 data-[state=active]:text-base"
+        >
+          {{ $t(`settings.tab${tab.charAt(0).toUpperCase() + tab.slice(1)}`) }}
+        </TabsTrigger>
+      </TabsList>
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('settings.utilityModel') }}</label>
-      <ModelSelect :model-value="g.utility_model" :label="$t('settings.utilityModel')" @update:model-value="setGlobal('utility_model', $event)" />
-    </div>
+      <TabsContent value="chat" class="space-y-3 outline-none">
+        <div>
+          <label class="mb-1 block text-muted">{{ $t('common.model') }}</label>
+          <ModelSelect :model-value="g.model" :label="$t('common.model')" @update:model-value="setGlobal('model', $event)" />
+        </div>
 
-    <div v-for="field in [
-      { key: 'research_search_model', label: $t('research.searchModel') },
-      { key: 'research_note_model', label: $t('research.notesModel') },
-      { key: 'research_report_model', label: $t('research.reportModel') },
-    ]" :key="field.key">
-      <label class="mb-1 block text-muted">{{ field.label }}</label>
-      <ModelSelect :model-value="g[field.key]" :label="field.label" @update:model-value="setGlobal(field.key, $event)" />
-    </div>
+        <div>
+          <label class="mb-1 block text-muted">{{ $t('settings.utilityModel') }}</label>
+          <ModelSelect :model-value="g.utility_model" :label="$t('settings.utilityModel')" @update:model-value="setGlobal('utility_model', $event)" />
+          <p class="mt-0.5 text-xs text-muted">{{ $t('settings.utilityModelHelp') }}</p>
+        </div>
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('research.sourcesPerQuestion') }}</label>
-      <UiNumberField :model-value="g.research_depth" :label="$t('research.sourcesPerQuestion')" :min="1" :max="12" @update:model-value="setGlobal('research_depth', $event)" />
-    </div>
+        <div>
+          <label class="mb-1 block text-muted">{{ $t('settings.thinkingEffort') }}</label>
+          <UiSelect
+            :model-value="g.effort"
+            :aria-label="$t('settings.thinkingEffort')"
+            :options="EFFORT_LEVELS.map(value => ({ value, label: $t(`effort.${value || 'off'}`) }))"
+            @update:model-value="setGlobal('effort', $event)"
+          />
+        </div>
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('settings.temperature', { value: g.temperature }) }}</label>
-      <UiSlider v-model="g.temperature" :label="$t('settings.temperature', { value: g.temperature })" :min="0" :max="1" :step="0.1" @value-commit="persistGlobal" />
-    </div>
+        <UiDisclosure>
+          <template #title><span class="text-muted">{{ $t('settings.advanced') }}</span></template>
+          <div class="space-y-3">
+            <div>
+              <label class="mb-1 block text-muted">{{ $t('settings.temperature', { value: g.temperature }) }}</label>
+              <UiSlider v-model="g.temperature" :label="$t('settings.temperature', { value: g.temperature })" :min="0" :max="1" :step="0.1" @value-commit="persistGlobal" />
+            </div>
+            <div>
+              <label class="mb-1 block text-muted">{{ $t('settings.maxTokens') }}</label>
+              <UiNumberField :model-value="g.max_tokens" :label="$t('settings.maxTokens')" :min="1" @update:model-value="setGlobal('max_tokens', $event)" />
+            </div>
+          </div>
+        </UiDisclosure>
+      </TabsContent>
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('settings.messagesToSend') }}</label>
-      <UiNumberField :model-value="g.num_messages_to_send" :label="$t('settings.messagesToSend')" :min="1" @update:model-value="setGlobal('num_messages_to_send', $event)" />
-    </div>
+      <TabsContent value="context" class="space-y-3 outline-none">
+        <div>
+          <label class="mb-1 block text-muted">{{ $t('settings.messagesToSend') }}</label>
+          <UiNumberField :model-value="g.num_messages_to_send" :label="$t('settings.messagesToSend')" :min="1" @update:model-value="setGlobal('num_messages_to_send', $event)" />
+        </div>
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('settings.maxTokens') }}</label>
-      <UiNumberField :model-value="g.max_tokens" :label="$t('settings.maxTokens')" :min="1" @update:model-value="setGlobal('max_tokens', $event)" />
-    </div>
+        <UiSwitch v-model="g.send_system_prompt" :label="$t('settings.sendSystem')" @update:model-value="persistGlobal" />
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('settings.thinkingEffort') }}</label>
-      <UiSelect
-        :model-value="g.effort"
-        :aria-label="$t('settings.thinkingEffort')"
-        :options="EFFORT_LEVELS.map(value => ({ value, label: $t(`effort.${value || 'off'}`) }))"
-        @update:model-value="setGlobal('effort', $event)"
-      />
-    </div>
+        <UiSwitch v-model="g.use_memory" :label="$t('settings.compressHistory')" @update:model-value="persistGlobal" />
 
-    <UiSwitch v-model="g.send_system_prompt" :label="$t('settings.sendSystem')" @update:model-value="persistGlobal" />
+        <div v-if="g.use_memory">
+          <label class="mb-1 block text-muted">{{ $t('settings.messagesToSummarise') }}</label>
+          <UiNumberField :model-value="g.summarize_n" :label="$t('settings.messagesToSummarise')" :min="1" @update:model-value="setGlobal('summarize_n', $event)" />
+        </div>
 
-    <UiSwitch v-model="g.use_memory" :label="$t('settings.compressHistory')" @update:model-value="persistGlobal" />
+        <UiSwitch v-model="g.use_recall" :label="$t('settings.recall')" @update:model-value="persistGlobal" />
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('settings.messagesToSummarise') }}</label>
-      <UiNumberField :model-value="g.summarize_n" :label="$t('settings.messagesToSummarise')" :min="1" @update:model-value="setGlobal('summarize_n', $event)" />
-    </div>
+        <UiDisclosure>
+          <template #title><span class="text-muted">{{ $t('settings.advanced') }}</span></template>
+          <UiSwitch
+            v-model="g.use_cache"
+            :label="$t('settings.cache')"
+            :help="cacheSupported ? '' : $t('settings.cacheUnsupported', { model: g.model })"
+            :disabled="!cacheSupported"
+            @update:model-value="persistGlobal"
+          />
+        </UiDisclosure>
+      </TabsContent>
 
-    <UiSwitch v-model="g.use_recall" :label="$t('settings.recall')" @update:model-value="persistGlobal" />
+      <TabsContent value="research" class="space-y-3 outline-none">
+        <div v-for="field in [
+          { key: 'research_search_model', label: $t('research.searchModel') },
+          { key: 'research_note_model', label: $t('research.notesModel') },
+          { key: 'research_report_model', label: $t('research.reportModel') },
+        ]" :key="field.key">
+          <label class="mb-1 block text-muted">{{ field.label }}</label>
+          <ModelSelect :model-value="g[field.key]" :label="field.label" @update:model-value="setGlobal(field.key, $event)" />
+        </div>
 
-    <UiSwitch
-      v-model="g.use_cache"
-      :label="$t('settings.cache')"
-      :help="cacheSupported ? '' : $t('settings.cacheUnsupported', { model: g.model })"
-      :disabled="!cacheSupported"
-      @update:model-value="persistGlobal"
-    />
+        <div>
+          <label class="mb-1 block text-muted">{{ $t('research.sourcesPerQuestion') }}</label>
+          <UiNumberField :model-value="g.research_depth" :label="$t('research.sourcesPerQuestion')" :min="1" :max="12" @update:model-value="setGlobal('research_depth', $event)" />
+        </div>
+      </TabsContent>
 
-    <hr class="border-edge" />
-    <p class="text-muted">{{ $t('settings.appearance') }}</p>
+      <TabsContent value="interface" class="space-y-3 outline-none">
+        <div>
+          <label class="mb-1 block text-muted">{{ $t('common.language') }}</label>
+          <UiSelect :model-value="locale" :aria-label="$t('common.language')" :options="Object.entries(locales).map(([value, label]) => ({ value, label }))" @update:model-value="setLocale" />
+        </div>
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('settings.fontSize', { size: Math.round(fontScale * 100) }) }}</label>
-      <UiSlider v-model="fontScale" :label="$t('settings.fontSize', { size: Math.round(fontScale * 100) })" :min="0.8" :max="1.4" :step="0.05" />
-    </div>
+        <div>
+          <label class="mb-1 block text-muted">{{ $t('settings.fontSize', { size: Math.round(fontScale * 100) }) }}</label>
+          <UiSlider v-model="fontScale" :label="$t('settings.fontSize', { size: Math.round(fontScale * 100) })" :min="0.8" :max="1.4" :step="0.05" />
+        </div>
 
-    <UiSwitch v-model="enterToSend" :label="$t('settings.enterSends')" />
+        <UiSwitch v-model="enterToSend" :label="$t('settings.enterSends')" :help="$t('settings.enterSendsHelp')" />
 
-    <UiSwitch v-model="showThinkingAndSearch" :label="$t('settings.showThinkingAndSearch')" />
+        <UiSwitch v-model="showThinkingAndSearch" :label="$t('settings.showThinkingAndSearch')" />
+      </TabsContent>
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('settings.reset') }}</label>
-      <UiButton @click="resetDefaults">{{ $t('settings.reset') }}</UiButton>
-      <p class="mt-1 text-xs text-muted">{{ $t('settings.resetHelp') }}</p>
-    </div>
+      <TabsContent value="data" class="space-y-3 outline-none">
+        <div>
+          <label class="mb-1 block text-muted">{{ $t('settings.backup') }}</label>
+          <div class="flex gap-2">
+            <UiButton class="flex-1" @click="downloadExport()">{{ $t('common.export') }}</UiButton>
+            <UiButton class="flex-1" @click="openImportPicker">{{ $t('common.import') }}</UiButton>
+            <UiButton class="flex-1" @click="openRestorePicker">{{ $t('common.restore') }}</UiButton>
+          </div>
+          <input ref="importInput" type="file" accept=".json,application/json" class="sr-only" @change="onImportFile" />
+          <input ref="restoreInput" type="file" accept=".json,application/json" class="sr-only" @change="onRestoreFile" />
+          <p class="mt-1 text-xs text-muted">{{ $t('import.nextChatWarning') }}</p>
+          <p v-if="importMsg" class="mt-1 text-xs text-muted">{{ importMsg }}</p>
+        </div>
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('settings.backup') }}</label>
-      <div class="flex gap-2">
-        <UiButton class="flex-1" @click="downloadExport()">{{ $t('common.export') }}</UiButton>
-        <!-- native file input, hidden inside the label so the button triggers the picker -->
-        <label class="flex-1 cursor-pointer rounded bg-surface2 py-2 text-center hover:opacity-80">
-          {{ $t('common.import') }}
-          <input type="file" accept=".json,application/json" class="hidden" @change="onImportFile" />
-        </label>
-        <label class="flex-1 cursor-pointer rounded bg-surface2 py-2 text-center hover:opacity-80">
-          {{ $t('common.restore') }}
-          <input type="file" accept=".json,application/json" class="hidden" @change="onRestoreFile" />
-        </label>
-      </div>
-      <p class="mt-1 text-xs text-muted">{{ $t('import.nextChatWarning') }}</p>
-      <p v-if="importMsg" class="mt-1 text-xs text-muted">{{ importMsg }}</p>
-    </div>
+        <div>
+          <label class="mb-1 block text-muted">{{ $t('transfer.heading') }}</label>
+          <TransferControls scope="snapshot" />
+        </div>
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('transfer.heading') }}</label>
-      <TransferControls scope="snapshot" />
-    </div>
+        <div>
+          <CollapsibleRoot v-model:open="resetOpen" class="space-y-2">
+            <CollapsibleTrigger as-child>
+              <UiButton ref="resetTrigger">{{ $t('settings.reset') }}</UiButton>
+            </CollapsibleTrigger>
+            <CollapsibleContent class="space-y-3 rounded-md border border-edge bg-surface p-3">
+              <p class="text-xs text-muted">{{ $t('settings.resetHelp') }}</p>
+              <div class="flex gap-2">
+                <UiButton variant="secondary" @click="closeReset">{{ $t('common.cancel') }}</UiButton>
+                <UiButton ref="resetConfirm" variant="danger" @click="resetDefaults">{{ $t('settings.reset') }}</UiButton>
+              </div>
+            </CollapsibleContent>
+          </CollapsibleRoot>
+        </div>
+      </TabsContent>
+    </TabsRoot>
   </div>
 </template>

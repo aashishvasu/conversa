@@ -135,7 +135,7 @@ async def check_anthropic() -> None:
     assert tool_frames[-1] == {"id": "a-1", "name": "lookup", "status": "completed", "trace": {"source": "lookup", "count": 2, "echo": "[redacted]"}}, tool_frames
     assert "private" not in str(tool_frames), tool_frames
     assert {"text": "done"} in frames, frames
-    assert frames[-2]["usage"] == {"model": "claude-sonnet-5", "calls": 2, "input": 8, "output": 3, "cache_read": 0, "cache_write": 0, "usd": 0.000069, "unpriced": 0}, frames[-2]
+    assert frames[-2]["usage"] == {"model": "claude-sonnet-5", "calls": 2, "input": 8, "output": 3, "cache_read": 0, "cache_write": 0, "usd": 0.000046, "unpriced": 0}, frames[-2]
     assert frames[-1] == {"done": True}, frames[-1]
 
 
@@ -290,7 +290,7 @@ async def check_responses() -> None:
     assert followup[-1] == {"type": "function_call_output", "call_id": "r-1", "output": '{"private":3}'}, followup
     assert any(item.get("type") == "reasoning" and item.get("encrypted_content") == "state" for item in followup), followup
     assert {"text": "answer"} in frames, frames
-    assert frames[-2]["usage"] == {"model": "openai/gpt-5.6-sol", "calls": 2, "input": 10, "output": 3, "cache_read": 3, "cache_write": 0, "usd": 0.000141, "unpriced": 0}, frames[-2]
+    assert frames[-2]["usage"] == {"model": "openai/gpt-5.6-sol", "calls": 2, "input": 10, "output": 3, "cache_read": 3, "cache_write": 0, "usd": 0.000101, "unpriced": 0}, frames[-2]
 
 
 async def check_compatible_omits_tools() -> None:

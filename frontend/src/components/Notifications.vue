@@ -11,9 +11,9 @@ const sticky = computed(() => notifications.value.filter((n) => n.sticky))
 const transient = computed(() => notifications.value.filter((n) => !n.sticky))
 
 function classes(n) {
-  return n.severity === 'warning'
-    ? 'border-warning/40 bg-warning/10 text-warning'
-    : 'border-danger/40 bg-danger/10 text-danger'
+  if (n.severity === 'warning') return 'border-warning/40 bg-warning/10 text-warning'
+  if (n.severity === 'success') return 'border-success/40 bg-success/10 text-success'
+  return 'border-danger/40 bg-danger/10 text-danger'
 }
 </script>
 
@@ -38,7 +38,7 @@ function classes(n) {
       :class="['rounded-lg border p-3 text-sm shadow-lg', classes(n)]"
       @update:open="(open) => !open && dismiss(n.id)"
     >
-      <ToastTitle class="font-medium">{{ n.severity === 'warning' ? $t('notification.warning') : $t('notification.error') }}</ToastTitle>
+      <ToastTitle class="font-medium">{{ n.severity === 'warning' ? $t('notification.warning') : n.severity === 'success' ? $t('notification.success') : $t('notification.error') }}</ToastTitle>
       <ToastDescription class="mt-1">{{ n.text }}<span v-if="n.count > 1"> ({{ n.count }})</span></ToastDescription>
       <ToastAction v-if="n.action" :alt-text="n.action.label" class="mt-2 mr-2 inline-flex h-8 items-center rounded-md border border-edge bg-surface2 px-2 text-xs font-medium outline-none hover:bg-edge focus-visible:ring-2 focus-visible:ring-focus" @click="n.action.fn">{{ n.action.label }}</ToastAction>
       <ToastClose class="mt-2 inline-flex h-8 items-center rounded-md px-2 text-xs outline-none hover:bg-surface2 focus-visible:ring-2 focus-visible:ring-focus">{{ $t('common.dismiss') }}</ToastClose>

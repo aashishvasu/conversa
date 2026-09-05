@@ -1,9 +1,10 @@
 <script setup>
-import { Boxes, CopyPlus, Download, LogOut, MessageSquarePlus, Moon, Plus, Send, SlidersHorizontal, Sun, X } from '@lucide/vue'
+import { BookmarkPlus, Boxes, CopyPlus, Download, LogOut, MessageSquarePlus, Moon, Plus, Send, SlidersHorizontal, Sun, X } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { DrawerContent, DrawerOverlay, DrawerPortal, DrawerRoot, DrawerTitle } from 'reka-ui'
 import { logout } from '../api/client.js'
 import { confirmDelete } from '../utils/confirm.js'
+import { notify } from '../utils/notify.js'
 import { formatShort } from '../utils/format.js'
 import {
   activePane,
@@ -16,6 +17,7 @@ import {
   deleteWorkspace,
   downloadExport,
   persistNow,
+  saveAsTemplate,
   selectConversation,
   sidebarOpen,
   templates,
@@ -78,6 +80,11 @@ async function removeWorkspace(w) {
   if (await confirmDelete(tr('confirm.deleteWorkspace', { name: w.name }))) {
     deleteWorkspace(w.id)
   }
+}
+
+function saveTemplate(convo) {
+  saveAsTemplate(convo)
+  notify({ key: 'template', severity: 'success', foreground: true, text: tr('settings.templateCreated') })
 }
 
 const version = __APP_VERSION__ // injected by Vite at build time (package.json version)
@@ -172,6 +179,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
           <RowActionsMenu :actions="[
             { label: tr('sidebar.transferConversation'), icon: Send, onSelect: () => openTransfer(c) },
             { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => downloadExport(c.id) },
+            { label: tr('settings.saveTemplate'), icon: BookmarkPlus, onSelect: () => saveTemplate(c) },
             { label: tr('common.delete'), icon: X, danger: true, onSelect: () => remove(c.id, tr('confirm.deleteConversation')) },
           ]" />
         </div>
@@ -203,6 +211,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
           <RowActionsMenu :actions="[
             { label: tr('sidebar.transferConversation'), icon: Send, onSelect: () => openTransfer(c) },
             { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => downloadExport(c.id) },
+            { label: tr('settings.saveTemplate'), icon: BookmarkPlus, onSelect: () => saveTemplate(c) },
             { label: tr('common.delete'), icon: X, danger: true, onSelect: () => remove(c.id, tr('confirm.deleteConversation')) },
           ]" />
         </div>
@@ -250,6 +259,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
             <RowActionsMenu :actions="[
               { label: tr('sidebar.transferConversation'), icon: Send, onSelect: () => openTransfer(c) },
               { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => downloadExport(c.id) },
+              { label: tr('settings.saveTemplate'), icon: BookmarkPlus, onSelect: () => saveTemplate(c) },
               { label: tr('common.delete'), icon: X, danger: true, onSelect: () => remove(c.id, tr('confirm.deleteConversation')) },
             ]" />
           </div>

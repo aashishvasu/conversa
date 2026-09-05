@@ -11,6 +11,7 @@ import { tr } from '../i18n.js'
 import UiButton from './ui/UiButton.vue'
 import UiDisclosure from './ui/UiDisclosure.vue'
 import UiIconButton from './ui/UiIconButton.vue'
+import UiSwitch from './ui/UiSwitch.vue'
 import UiTooltip from './ui/UiTooltip.vue'
 
 // Also reused by WorkspacePanel with a workspace as `convo`; workspaces have cards but no messages, settings, or workspaceId, so those reads are guarded below.
@@ -216,5 +217,7 @@ async function removeCard(id) {
       </div>
     </UiDisclosure>
     <datalist id="folder-paths"><option v-for="p in paths" :key="p" :value="p" /></datalist>
+
+    <UiSwitch v-if="convo.messages" v-model="convo.scanAssistant" :label="$t('settings.scanAssistant')" />
   </div>
 </template>
