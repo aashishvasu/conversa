@@ -554,7 +554,7 @@ async function regenTitle() {
       <ContextPanel :convo="convo" />
     </Modal>
     <Modal v-if="panel === 'settings'" :title="$t('chat.conversationSettings')" @close="panel = null">
-      <SettingsPanel :convo="convo" />
+      <SettingsPanel :convo="convo" @close="panel = null" />
     </Modal>
     <Modal v-if="panel === 'cards'" :title="$t('common.cards')" @close="panel = null">
       <CardsPanel :convo="convo" />
