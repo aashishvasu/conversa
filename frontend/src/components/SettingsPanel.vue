@@ -1,11 +1,24 @@
 <script setup>
 import { computed } from 'vue'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
+import { tr } from '../i18n.js'
 import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
-import { globalSettings, modelSupportsCache, workspaces } from '../state/store.js'
+import {
+  createFromTemplate,
+  deleteConversation,
+  downloadExport,
+  globalSettings,
+  modelSupportsCache,
+  saveAsTemplate,
+  workspaces,
+} from '../state/store.js'
+import { confirmDelete } from '../utils/confirm.js'
+import { notify } from '../utils/notify.js'
 import { showThinkingAndSearch } from '../utils/prefs.js'
 import ModelSelect from './ModelSelect.vue'
 import OverrideReset from './settings/OverrideReset.vue'
+import TransferControls from './TransferControls.vue'
+import UiButton from './ui/UiButton.vue'
 import UiDisclosure from './ui/UiDisclosure.vue'
 import UiNumberField from './ui/UiNumberField.vue'
 import UiSelect from './ui/UiSelect.vue'
@@ -13,6 +26,7 @@ import UiSlider from './ui/UiSlider.vue'
 import UiSwitch from './ui/UiSwitch.vue'
 
 const props = defineProps({ convo: Object })
+const emit = defineEmits(['close'])
 
 const eff = (k) => props.convo.settings[k] ?? globalSettings.value[k]
 const cacheSupported = computed(() => modelSupportsCache(eff('model')))
@@ -25,6 +39,24 @@ const setOv = (k, v) => {
 const reset = (k) => delete props.convo.settings[k]
 const setShowTrace = (value) => { props.convo.showThinkingAndSearch = value }
 const resetShowTrace = () => delete props.convo.showThinkingAndSearch
+
+function saveTemplate() {
+  saveAsTemplate(props.convo)
+  notify({ key: 'template', severity: 'success', foreground: true, text: tr('settings.templateCreated') })
+}
+
+function newFromTemplate() {
+  createFromTemplate(props.convo)
+  emit('close')
+}
+
+async function remove() {
+  const message = tr(props.convo.isTemplate ? 'confirm.deleteTemplate' : 'confirm.deleteConversation')
+  if (await confirmDelete(message)) {
+    deleteConversation(props.convo.id)
+    emit('close')
+  }
+}
 </script>
 
 <template>
@@ -42,7 +74,7 @@ const resetShowTrace = () => delete props.convo.showThinkingAndSearch
     <TabsRoot default-value="chat" class="space-y-3">
       <TabsList class="flex gap-0.5 overflow-x-auto border-b border-edge py-2">
         <TabsTrigger
-          v-for="tab in ['chat', 'context', 'research']"
+          v-for="tab in ['chat', 'context', 'research', 'data']"
           :key="tab"
           :value="tab"
           class="shrink-0 rounded-md px-3 py-1.5 text-sm text-muted outline-none transition-colors hover:bg-surface2 focus-visible:ring-2 focus-visible:ring-focus data-[state=active]:bg-accent/10 data-[state=active]:text-base"
@@ -178,6 +210,25 @@ const resetShowTrace = () => delete props.convo.showThinkingAndSearch
             <OverrideReset :overridden="overridden('research_depth')" @use-global="reset('research_depth')" />
           </div>
           <UiNumberField :model-value="eff('research_depth')" :label="$t('research.sourcesPerQuestion')" :min="1" :max="12" @update:model-value="setOv('research_depth', $event)" />
+        </div>
+      </TabsContent>
+
+      <TabsContent value="data" class="space-y-3 outline-none">
+        <div class="flex gap-2">
+          <UiButton class="flex-1" @click="downloadExport(convo.id)">{{ $t('sidebar.exportConversation') }}</UiButton>
+          <UiButton v-if="convo.isTemplate" class="flex-1" @click="newFromTemplate">{{ $t('sidebar.newFromTemplate') }}</UiButton>
+          <UiButton v-else class="flex-1" @click="saveTemplate">{{ $t('settings.saveTemplate') }}</UiButton>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-muted">{{ $t('transfer.heading') }}</label>
+          <TransferControls scope="conversation" :convo-id="convo.id" :show-retrieve="false" />
+        </div>
+
+        <div class="border-t border-edge pt-3">
+          <UiButton variant="danger" @click="remove">
+            {{ convo.isTemplate ? $t('sidebar.deleteTemplate') : $t('common.delete') }}
+          </UiButton>
         </div>
       </TabsContent>
     </TabsRoot>

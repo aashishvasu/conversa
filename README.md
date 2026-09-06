@@ -21,7 +21,7 @@ Who ends up holding what:
 | A finished research report | ✔️ | 🟡 (Until collected, eviction, or restart) |
 | Your provider API key | ❌ | ✔️ (This is the whole reason it exists) |
 | The public pages chat and research read | ❌ | 🟡 (Up to `FETCH_CACHE_TTL_SECONDS`, size eviction, or restart) |
-| Your password | ❌ | ✔️ (As the env var you set it to) |
+| Your password | ❌ | ✔️ |
 
 
 
@@ -163,13 +163,61 @@ Change any of them globally (in **Global settings**) or per conversation (in **C
 
 ## Features
 
-Conversa starts as a normal chat app. Pick a model and talk. Conversations can include images and documents, search the web, and keep useful context from older turns.
+Conversa is a chat app at its core. Pick a model and start talking. Conversations can include images and documents, search the web, and keep the context that matters from older turns.
 
-- Anthropic, OpenAI, DeepSeek, and compatible chat-completions providers
-- Research that gathers sources and returns a report in the conversation
-- Workspaces for context shared across related chats
-- Cards, memory, recall, and templates for context you want to reuse
-- Browser-local conversations, documents, settings, and usage history
-- Backups and short-lived transfers between devices
+### Local first
+
+Every conversation transcript, image, card, workspace, document, template, setting, and usage record lives in IndexedDB in your browser. The server only holds your provider keys, your password, active research runs, and transfer payloads, all of which are ephemeral. The rule of thumb is: 
+
+>*"If its something durable to be stored, the client stores it."*
+
+### Providers
+
+Every conversation picks its own model from the providers you configure. Set one key or several, and the picker shows what is on offer.
+
+| Dialect | Providers | API |
+|---------|-----------|-----|
+| `anthropic` | Anthropic | Messages |
+| `responses` | OpenAI, DeepSeek | Responses |
+| `chat_completions` | `compatible` | Chat Completions |
+
+### Cards, memory, recall, and templates
+
+Four ways to bring context back without retyping it. Cards flip open at the right moment, memory keeps the gist, recall finds the old turn that matters now, and templates copy a whole conversation as a starting point.
+
+| Feature | What it does |
+|---------|--------------|
+| Cards | Think flash cards for the model. Write a trigger phrase, and when the chat mentions it the card flips open and adds its instructions to the prompt. List triggers with commas for any-of, and `&` for phrases that must appear together. |
+| Memory | A running summary the model keeps seeing, like a sticky note holding the gist of turns that have scrolled out of view. |
+| Recall | Flips back through dropped turns and resends the few that matter now, up to three, picked by how closely they match what you just asked. |
+| Templates | Copies a conversation with its cards, messages, and documents so you can start a new one from it or keep it to reuse later. |
+
+### Research
+
+Hand the model a question and it plays research assistant: breaks it into subquestions, searches the web, reads the pages, takes notes, and comes back with a report saved with the conversation. The run lives on the server, so it keeps going after you close the browser, and you return to a finished report.
+
+| Phase | What happens |
+|------|--------------|
+| plan | Turn the goal into a list of subquestions. |
+| gather | Search the web, read pages, and take notes for each subquestion. |
+| gap | Plan again to fill any gaps the notes leave. |
+| report | Write the report and save it as a document on the conversation. |
+
+### Workspaces
+
+A workspace is a shared notebook of instructions, cards, and documents that every conversation in a group reads from. Each conversation can still turn one shared card on or off for itself without touching the others.
+
+### Import, export, and transfer
+
+Pack up your data as JSON files or short-lived phrase codes.
+
+| Action | What it does |
+|--------|--------------|
+| Export | Download a JSON file with everything, or just one conversation. |
+| Import | Merge an export into your browser, keeping what you already have when ids collide. |
+| Restore | Replace everything in your browser with a snapshot, after you confirm. |
+| Transfer | Create a five-word phrase code another browser can retrieve within one hour. |
+
+Conversa also imports backups from [NextChat](https://github.com/ChatGPTNextWeb/NextChat) (formerly ChatGPT-Next-Web), bringing over your chat histories and mask templates. Imports run locally in your browser and ignore any API keys or access codes the backup contains.
 
 [MIT licensed](LICENSE). Built with Vue and FastAPI. See [DEVELOPMENT.md](DEVELOPMENT.md) for the architecture and local development setup.
