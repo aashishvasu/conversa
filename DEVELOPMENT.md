@@ -171,7 +171,7 @@ The image pipeline accepts JPEG, PNG, GIF, and WebP. Canvas orientation and resi
 
 UI strings live in `frontend/src/locales/`. Model output, conversation content, documents, research material, backend logs, and provider errors retain their source language. `pnpm lint:i18n` checks Vue templates for untranslated interface text.
 
-`vite-plugin-pwa` precaches the app shell. Runtime caching is disabled, and `/api` is excluded from navigation fallback so SSE responses stream directly.
+`vite-plugin-pwa` precaches the app shell. Runtime caching is disabled, and `/api` is excluded from navigation fallback so SSE responses stream directly. `registerType: 'prompt'` holds a new worker in the waiting state until the Global Settings reload button activates it; `utils/pwa.js` registers through `virtual:pwa-register/vue`, flushes IndexedDB before the reload, and disables the button when no update is waiting.
 
 ## Local development
 

@@ -71,6 +71,8 @@
     "enterSends": "Eingabetaste sendet",
     "enterSendsHelp": "Wenn aus, sendet Umschalt+Eingabe und die Eingabetaste erzeugt eine neue Zeile",
     "showThinkingAndSearch": "Denken und Suchen anzeigen",
+    "uiRefreshLabel": "Oberfläche aktualisieren, ohne den Cache zu leeren",
+    "uiRefresh": "Oberfläche neu laden",
     "memory": "Gedächtnis",
     "memoryEmpty": "(leer; wird bei längeren Unterhaltungen automatisch erstellt)",
     "scanAssistant": "Assistentenantworten auf Kartenauslöser prüfen",

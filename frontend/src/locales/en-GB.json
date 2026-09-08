@@ -71,6 +71,8 @@
     "enterSends": "Enter to send",
     "enterSendsHelp": "When off, Shift+Enter sends and Enter makes a new line",
     "showThinkingAndSearch": "Show thinking and searches",
+    "uiRefreshLabel": "Force refresh UI without clearing cache",
+    "uiRefresh": "Reload UI",
     "memory": "Memory",
     "memoryEmpty": "(empty; builds automatically as the conversation grows)",
     "scanAssistant": "Match cards in replies",

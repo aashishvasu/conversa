@@ -71,6 +71,8 @@
     "enterSends": "Intro para enviar",
     "enterSendsHelp": "Cuando está desactivado, Shift+Enter envía y Enter crea una nueva línea",
     "showThinkingAndSearch": "Mostrar razonamiento y búsqueda",
+    "uiRefreshLabel": "Actualizar la interfaz sin borrar la caché",
+    "uiRefresh": "Recargar interfaz",
     "memory": "Memoria",
     "memoryEmpty": "(vacía; se crea automáticamente cuando crece la conversación)",
     "scanAssistant": "Detectar activadores de tarjetas en las respuestas",

@@ -5,6 +5,7 @@ import { EFFORT_LEVELS } from '../state/settings.js'
 import { downloadExport, globalSettings, importData, modelSupportsCache, models, persistGlobal, resetGlobalSettings, restoreData, snapshotInfo } from '../state/store.js'
 import { convertImport } from '../state/importers.js'
 import { enterToSend, fontScale, locale, restorePrefs, showThinkingAndSearch } from '../utils/prefs.js'
+import { needRefresh, applyUpdate } from '../utils/pwa.js'
 import { locales, setLocale, tr } from '../i18n.js'
 import { restoreTheme } from '../utils/theme.js'
 import { confirmDelete } from '../utils/confirm.js'
@@ -221,6 +222,9 @@ function resetDefaults() {
         <UiSwitch v-model="enterToSend" :label="$t('settings.enterSends')" :help="$t('settings.enterSendsHelp')" />
 
         <UiSwitch v-model="showThinkingAndSearch" :label="$t('settings.showThinkingAndSearch')" />
+
+        <label class="mb-1 block text-muted">{{ $t('settings.uiRefreshLabel') }}</label>
+        <UiButton variant="primary" class="flex-1" :disabled="!needRefresh" @click="applyUpdate">{{ $t('settings.uiRefresh') }}</UiButton>
       </TabsContent>
 
       <TabsContent value="data" class="space-y-3 outline-none">
