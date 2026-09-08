@@ -71,6 +71,8 @@
     "enterSends": "Entrée envoie le message",
     "enterSendsHelp": "Quand désactivé, Maj+Entrée envoie et Entrée ajoute une ligne",
     "showThinkingAndSearch": "Afficher la réflexion et les recherches",
+    "uiRefreshLabel": "Rafraîchir l'interface sans vider le cache",
+    "uiRefresh": "Recharger l'interface",
     "memory": "Mémoire (actualisée après chaque réponse du chat)",
     "memoryEmpty": "(vide ; se crée automatiquement lorsque la conversation s'allonge)",
     "scanAssistant": "Rechercher les déclencheurs de fiches dans les réponses",

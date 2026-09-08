@@ -69,6 +69,8 @@
     "enterSends": "Invio spedisce il messaggio",
     "enterSendsHelp": "Quando disattivato, Maiusc+Invio spedisce e Invio va a capo",
     "showThinkingAndSearch": "Mostra ragionamento e ricerche",
+    "uiRefreshLabel": "Aggiorna l'interfaccia senza svuotare la cache",
+    "uiRefresh": "Ricarica l'interfaccia",
     "memory": "Memoria (aggiornata dopo ogni risposta della chat)",
     "memoryEmpty": "(vuota; viene creata automaticamente quando la conversazione si allunga)",
     "scanAssistant": "Cerca attivatori delle schede nelle risposte",
