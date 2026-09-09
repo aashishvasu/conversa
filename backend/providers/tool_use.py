@@ -107,24 +107,32 @@ class _ResponsesToolDeltas:
         return [call for key in self.order if (call := _tool_call(self.calls[key]))]
 
 
-def _anthropic_request_tools(entry: dict, app_tools: list[ConversaTool] | None, allow_hosted_tools: bool) -> list[dict]:
-    if app_tools:
-        return anthropic_tools(app_tools)
-    if not allow_hosted_tools:
-        return []
-    tools = []
-    if entry.get("search_tool"):
+def _anthropic_request_tools(
+    entry: dict,
+    app_tools: list[ConversaTool] | None = None,
+    hosted_search: bool = False,
+    hosted_fetch: bool = False,
+) -> list[dict]:
+    tools = anthropic_tools(app_tools) if app_tools else []
+    app_names = {tool.name for tool in app_tools} if app_tools else set()
+    if hosted_search and "search_web" not in app_names and entry.get("search_tool"):
         tools.append({"type": entry["search_tool"], "name": "web_search", "max_uses": 5})
-    if entry.get("fetch_tool"):
+    if hosted_fetch and "fetch_url" not in app_names and entry.get("fetch_tool"):
         tools.append({"type": entry["fetch_tool"], "name": "web_fetch", "max_uses": 5})
     return tools
 
 
-def responses_request_tools(entry: dict, app_tools: list[ConversaTool] | None, allow_hosted_tools: bool) -> list[dict]:
-    if app_tools:
-        return responses_tools(app_tools)
+def responses_request_tools(
+    entry: dict,
+    app_tools: list[ConversaTool] | None = None,
+    hosted_search: bool = False,
+) -> list[dict]:
+    tools = responses_tools(app_tools) if app_tools else []
+    app_names = {tool.name for tool in app_tools} if app_tools else set()
     search_tool = entry.get("search_tool")
-    return [{"type": search_tool}] if allow_hosted_tools and search_tool else []
+    if hosted_search and "search_web" not in app_names and search_tool:
+        tools.append({"type": search_tool})
+    return tools
 
 
 def _as_dict(value: object) -> dict | None:

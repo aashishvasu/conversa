@@ -6,7 +6,7 @@ import { generateTitle } from '../jobs/titles.js'
 import { tr } from '../i18n/index.js'
 import { buildPayload } from '../prompt/payload.js'
 import { buildResearchInput } from '../prompt/research-input.js'
-import { effectiveSettings, RESEARCH_KEYS } from '../state/settings.js'
+import { effectiveSettings, enabledTools, RESEARCH_KEYS } from '../state/settings.js'
 import { addConvoUsage, recordUsage } from '../state/usage.js'
 import { attachedDocs, createRun, currentConversation, images, persistNow, workspaceOf } from '../state/store.js'
 import { notify } from '../utils/notify.js'
@@ -54,7 +54,8 @@ export function useStreamOrchestration() {
     let assistant = null
     try {
       // Snapshot the payload before pushing the empty assistant placeholder.
-      const payload = { ...buildPayload(c, settings, workspaceOf(c), attachedDocs(c), images.value), allow_tools: true }
+      // The tool selection is fixed here: settings edits mid-stream affect the next turn, not this one.
+      const payload = { ...buildPayload(c, settings, workspaceOf(c), attachedDocs(c), images.value), enabled_tools: enabledTools(settings) }
       c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() })
       assistant = c.messages.at(-1) // reactive proxy, so streamed tokens render live
       liveTrace.value = []

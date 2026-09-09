@@ -33,10 +33,19 @@ def _usage_frame(provider: str, model: str, usages: list[dict], generations: int
 async def stream_chat(provider: str, model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, effort: str, temperature: float, tools: list[ConversaTool] | None = None, max_tool_rounds: int = DEFAULT_MAX_ROUNDS, max_tool_calls: int = DEFAULT_MAX_CALLS, allow_hosted_tools: bool = True) -> AsyncIterator[dict]:
     """Stream a chat turn, executing app tools only for tool-capable dialects."""
     dialect = PROVIDERS[provider]["dialect"]
-    app_tools = tools if dialect in ("anthropic", "responses") and tools else None
-    runner = ToolRunner(app_tools, max_tool_rounds, max_tool_calls) if app_tools else None
-    hosted_fallback_blocked = False
-    hosted_tools_enabled = allow_hosted_tools and not app_tools
+    supports_tools = dialect in ("anthropic", "responses")
+    selected_tools = {tool.name: tool for tool in (tools or [])} if supports_tools else {}
+    search_selected = "search_web" in selected_tools
+    fetch_selected = "fetch_url" in selected_tools
+
+    active_tools = dict(selected_tools)
+    runner = ToolRunner(list(active_tools.values()), max_tool_rounds, max_tool_calls) if active_tools else None
+
+    search_fallback_blocked = False
+    fetch_fallback_blocked = False
+    hosted_search_enabled = False
+    hosted_fetch_enabled = False
+
     working_messages = messages
     input_items = openai_messages(messages, True) if dialect == "responses" else None
     usages = []
@@ -46,8 +55,13 @@ async def stream_chat(provider: str, model: str, messages: list[dict], system: s
             generations += 1
             response = None
             calls = []
-            kwargs = {"app_tools": app_tools, "allow_hosted_tools": hosted_tools_enabled}
-            if dialect == "responses":
+            kwargs = {
+                "app_tools": list(active_tools.values()) if active_tools else None,
+                "hosted_search": hosted_search_enabled,
+            }
+            if dialect == "anthropic":
+                kwargs["hosted_fetch"] = hosted_fetch_enabled
+            elif dialect == "responses":
                 kwargs["input_items"] = input_items
             async for frame in _DIALECT_STREAMS[dialect](provider, model, working_messages, system, max_tokens, effort, temperature, **kwargs):
                 internal = False
@@ -76,12 +90,36 @@ async def stream_chat(provider: str, model: str, messages: list[dict], system: s
                 working_messages = _anthropic_followup(working_messages, response, results)
             else:
                 input_items = _responses_followup(input_items or [], response, results)
-            hosted_fallback_blocked |= any(result.error == "tool_rejected" for result in results)
-            unavailable = any(result.error == "tool_unavailable" for result in results)
-            if unavailable or budget_exhausted:
-                app_tools = None
+
+            if budget_exhausted:
+                active_tools.clear()
                 runner = None
-                hosted_tools_enabled = allow_hosted_tools and unavailable and not hosted_fallback_blocked
+                hosted_search_enabled = False
+                hosted_fetch_enabled = False
+            else:
+                for result in results:
+                    if result.name == "search_web":
+                        if result.error == "tool_rejected":
+                            search_fallback_blocked = True
+                            hosted_search_enabled = False
+                        elif result.error == "tool_unavailable":
+                            active_tools.pop("search_web", None)
+                            runner.disable_tool("search_web")
+                            if search_selected and not search_fallback_blocked and allow_hosted_tools:
+                                hosted_search_enabled = True
+                    elif result.name == "fetch_url":
+                        if result.error == "tool_rejected":
+                            fetch_fallback_blocked = True
+                            hosted_fetch_enabled = False
+                        elif result.error == "tool_unavailable":
+                            active_tools.pop("fetch_url", None)
+                            runner.disable_tool("fetch_url")
+                            if fetch_selected and not fetch_fallback_blocked and allow_hosted_tools:
+                                hosted_fetch_enabled = True
+                    elif result.error == "tool_unavailable":
+                        active_tools.pop(result.name, None)
+                        runner.disable_tool(result.name)
+
         if usages:
             yield _usage_frame(provider, model, usages, generations)
         yield {"done": True}

@@ -156,15 +156,26 @@ def chat_completion_usage(chunk: object) -> dict | None:
     return chat_completion_usage_from(usage) if usage else None
 
 
-async def _anthropic_stream(provider: str, model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, effort: str, temperature: float, app_tools: list[ConversaTool] | None = None, allow_hosted_tools: bool = True) -> AsyncIterator[dict]:
+async def _anthropic_stream(
+    provider: str,
+    model: str,
+    messages: list[dict],
+    system: str | list[str] | None,
+    max_tokens: int,
+    effort: str,
+    temperature: float,
+    app_tools: list[ConversaTool] | None = None,
+    hosted_search: bool = False,
+    hosted_fetch: bool = False,
+) -> AsyncIterator[dict]:
     entry = PROVIDERS[provider]
     kwargs = {"model": model, "max_tokens": max_tokens, "temperature": temperature, "messages": messages}
     apply_thinking(kwargs, effort, max_tokens)
     if system:
         kwargs["system"] = anthropic_system(system)
-    if tools := _anthropic_request_tools(entry, app_tools, allow_hosted_tools):
+    if tools := _anthropic_request_tools(entry, app_tools, hosted_search, hosted_fetch):
         kwargs["tools"] = tools
-        if not app_tools and entry.get("fetch_tool"):
+        if any(t.get("name") == "web_fetch" for t in tools) and entry.get("fetch_beta"):
             kwargs["extra_headers"] = {"anthropic-beta": entry["fetch_beta"]}
     deltas = _AnthropicToolDeltas()
     async with CLIENTS[provider].messages.stream(**kwargs) as stream:
@@ -198,7 +209,18 @@ def openai_messages(messages: list[dict], responses: bool) -> list[dict]:
     return out
 
 
-def responses_kwargs(provider: str, model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, effort: str, temperature: float, app_tools: list[ConversaTool] | None = None, allow_hosted_tools: bool = True, input_items: list[dict] | None = None) -> dict:
+def responses_kwargs(
+    provider: str,
+    model: str,
+    messages: list[dict],
+    system: str | list[str] | None,
+    max_tokens: int,
+    effort: str,
+    temperature: float,
+    app_tools: list[ConversaTool] | None = None,
+    hosted_search: bool = False,
+    input_items: list[dict] | None = None,
+) -> dict:
     kwargs = {"model": model, "input": input_items if input_items is not None else openai_messages(messages, True), "max_output_tokens": max_tokens, "stream": True}
     if system:
         kwargs["instructions"] = join_system(system)
@@ -210,13 +232,37 @@ def responses_kwargs(provider: str, model: str, messages: list[dict], system: st
             kwargs["reasoning"] = {"effort": "none"}
     else:
         kwargs["temperature"] = temperature
-    if tools := responses_request_tools(PROVIDERS[provider], app_tools, allow_hosted_tools):
+    if tools := responses_request_tools(PROVIDERS[provider], app_tools, hosted_search):
         kwargs["tools"] = tools
     return kwargs
 
 
-async def _responses_stream(provider: str, model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, effort: str, temperature: float, app_tools: list[ConversaTool] | None = None, allow_hosted_tools: bool = True, input_items: list[dict] | None = None) -> AsyncIterator[dict]:
-    stream = await CLIENTS[provider].responses.create(**responses_kwargs(provider, model, messages, system, max_tokens, effort, temperature, app_tools, allow_hosted_tools, input_items))
+async def _responses_stream(
+    provider: str,
+    model: str,
+    messages: list[dict],
+    system: str | list[str] | None,
+    max_tokens: int,
+    effort: str,
+    temperature: float,
+    app_tools: list[ConversaTool] | None = None,
+    hosted_search: bool = False,
+    input_items: list[dict] | None = None,
+) -> AsyncIterator[dict]:
+    stream = await CLIENTS[provider].responses.create(
+        **responses_kwargs(
+            provider,
+            model,
+            messages,
+            system,
+            max_tokens,
+            effort,
+            temperature,
+            app_tools=app_tools,
+            hosted_search=hosted_search,
+            input_items=input_items,
+        )
+    )
     deltas = _ResponsesToolDeltas()
     response = None
     async for event in stream:
@@ -230,7 +276,16 @@ async def _responses_stream(provider: str, model: str, messages: list[dict], sys
     yield {"_response": response, "_tool_calls": _prefer_streamed_arguments(parsed_calls, deltas.parsed()) if parsed_calls else deltas.parsed()}
 
 
-async def _chat_completions_stream(provider: str, model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, _effort: str, temperature: float, app_tools: list[ConversaTool] | None = None, allow_hosted_tools: bool = True) -> AsyncIterator[dict]:
+async def _chat_completions_stream(
+    provider: str,
+    model: str,
+    messages: list[dict],
+    system: str | list[str] | None,
+    max_tokens: int,
+    _effort: str,
+    temperature: float,
+    **_kwargs,
+) -> AsyncIterator[dict]:
     kwargs = chat_completions_kwargs(model, openai_messages(messages, False), system, max_tokens, temperature)
     kwargs["stream_options"] = {"include_usage": True}
     stream = await CLIENTS[provider].chat.completions.create(stream=True, **kwargs)

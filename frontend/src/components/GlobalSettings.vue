@@ -117,7 +117,7 @@ function resetDefaults() {
     <TabsRoot default-value="chat" class="space-y-3">
       <TabsList class="flex gap-0.5 overflow-x-auto border-b border-edge py-2">
         <TabsTrigger
-          v-for="tab in ['chat', 'context', 'research', 'interface', 'data']"
+          v-for="tab in ['chat', 'context', 'tools', 'research', 'interface', 'data']"
           :key="tab"
           :value="tab"
           class="shrink-0 rounded-md px-3 py-1.5 text-sm text-muted outline-none transition-colors hover:bg-surface2 focus-visible:ring-2 focus-visible:ring-focus data-[state=active]:bg-accent/10 data-[state=active]:text-base"
@@ -190,6 +190,15 @@ function resetDefaults() {
             @update:model-value="persistGlobal"
           />
         </UiDisclosure>
+      </TabsContent>
+
+      <TabsContent value="tools" class="space-y-3 outline-none">
+        <UiSwitch v-model="g.tools_enabled" :label="$t('settings.toolsEnabled')" :help="$t('settings.toolsHelp')" @update:model-value="persistGlobal" />
+        <UiSwitch v-model="g.tool_web_search" :label="$t('settings.toolWebSearch')" :help="$t('settings.toolWebSearchHelp')" :disabled="!g.tools_enabled" @update:model-value="persistGlobal" />
+        <UiSwitch v-model="g.tool_fetch_url" :label="$t('settings.toolFetchUrl')" :help="$t('settings.toolFetchUrlHelp')" :disabled="!g.tools_enabled" @update:model-value="persistGlobal" />
+        <UiSwitch v-model="g.tool_datetime" :label="$t('settings.toolDatetime')" :disabled="!g.tools_enabled" @update:model-value="persistGlobal" />
+        <UiSwitch v-model="g.tool_calculator" :label="$t('settings.toolCalculator')" :disabled="!g.tools_enabled" @update:model-value="persistGlobal" />
+        <UiSwitch v-model="g.tool_random" :label="$t('settings.toolRandom')" :disabled="!g.tools_enabled" @update:model-value="persistGlobal" />
       </TabsContent>
 
       <TabsContent value="research" class="space-y-3 outline-none">
