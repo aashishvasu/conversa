@@ -30,7 +30,7 @@ The browser stores conversations, settings, cards, templates, documents, images,
 | `POST` | `/api/refresh` | Replaces a valid token with a fresh token. |
 | `GET` | `/api/settings` | Returns global defaults and `config_errors`. |
 | `GET` | `/api/models` | Returns configured models as `{id, label, provider, supports_cache}`. |
-| `POST` | `/api/chat` | Streams text, reasoning, tool traces, usage, and completion frames. |
+| `POST` | `/api/chat` | Streams text, reasoning, tool traces, usage, and completion frames; `enabled_tools` fixes the callable tool set for the turn. |
 | `POST` | `/api/research/prepare` | Returns `{action, goal, questions}` from the current chat context. |
 | `POST` | `/api/research` | Starts or resumes a browser-named research run. |
 | `GET` | `/api/research/{id}` | Returns the current run state. |
@@ -45,7 +45,7 @@ A chat request may make several provider calls while tools run. The final `usage
 
 ### Providers
 
-A provider file in `backend/providers/` exports a `PROVIDER` dictionary. `registry.py` combines provider data and creates clients. `dialects.py` builds requests and maps provider events to conversa frames. `tool_use.py` translates provider tool calls and results.
+A provider file in `backend/providers/` exports a `PROVIDER` dictionary. `registry.py` combines provider data and creates clients. `chat.py` runs the tool loop and aggregates usage across provider calls within one chat turn. `dialects.py` handles wire translation: building requests and mapping provider events to conversa frames. `tool_use.py` translates provider tool calls and results.
 
 | Dialect | Providers | API |
 |---------|-----------|-----|
@@ -79,11 +79,21 @@ Responses events map to conversa frames as follows:
 
 ### Tools and fetching
 
-`backend/tools/conversa_tool.py` defines provider-neutral tool calls. `runner.py` enforces round and call limits. `web.py` exposes `search_web` and `fetch_url`. Anthropic and Responses models receive these tools; the generic Chat Completions adapter receives text and optional `reasoning_content` only.
+`backend/tools/conversa_tool.py` defines provider-neutral tool calls. `registry.py` holds `TOOL_REGISTRY`, keyed by name, and `resolve_enabled_tools()`. `runner.py` enforces round and call limits. Anthropic and Responses models receive the resolved tools as part of their request; the generic Chat Completions adapter receives text and optional `reasoning_content` only, never tools.
 
-`fetch.py` accepts public HTTP and HTTPS targets. `assert_public_target()` checks the initial URL and each redirect. HTML extraction uses trafilatura, PDFs use pypdf, and JSON and plain text use content-type handlers. `PageCache` keeps extracted pages for `FETCH_CACHE_TTL_SECONDS`, defaults to 1,800 seconds, and evicts least-recently-used content above 2,000,000 characters.
+Five tools are registered: `search_web` and `fetch_url` (`web.py`), `datetime` (`temporal.py`), `calculator` (`calculator.py`, with unit conversions in `units.py`), and `random` (`random_tool.py`).
 
-Search providers run in Exa, Brave, then SearXNG order. The selected model's hosted search is the fallback. `BLOCKED_DOMAINS` applies to every finder.
+`/api/chat`'s `enabled_tools` is the authoritative list for the turn; `resolve_enabled_tools()` looks up each name in `TOOL_REGISTRY` and raises `ToolConfigError` (surfaced as HTTP 400) on an unknown or duplicate name. The legacy `allow_tools` boolean is read only when `enabled_tools` is omitted, mapping `true` to `DEFAULT_WEB_TOOLS` (`search_web`, `fetch_url`) for callers on a cached frontend that predates the per-tool schema. `backend/api/chat.py` resolves the list once per turn; a disabled tool is absent from the resulting provider schema.
+
+`fetch.py` accepts public HTTP and HTTPS targets. `assert_public_target()` checks the initial URL and each redirect. HTML extraction uses trafilatura, PDFs use pypdf, and JSON and plain text use content-type handlers. `PageCache` keeps extracted pages for `FETCH_CACHE_TTL_SECONDS`, defaults to 1,800 seconds, and evicts least-recently-used content above 2,000,000 characters. `fetch_url` returns the sections relevant to the caller's stated topic, not the full page.
+
+Search providers run in Exa, Brave, then SearXNG order. `BLOCKED_DOMAINS` applies to every finder. When the app's `search_web` or `fetch_url` is unavailable, `backend/providers/chat.py` falls back to the selected model's matching hosted capability (Anthropic hosted search/fetch, OpenAI hosted search) for the rest of the turn, tracked independently per tool. A rejected call (`ToolRejected`, for example a blocked domain) blocks that tool's hosted fallback for the turn instead of triggering it; an unavailable local tool never enables the hosted counterpart of a different tool, and a failure in one tool leaves the rest of the enabled set available.
+
+`datetime` (`temporal.py`) supports `now`, `add`, and `difference` against IANA zones. `now` and results carry the zone's current UTC offset. Aware ISO-8601 input converts to the target zone; naive input is treated as wall time in that zone. `add` takes either elapsed units (seconds/minutes/hours, plus weeks/days) or calendar units (years/months, plus integer weeks/days); mixing the two families is rejected. Calendar addition preserves wall time and clamps the day to the target month's last day (adding one month to January 31 lands on the last day of February). A nonexistent spring-forward wall time advances to the post-transition instant; an ambiguous fall-back wall time keeps the earlier offset (`fold=0`). `difference` reports only elapsed time between two timestamps, never a calendar breakdown.
+
+`calculator` (`calculator.py`) evaluates expressions by walking a parsed `ast.Expression` against an operator and function allowlist; it never calls `eval`. Bounds cap expression length, node count, exponent magnitude, factorial input, and result bit length. Unit conversion (`units.py`) covers length, mass, duration, data size (case-sensitive, so `MB` and `Mb` differ), speed, area, volume, pressure, energy, and temperature; US customary volume units (cups, pints, quarts, gallons, tablespoons, teaspoons, fluid ounces) require an explicit `_us` suffix because the bare names are ambiguous with imperial units.
+
+`random` (`random_tool.py`) draws from `secrets.SystemRandom()` by default, so calls are not reproducible. Passing an integer `seed` switches to `random.Random(seed)`, making that call's output reproducible. Actions are `integers` (inclusive range), `sample` (with or without replacement), and `shuffle`.
 
 ### Research
 
@@ -97,7 +107,7 @@ The final frame contains:
 {name, summary, report: {name, text}, sections: [{question, notes: [{note, url}]}]}
 ```
 
-`frontend/src/state/store.js` saves the report as a document, links it to the conversation, records spend once, then asks the backend to forget the run.
+`frontend/src/state/runs.js` `finishRun` saves the report as a document, links it to the conversation, and records spend. `ResearchBlock.vue` calls `finishRun`, awaits `persistNow`, then calls `discardResearch` to tell the backend to forget the run.
 
 ### Transfers
 
@@ -132,9 +142,11 @@ Recall scores dropped turns against the latest user message using stopword-filte
 
 With `use_cache` enabled, `system` becomes `[stable, volatile]`. The workspace prompt, system messages, and documents form the stable block. Memory, cards, and recall form the volatile block.
 
+The Tools tabs in Global Settings and Conversation Settings control a master switch and each registered tool. Conversation values inherit global settings until overridden. `enabledTools()` in `state/settings.js` builds the allowlist once when `research/orchestration.js` assembles a chat turn; utility-model calls send an empty allowlist. Disabled definitions do not enter the provider request.
+
 ### State and persistence
 
-`frontend/src/state/store.js` stores browser-owned data in IndexedDB.
+`frontend/src/state/` splits browser state across several modules. `persistence.js` holds the shared reactive state, IndexedDB keys, and debounced writes. `store.js` is the public facade: it re-exports all public APIs from the sub-modules and owns global settings, models, and `initStore`.
 
 - A workspace is `{id, name, systemPrompt, cards, docIds}`.
 - A document is `{id, name, text, createdAt, updatedAt, source, versions}`.
@@ -142,7 +154,7 @@ With `use_cache` enabled, `system` becomes `[stable, volatile]`. The workspace p
 - Documents are deleted when their final workspace or conversation reference is removed.
 - Image records use separate `conversa_img:<id>` keys; messages store image ids.
 
-Full exports use `SNAPSHOT_VERSION` and include conversations, workspaces, documents, images, research runs, settings, usage, and UI preferences. Merge import keeps local records on id collisions. Snapshot restore replaces browser-owned collections after confirmation. Older snapshots leave fields they lack unchanged.
+`snapshot.js` implements full export and restore. Full exports use `SNAPSHOT_VERSION` and include conversations, workspaces, documents, images, research runs, settings, usage, and UI preferences. Merge import keeps local records on id collisions. Snapshot restore replaces browser-owned collections after confirmation. Older snapshots leave fields they lack unchanged.
 
 The image pipeline accepts JPEG, PNG, GIF, and WebP. Canvas orientation and resizing cap the long edge at 2,000 pixels. Encoded records target less than 1 MB.
 
@@ -154,19 +166,31 @@ The image pipeline accepts JPEG, PNG, GIF, and WebP. Canvas orientation and resi
 |------|----------------|
 | `App.vue` | Application assembly, authentication state, and pane routing. |
 | `api/client.js` | HTTP, SSE, authentication, chat, research, and transfer calls. |
-| `state/store.js` | Conversations, workspaces, documents, images, research runs, import, and export. |
-| `state/settings.js` | Global defaults and per-conversation overrides. |
+| `state/persistence.js` | Shared reactive state, IndexedDB keys, and debounced persistence. |
+| `state/store.js` | Public facade: re-exports from sub-modules; owns global settings, models, and `initStore`. |
+| `state/conversations.js` | Conversation and template CRUD, `attachedDocs`. |
+| `state/runs.js` | Research run CRUD, finalization, and spend recording. |
+| `state/workspaces.js` | Workspace CRUD. |
+| `state/docs.js` | Document and image CRUD and GC. |
+| `state/snapshot.js` | Export, import, restore, and snapshot info. |
+| `state/settings.js` | Global defaults, per-conversation overrides, and enabled-tool allowlists. |
 | `state/usage.js` | Daily usage grouped by model and call kind. |
 | `prompt/cards.js` | Card triggers, overrides, generation parsing, and effective card sets. |
 | `prompt/payload.js` | Chat request assembly, send windows, recall, and cache blocks. |
 | `prompt/research-input.js` | Research preparation context. |
 | `jobs/` | Memory, titles, and shared utility-model calls. |
-| `views/ChatPane.vue` | Composer, chat stream, and research routing. |
+| `views/ChatPane.vue` | Composer and message management, delegates to composables and `research/orchestration.js`. |
+| `composables/useImageAttachments.js` | Image attachment lifecycle for the composer. |
+| `composables/useAutoScroll.js` | Chat scroll management. |
+| `composables/useAutoGrowTextarea.js` | Textarea auto-grow. |
+| `research/orchestration.js` | Streaming, research routing, live trace, and stream guard. |
+| `components/ConversationRow.vue` | Shared sidebar conversation row. |
 | `components/ResearchBlock.vue` | Research stream lifecycle and final report handoff. |
 | `components/ContextPanel.vue`, `CardsPanel.vue`, `WorkspacePanel.vue` | User-managed context. |
 | `components/DocRow.vue` | Document preview, revision, download, and removal. |
 | `components/ui/` | Shared Reka controls and conversa styling. |
-| `i18n.js`, `locales/` | EFIGS interface strings and locale setup. |
+| `styles/style.css` | Theme tokens and shared styles. |
+| `i18n/index.js`, `locales/` | EFIGS interface strings and locale setup. |
 | `utils/` | Markdown, formatting, preferences, confirmation, notifications, themes, and transfer phrases. |
 
 UI strings live in `frontend/src/locales/`. Model output, conversation content, documents, research material, backend logs, and provider errors retain their source language. `pnpm lint:i18n` checks Vue templates for untranslated interface text.
@@ -229,6 +253,7 @@ node src/selfchecks/confirm.selfcheck.js
 node src/selfchecks/md.selfcheck.js
 node src/selfchecks/notify.selfcheck.js
 node src/selfchecks/store.selfcheck.js
+node src/selfchecks/settings.selfcheck.js
 node src/selfchecks/usage.selfcheck.js
 node src/selfchecks/research-lifecycle.selfcheck.js
 node src/selfchecks/phrase.selfcheck.js
@@ -241,9 +266,13 @@ cd backend
 .venv/Scripts/python -m selfchecks.providers
 .venv/Scripts/python -m selfchecks.api
 .venv/Scripts/python -m selfchecks.auth
-.venv/Scripts/python -m selfchecks.fetcher
+.venv/Scripts/python -m selfchecks.fetch
 .venv/Scripts/python -m selfchecks.topic
 .venv/Scripts/python -m selfchecks.tools
+.venv/Scripts/python -m selfchecks.registry
+.venv/Scripts/python -m selfchecks.temporal
+.venv/Scripts/python -m selfchecks.calculator
+.venv/Scripts/python -m selfchecks.random_tool
 .venv/Scripts/python -m selfchecks.web_tools
 .venv/Scripts/python -m selfchecks.tool_runner
 .venv/Scripts/python -m selfchecks.gather

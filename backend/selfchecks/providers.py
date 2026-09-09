@@ -3,7 +3,6 @@
 from types import SimpleNamespace as Obj
 
 from providers import (
-    DIALECTS,
     EFFORT_VALUES,
     PROVIDERS,
     Spend,
@@ -29,6 +28,9 @@ from providers import (
     takes_reasoning,
 )
 from providers.anthropic import LEGACY_EFFORT_BUDGETS
+from providers.dialects import _anthropic_request_tools, responses_request_tools
+from tools import DATETIME_TOOL, TOOL_REGISTRY
+from providers.registry import DIALECTS
 
 
 def request(model: str, temperature: float = 1.0) -> dict:
@@ -194,5 +196,28 @@ usage = chat_completion_usage(Obj(choices=[], usage={
     "prompt_tokens_details": {"cached_tokens": 6, "cache_write_tokens": 1},
 }))
 assert usage == {"input": 8, "output": 4, "cache_read": 6, "cache_write": 1, "search_requests": 0}, usage
+
+# Provider tool schema filtering and colliding capabilities prevention
+anthropic_tools_filtered = _anthropic_request_tools(PROVIDERS["anthropic"], [DATETIME_TOOL], hosted_search=True, hosted_fetch=False)
+assert [t["name"] for t in anthropic_tools_filtered] == ["datetime", "web_search"], anthropic_tools_filtered
+assert not any(t.get("name") == "web_fetch" for t in anthropic_tools_filtered), anthropic_tools_filtered
+assert not any(t.get("name") == "calculator" for t in anthropic_tools_filtered), "disabled tools are omitted"
+
+# Colliding capability: app search_web prevents hosted web_search
+search_tool = TOOL_REGISTRY["search_web"]
+colliding_anthropic = _anthropic_request_tools(PROVIDERS["anthropic"], [search_tool], hosted_search=True)
+assert [t["name"] for t in colliding_anthropic] == ["search_web"], colliding_anthropic
+
+responses_tools_filtered = responses_request_tools(PROVIDERS["openai"], [DATETIME_TOOL], hosted_search=True)
+assert len(responses_tools_filtered) == 2, responses_tools_filtered
+assert any(t.get("name") == "datetime" for t in responses_tools_filtered)
+assert any(t.get("type") == PROVIDERS["openai"]["search_tool"] for t in responses_tools_filtered)
+
+colliding_responses = responses_request_tools(PROVIDERS["openai"], [search_tool], hosted_search=True)
+assert len(colliding_responses) == 1 and colliding_responses[0].get("name") == "search_web"
+
+# Chat completions kwargs stays tool-free
+chat_kwargs = chat_completions_kwargs("some-model", [], None, 1000)
+assert "tools" not in chat_kwargs
 
 print("providers selfcheck OK")

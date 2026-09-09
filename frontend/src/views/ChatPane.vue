@@ -1,21 +1,20 @@
 <script setup>
 import { Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Paperclip, Plus, Send, SlidersHorizontal, Sparkles, Square, Telescope, X } from '@lucide/vue'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { EditableArea, EditableInput, EditablePreview, EditableRoot, Toggle, ToolbarRoot } from 'reka-ui'
-import { prepareResearch, streamChat } from '../api/client.js'
-import { useStreamGuard } from '../composables/useStreamGuard.js'
-import { refreshMemory } from '../jobs/memory.js'
-import { notify } from '../utils/notify.js'
-import { tr } from '../i18n.js'
-import { buildPayload, sendWindow } from '../prompt/payload.js'
-import { buildResearchInput } from '../prompt/research-input.js'
-import { effectiveSettings, EFFORT_LEVELS, RESEARCH_KEYS } from '../state/settings.js'
-import { addConvoUsage, recordUsage } from '../state/usage.js'
-import { activeRunOf, attachedDocs, createDoc, createImage, createRun, currentConversation, images, imagesOf, persistNow, releaseImages, removeRun, sidebarOpen, workspaceOf } from '../state/store.js'
+import { useAutoGrowTextarea } from '../composables/useAutoGrowTextarea.js'
+import { useAutoScroll } from '../composables/useAutoScroll.js'
+import { useImageAttachments } from '../composables/useImageAttachments.js'
 import { generateTitle } from '../jobs/titles.js'
+import { notify } from '../utils/notify.js'
+import { tr } from '../i18n/index.js'
+import { sendWindow } from '../prompt/payload.js'
+import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
+import { activeRunOf, createDoc, currentConversation, imagesOf, persistNow, releaseImages, removeRun, sidebarOpen } from '../state/store.js'
+import { useStreamOrchestration } from '../research/orchestration.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { CHECK_SVG, COPY_SVG } from '../utils/md.js'
-import { enterToSend, fontScale, showThinkingAndSearch } from '../utils/prefs.js'
+import { enterToSend, showThinkingAndSearch } from '../utils/prefs.js'
 import CardsPanel from '../components/CardsPanel.vue'
 import DebugPanel from '../components/DebugPanel.vue'
 import MessageBubble from '../components/MessageBubble.vue'
@@ -32,29 +31,23 @@ import SettingsPanel from '../components/SettingsPanel.vue'
 
 const convo = currentConversation
 const input = ref('')
-const pendingImages = ref([])
-const imageInput = ref(null)
-const streaming = ref(false)
-const preparing = ref(false)
-const titling = ref(false)
 const panel = ref(null)
 const editingId = ref(null)
 let editBackup = null // original {content, role} so Cancel can revert; null = newly added
 const activeId = ref(null) // tapped bubble: shows its action toolbar (mobile has no hover)
+const titling = ref(false)
+
+const { streaming, preparing, liveTrace, streamId, liveOpen, runCompletion, routeResearch, sendResearch, stop } = useStreamOrchestration()
+const { pendingImages, imageInput, onImageInput, onPaste, onDrop, removePending } = useImageAttachments()
+const { atBottom, scroller, scrollDown, onScroll } = useAutoScroll(convo)
+const { composerEl } = useAutoGrowTextarea(input)
+
 // Live thinking/search trace for the latest turn.
 // Deliberately ephemeral: not on the message, not persisted, so a reload wipes it.
 // It stays visible after the turn completes (until the next send resets it), and can be collapsed via liveOpen.
-const streamId = ref(null)
-const liveTrace = ref([])
-const liveOpen = ref(true)
 const showTrace = computed(() => convo.value?.showThinkingAndSearch ?? showThinkingAndSearch.value)
-const atBottom = ref(true)
-const scroller = ref(null)
-let controller = null
-const guard = useStreamGuard(() => streaming.value, () => controller?.abort())
 
 // Render only the last N messages for speed; "Load more" reveals older ones in PAGE_SIZE batches.
-// Tune PAGE_SIZE here.
 // Display-only: all messages stay in memory, and what's sent to the API is governed separately by num_messages_to_send.
 const PAGE_SIZE = 100
 const visibleCount = ref(PAGE_SIZE)
@@ -70,21 +63,13 @@ const windowStartId = computed(() =>
   convo.value ? sendWindow(convo.value, effectiveSettings(convo.value))[0]?.id : null,
 )
 
-// This conversation's running spend.
 const convoSpend = computed(() => convo.value?.usage || { calls: 0, input: 0, output: 0, usd: 0, unpriced: 0 })
 
-function traceText(value) {
-  return typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value)
-}
-function addTrace(type, value) {
-  const last = liveTrace.value.at(-1)
-  if (type === 'thinking' && last?.type === 'thinking') last.text += value
-  else if (type === 'results') liveTrace.value.push({ type, links: value })
-  else if (type === 'tool') {
-    const { id, name, status, trace } = value
-    liveTrace.value.push({ id, type, text: [name, status, traceText(trace)].filter(Boolean).join('\n') })
-  } else liveTrace.value.push({ type, text: value })
-}
+watch(convo, () => {
+  visibleCount.value = PAGE_SIZE
+  atBottom.value = true
+  scrollDown()
+})
 
 function setModel(id) {
   convo.value.settings.model = id
@@ -145,76 +130,11 @@ function onContentClick(e) {
   setTimeout(() => (btn.innerHTML = COPY_SVG), 1200)
 }
 
-function scrollDown() {
-  nextTick(() => {
-    if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight
-  })
-}
-function onScroll() {
-  const el = scroller.value
-  if (el) atBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-}
-// Only auto-follow the stream when the user is already at the bottom.
-watch(() => convo.value?.messages.at(-1)?.content, () => atBottom.value && scrollDown(), { flush: 'post' })
-watch(convo, () => {
-  visibleCount.value = PAGE_SIZE
-  atBottom.value = true
-  scrollDown()
-})
-// On reload, convo already has its value when this mounts, so the watcher above won't fire.
-// Scroll to the bottom once for the initial conversation.
-onMounted(scrollDown)
-
-async function runCompletion(c) {
-  const settings = effectiveSettings(c)
-  streaming.value = true
-  controller = new AbortController()
-  guard.start()
-  let assistant = null
-  try {
-    const payload = { ...buildPayload(c, settings, workspaceOf(c), attachedDocs(c), images.value), allow_tools: true } // built BEFORE the empty assistant placeholder
-    c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() })
-    assistant = c.messages.at(-1) // the reactive proxy, so streamed tokens render live
-    liveTrace.value = []
-    streamId.value = assistant.id
-    // Every frame, text or trace, counts as liveness for the stall watchdog.
-    await streamChat(payload, (t) => {
-      guard.heartbeat()
-      assistant.content += t
-    }, controller.signal, (type, value) => {
-      guard.heartbeat()
-      if (!showTrace.value) return
-      addTrace(type, value)
-    }, (usage) => {
-      addConvoUsage(c, usage)
-      recordUsage('chat', usage)
-    })
-    if (c.title === tr('sidebar.newConversation')) {
-      try {
-        const t = await generateTitle(c, settings.utility_model)
-        if (t) c.title = t
-      } catch (e) {
-        notify({ key: 'utility:title', severity: 'warning', text: tr('chat.titleFailed', { error: e.message }) })
-      }
-    }
-  } catch (e) {
-    if (e.name !== 'AbortError' && assistant) {
-      assistant.content += `${assistant.content ? '\n\n' : ''}> ⚠️ **Error:** ${e.message}`
-    } else if (e.name !== 'AbortError') {
-      notify({ key: 'chat', text: e.message, foreground: true })
-    }
-  } finally {
-    streaming.value = false
-    guard.end()
-    // Refresh the memory summary in the background, off the send path.
-    // The key dedupes: this fires after every reply, so a persistently failing utility model refreshes one toast instead of stacking.
-    refreshMemory(c, settings).catch((e) => notify({ key: 'utility:memory', severity: 'warning', text: tr('chat.memoryFailed', { error: e.message }) }))
-    persistNow() // don't let a quick reload lose the completed message
-  }
-}
+// A running research turn blocks new sends in its conversation; other conversations stay free.
+const runActive = computed(() => !!activeRunOf(convo.value?.id))
+const researchMode = computed(() => convo.value?.mode === 'research')
 
 // Enter behaviour is a frontend pref: by default Enter sends and Shift+Enter makes a newline; flip enterToSend and they swap.
-// Let the textarea insert the newline itself.
 const composerHint = computed(() => tr(enterToSend.value ? 'chat.enterHint' : 'chat.shiftEnterHint'))
 function onComposerKeydown(e) {
   if (e.key !== 'Enter' || e.isComposing) return // don't fire mid-IME-composition
@@ -225,21 +145,6 @@ function onComposerKeydown(e) {
   }
 }
 
-// Auto-grow the composer with its content, capped by max-h; shrinks back when cleared (watch also fires when send() empties it).
-// Native field-sizing:content would be one line of CSS, but Firefox still lacks it.
-// fontScale reflows the text, so re-measure.
-const composerEl = ref(null)
-watch([input, fontScale], () => {
-  const el = composerEl.value
-  if (!el) return
-  el.style.height = 'auto'
-  el.style.height = `${el.scrollHeight}px`
-}, { flush: 'post' })
-
-// The first cut allows one generation per conversation: a running research turn blocks new sends here while other conversations stay free.
-const runActive = computed(() => !!activeRunOf(convo.value?.id))
-const researchMode = computed(() => convo.value?.mode === 'research')
-
 async function send() {
   const text = input.value.trim()
   if ((!text && !pendingImages.value.length) || streaming.value || preparing.value || runActive.value || !convo.value) return
@@ -248,7 +153,7 @@ async function send() {
   const imageIds = pendingImages.value.map((image) => image.id)
   pendingImages.value = []
   input.value = ''
-  // Sending is an explicit jump to the present: follow the new turn even if the user had scrolled up, and re-arm the streaming autoscroll below.
+  // Sending is an explicit jump to the present: follow the new turn even if the user had scrolled up.
   atBottom.value = true
   if (researchMode.value) {
     await sendResearch(c, text)
@@ -258,59 +163,6 @@ async function send() {
   c.messages.push({ id: crypto.randomUUID(), role: 'user', content: text, imageIds, mode: 'chat', createdAt: Date.now() })
   scrollDown()
   runCompletion(c)
-}
-
-function clarificationContent(questions) {
-  return questions.length
-    ? `Before I research this, please answer:\n\n${questions.map((question) => `- ${question}`).join('\n')}`
-    : 'Before I research this, please provide the missing detail.'
-}
-
-// Preparation sees the exact normal-chat context, including the request and no placeholder.
-// Regeneration passes the existing user message back through this same decision instead of inventing a second turn.
-async function routeResearch(c, user) {
-  preparing.value = true
-  const chatSettings = effectiveSettings(c)
-  const input = buildResearchInput(c, chatSettings, workspaceOf(c), attachedDocs(c), images.value)
-  try {
-    await persistNow()
-    const prepared = await prepareResearch({ ...input, model: chatSettings.model })
-    if (prepared.action === 'answer') {
-      runCompletion(c)
-      return
-    }
-    if (prepared.action === 'clarify') {
-      c.messages.push({
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: clarificationContent(prepared.questions),
-        // Normal text stays visible to preparation; this preserves the original standalone intent for export/debugging.
-        researchPreparation: { originalRequest: user.content, goal: prepared.goal, questions: prepared.questions },
-        createdAt: Date.now(),
-      })
-      await persistNow()
-      return
-    }
-
-    const placeholder = { id: crypto.randomUUID(), role: 'assistant', content: '', mode: 'research', createdAt: Date.now() }
-    const researchSettings = effectiveSettings(c, RESEARCH_KEYS)
-    const run = createRun(c, user.id, placeholder.id, input, prepared, researchSettings)
-    user.runId = placeholder.runId = run.id
-    c.messages.push(placeholder)
-    if (c.title === tr('sidebar.newConversation')) c.title = user.content.slice(0, 60)
-    // ResearchBlock owns the one initial POST after this durable record reaches IndexedDB.
-    await persistNow()
-  } catch (error) {
-    notify({ key: 'research:prepare', text: error.message, foreground: true })
-  } finally {
-    preparing.value = false
-  }
-}
-
-async function sendResearch(c, text) {
-  const user = { id: crypto.randomUUID(), role: 'user', content: text, mode: 'research', createdAt: Date.now() }
-  c.messages.push(user)
-  await routeResearch(c, user)
 }
 
 // Regenerate: discard the generated tail and repeat the originating user turn.
@@ -337,61 +189,6 @@ function regenerate(m) {
     return
   }
   runCompletion(c)
-}
-
-async function attachImages(files) {
-  for (const file of files) {
-    try {
-      if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) throw new Error(tr('chat.unsupportedImage', { name: file.name || tr('chat.file') }))
-      const bitmap = await createImageBitmap(file)
-      const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height))
-      const width = Math.round(bitmap.width * scale)
-      const height = Math.round(bitmap.height * scale)
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const context = canvas.getContext('2d')
-      if (!context) {
-        bitmap.close()
-        throw new Error(tr('chat.processImageFailed'))
-      }
-      context.drawImage(bitmap, 0, 0, width, height)
-      bitmap.close()
-      const encode = (type) => new Promise((resolve) => canvas.toBlob(resolve, type, 0.85))
-      let blob = file.type === 'image/png' ? await encode('image/png') : null
-      if (!blob || blob.size > 1024 * 1024) blob = await encode('image/webp')
-      if (!blob || blob.type !== 'image/webp') blob = await encode('image/jpeg')
-      if (!blob) throw new Error(tr('chat.encodeImageFailed', { name: file.name || tr('chat.image') }))
-      const bytes = new Uint8Array(await blob.arrayBuffer())
-      let binary = ''
-      for (const byte of bytes) binary += String.fromCharCode(byte)
-      const data = btoa(binary)
-      if (data.length > 10 * 1024 * 1024) throw new Error(tr('chat.imageTooLarge', { name: file.name || tr('chat.image') }))
-      pendingImages.value.push(await createImage({ id: crypto.randomUUID(), media_type: blob.type, width, height, data, createdAt: Date.now() }))
-    } catch (e) {
-      notify({ key: 'image:attach', severity: 'warning', text: e.message })
-    }
-  }
-}
-
-function onImageInput(e) {
-  attachImages(e.target.files)
-  e.target.value = ''
-}
-function onPaste(e) {
-  if (e.clipboardData.files.length) attachImages(e.clipboardData.files)
-}
-function onDrop(e) {
-  e.preventDefault()
-  attachImages(e.dataTransfer.files)
-}
-function removePending(image) {
-  pendingImages.value = pendingImages.value.filter((x) => x.id !== image.id)
-  releaseImages([image.id])
-}
-
-function stop() {
-  controller?.abort()
 }
 
 async function regenTitle() {

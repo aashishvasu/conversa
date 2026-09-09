@@ -65,12 +65,15 @@ class ToolRunner:
     def can_run_round(self) -> bool:
         return self.rounds < self.max_rounds
 
+    def disable_tool(self, name: str) -> None:
+        self._tools.pop(name, None)
+
     async def run(self, calls: list[ToolCall]) -> tuple[list[ToolResult], list[dict]]:
         """Execute calls concurrently, retaining provider order in results and frames."""
         self.rounds += 1
-        pending: list[ToolCall] = []
-        results: list[ToolResult | None] = []
-        running: list[dict] = []
+        pending = []
+        results = []
+        running = []
         for call in calls:
             if self.calls >= self.max_calls:
                 results.append(error_result(call, "tool_call_limit", "tool call limit reached"))

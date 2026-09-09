@@ -22,7 +22,3 @@ export function restoreTheme(theme) {
   localStorage.setItem(KEY, theme)
   apply()
 }
-
-export function toggleTheme() {
-  restoreTheme(isDark.value ? 'light' : 'dark')
-}

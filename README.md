@@ -144,6 +144,12 @@ Set these as environment variables when you start the container.
 | `DEFAULT_SUMMARIZE_N` | no | `20` | How many turns just above the send window get summarized into memory. |
 | `DEFAULT_USE_RECALL` | no | `false` | Whether relevant dropped turns get resent verbatim. |
 | `DEFAULT_USE_CACHE` | no | `false` | Whether the stable part of the prompt is cached by the provider. Off by default because it only pays back in long conversations with a large shared context. |
+| `DEFAULT_TOOLS_ENABLED` | no | `true` | Master switch for the model-callable tools below. Off omits all of them from the provider schema. |
+| `DEFAULT_TOOL_WEB_SEARCH` | no | `true` | Whether `search_web` is offered. |
+| `DEFAULT_TOOL_FETCH_URL` | no | `true` | Whether `fetch_url` is offered. |
+| `DEFAULT_TOOL_DATETIME` | no | `true` | Whether `datetime` is offered. |
+| `DEFAULT_TOOL_CALCULATOR` | no | `true` | Whether `calculator` is offered. |
+| `DEFAULT_TOOL_RANDOM` | no | `true` | Whether `random` is offered. |
 | `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; every other provider's ids need its prefix (`openai/`, `deepseek/`, `compatible/`). Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/providers/anthropic.py`. |
 | `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic hosted-search version used when app search is unavailable. Set empty to disable that fallback. |
 | `WEB_FETCH_TOOL_VERSION` | no | `web_fetch_20250910` | Anthropic hosted-fetch version used when app fetching is unavailable. Set empty to disable that fallback. |
@@ -180,6 +186,20 @@ Every conversation picks its own model from the providers you configure. Set one
 | `anthropic` | Anthropic | Messages |
 | `responses` | OpenAI, DeepSeek | Responses |
 | `chat_completions` | `compatible` | Chat Completions |
+
+### Tools
+
+Choose which tools the model can use in **Global settings > Tools**. Each conversation can override those choices in **Conversation settings > Tools**. Turning tools off keeps your individual choices for later, and changes apply to your next message.
+
+| Tool | What it does |
+|------|--------------|
+| Web search | Finds current sources and returns links. |
+| Read URLs | Reads the relevant sections of a page you provide or a search finds. |
+| Date and time | Gets the current time in a named time zone, adds calendar or elapsed time, and compares dates. |
+| Calculator and unit conversion | Evaluates bounded mathematical expressions and converts common units. |
+| Random selection | Generates integers, samples items, or shuffles a list. An optional seed makes a result repeatable. |
+
+Web search and URL reading can use a matching tool from the selected provider if conversa's own service is unavailable. A URL rejected by conversa's network policy does not fall back. Generic compatible models do not support tools.
 
 ### Cards, memory, recall, and templates
 

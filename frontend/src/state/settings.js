@@ -24,6 +24,26 @@ export const SETTING_KEYS = [
   'use_recall',
   'use_cache',
   ...RESEARCH_KEYS,
+  'tools_enabled',
+  'tool_web_search',
+  'tool_fetch_url',
+  'tool_datetime',
+  'tool_calculator',
+  'tool_random',
+]
+
+export const RESEARCH_MODEL_FIELDS = [
+  { key: 'research_search_model', labelKey: 'research.searchModel' },
+  { key: 'research_note_model', labelKey: 'research.notesModel' },
+  { key: 'research_report_model', labelKey: 'research.reportModel' },
+]
+
+export const TOOL_FIELDS = [
+  { key: 'tool_web_search', tool: 'search_web' },
+  { key: 'tool_fetch_url', tool: 'fetch_url' },
+  { key: 'tool_datetime', tool: 'datetime' },
+  { key: 'tool_calculator', tool: 'calculator' },
+  { key: 'tool_random', tool: 'random' },
 ]
 
 // The one definition of the thinking-effort lever, rendered by the composer toolbar and both settings panels.
@@ -40,4 +60,9 @@ export function effectiveSettings(owner, keys = SETTING_KEYS) {
   const out = {}
   for (const k of keys) out[k] = owner?.settings?.[k] ?? g[k]
   return out
+}
+
+export function enabledTools(settings) {
+  if (!settings?.tools_enabled) return []
+  return TOOL_FIELDS.filter((field) => settings[field.key]).map((field) => field.tool)
 }

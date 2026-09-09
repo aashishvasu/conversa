@@ -4,9 +4,7 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 
-import httpx2
-
-httpx = httpx2
+import httpx2 as httpx
 
 from tools.fetch import REQUEST_TIMEOUT, canonicalize
 
@@ -18,7 +16,7 @@ BLOCKED_DOMAINS = [
 EXA_API_KEY = os.environ.get("EXA_API_KEY")
 BRAVE_API_KEY = os.environ.get("BRAVE_API_KEY")
 SEARXNG_URL = (os.environ.get("SEARXNG_URL") or "").rstrip("/")
-LOG = logging.getLogger("uvicorn.error")
+logger = logging.getLogger(__name__)
 
 
 SearchFinder = Callable[[str, int], Awaitable[list[dict[str, str | None]]]]
@@ -95,9 +93,9 @@ async def search(query: str, limit: int = 8) -> list[dict[str, str | None]] | No
         name = finder.__name__.removeprefix("_search_")
         try:
             hits = await finder(query, limit)
-            LOG.info("web search via %s", name)
+            logger.info("web search via %s", name)
             return filter_hits(hits, limit)
         except Exception as err:
             error = err
-            LOG.warning("web search via %s failed (%s), trying the next finder", name, err)
+            logger.warning("web search via %s failed (%s), trying the next finder", name, err)
     raise error

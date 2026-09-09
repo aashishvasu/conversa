@@ -80,7 +80,7 @@ async def retrieve_transfer(request: Request, _=Depends(require_auth)):
     raw = await _read_limited_body(request, _ENVELOPE_LIMIT)
     try:
         parsed = json.loads(raw)
-    except Exception:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         raise HTTPException(404, _NO_SUCH_TRANSFER)
     if not isinstance(parsed, dict):
         raise HTTPException(404, _NO_SUCH_TRANSFER)

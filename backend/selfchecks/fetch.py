@@ -1,4 +1,4 @@
-"""Selfcheck: python -m selfchecks.fetcher"""
+"""Selfcheck: python -m selfchecks.fetch"""
 
 import asyncio
 
@@ -123,4 +123,4 @@ async def _cache_checks():
 
 asyncio.run(_cache_checks())
 
-print("fetcher selfcheck OK")
+print("fetch selfcheck OK")

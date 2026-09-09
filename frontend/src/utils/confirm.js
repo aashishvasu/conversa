@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-import { tr } from '../i18n.js'
+import { tr } from '../i18n/index.js'
 
 // Promise-based confirmation, backed by one ConfirmModal mounted at app root.
 // Usage: if (await confirmDelete('Delete this card?')) remove()

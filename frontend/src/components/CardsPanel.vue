@@ -7,7 +7,7 @@ import { CARDGEN_SYSTEM, effectiveCards, matchedCardIds, parseGeneratedCards } f
 import { effectiveSettings } from '../state/settings.js'
 import { workspaceOf } from '../state/store.js'
 import { confirmDelete } from '../utils/confirm.js'
-import { tr } from '../i18n.js'
+import { tr } from '../i18n/index.js'
 import UiButton from './ui/UiButton.vue'
 import UiDisclosure from './ui/UiDisclosure.vue'
 import UiIconButton from './ui/UiIconButton.vue'
