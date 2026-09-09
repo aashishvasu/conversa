@@ -2,6 +2,7 @@
 
 import asyncio
 
+import providers.chat as chat
 import providers.dialects as dialects
 from tools import ConversaTool, ToolArguments, ToolCall, ToolFailed, ToolOutput, ToolRejected, ToolUnavailable
 
@@ -123,7 +124,7 @@ async def check_anthropic() -> None:
     original = dialects.CLIENTS["anthropic"]
     dialects.CLIENTS["anthropic"] = client
     try:
-        frames = await collect(dialects.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [tool]))
+        frames = await collect(chat.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [tool]))
     finally:
         dialects.CLIENTS["anthropic"] = original
     assert executed == [2], executed
@@ -148,7 +149,7 @@ async def check_invalid_arguments_and_budget() -> None:
     original = dialects.CLIENTS["anthropic"]
     dialects.CLIENTS["anthropic"] = client
     try:
-        frames = await collect(dialects.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [tool]))
+        frames = await collect(chat.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [tool]))
     finally:
         dialects.CLIENTS["anthropic"] = original
     result = client.messages.requests[1]["messages"][-1]["content"][0]
@@ -164,7 +165,7 @@ async def check_invalid_arguments_and_budget() -> None:
     client = AnthropicClient([AnthropicStream([], Obj(content=calls, usage=usage(1, 1))), AnthropicStream([Obj(type="content_block_delta", delta=Obj(type="text_delta", text="bounded"))], Obj(content=[], usage=usage(1, 1)))])
     dialects.CLIENTS["anthropic"] = client
     try:
-        await collect(dialects.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [tool], max_tool_calls=1))
+        await collect(chat.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [tool], max_tool_calls=1))
     finally:
         dialects.CLIENTS["anthropic"] = original
     outputs = client.messages.requests[1]["messages"][-1]["content"]
@@ -182,7 +183,7 @@ async def check_invalid_arguments_and_budget() -> None:
     ])
     dialects.CLIENTS["anthropic"] = client
     try:
-        frames = await collect(dialects.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [tool], max_tool_rounds=1))
+        frames = await collect(chat.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [tool], max_tool_rounds=1))
     finally:
         dialects.CLIENTS["anthropic"] = original
     assert executed == [1] and len(client.messages.requests) == 3, (executed, client.messages.requests)
@@ -206,7 +207,7 @@ async def check_hosted_fallback() -> None:
     original = dialects.CLIENTS["anthropic"]
     dialects.CLIENTS["anthropic"] = client
     try:
-        frames = await collect(dialects.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [unavailable_tool]))
+        frames = await collect(chat.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [unavailable_tool]))
     finally:
         dialects.CLIENTS["anthropic"] = original
     assert client.messages.requests[0]["tools"] == dialects.anthropic_tools([unavailable_tool]), client.messages.requests[0]
@@ -230,7 +231,7 @@ async def check_call_failure_keeps_tools() -> None:
     original = dialects.CLIENTS["anthropic"]
     dialects.CLIENTS["anthropic"] = client
     try:
-        frames = await collect(dialects.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [failed_tool]))
+        frames = await collect(chat.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [failed_tool]))
     finally:
         dialects.CLIENTS["anthropic"] = original
     assert client.messages.requests[1]["tools"] == dialects.anthropic_tools([failed_tool]), client.messages.requests[1]
@@ -258,7 +259,7 @@ async def check_policy_rejection_blocks_fallback() -> None:
     original = dialects.CLIENTS["anthropic"]
     dialects.CLIENTS["anthropic"] = client
     try:
-        frames = await collect(dialects.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [mixed_tool]))
+        frames = await collect(chat.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [mixed_tool]))
     finally:
         dialects.CLIENTS["anthropic"] = original
     assert "tools" not in client.messages.requests[1], client.messages.requests[1]
@@ -281,7 +282,7 @@ async def check_responses() -> None:
     original = dialects.CLIENTS["openai"]
     dialects.CLIENTS["openai"] = client
     try:
-        frames = await collect(dialects.stream_chat("openai", "gpt-5.6-sol", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [tool]))
+        frames = await collect(chat.stream_chat("openai", "gpt-5.6-sol", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [tool]))
     finally:
         dialects.CLIENTS["openai"] = original
     assert executed == [3], executed
@@ -298,7 +299,7 @@ async def check_compatible_omits_tools() -> None:
     original = dialects.CLIENTS["compatible"]
     dialects.CLIENTS["compatible"] = client
     try:
-        await collect(dialects.stream_chat("compatible", "operator-model", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [tool]))
+        await collect(chat.stream_chat("compatible", "operator-model", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [tool]))
     finally:
         dialects.CLIENTS["compatible"] = original
     assert "tools" not in client.chat.completions.requests[0], client.chat.completions.requests[0]
@@ -310,7 +311,7 @@ async def check_compatible_omits_tools() -> None:
     no_usage_client = Obj(chat=Obj(completions=NoUsageCompletions()))
     dialects.CLIENTS["compatible"] = no_usage_client
     try:
-        frames = await collect(dialects.stream_chat("compatible", "operator-model", [{"role": "user", "content": "go"}], None, 32, "", 1.0, allow_hosted_tools=False))
+        frames = await collect(chat.stream_chat("compatible", "operator-model", [{"role": "user", "content": "go"}], None, 32, "", 1.0, allow_hosted_tools=False))
     finally:
         dialects.CLIENTS["compatible"] = original
     assert not any("usage" in frame for frame in frames), frames

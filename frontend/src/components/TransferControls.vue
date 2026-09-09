@@ -6,7 +6,7 @@ import { locale, restorePrefs } from '../utils/prefs.js'
 import { restoreTheme } from '../utils/theme.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { normalizePhrase } from '../utils/phrase.js'
-import { tr } from '../i18n.js'
+import { tr } from '../i18n/index.js'
 import UiButton from './ui/UiButton.vue'
 
 const props = defineProps({

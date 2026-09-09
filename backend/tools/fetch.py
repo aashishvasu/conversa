@@ -11,11 +11,9 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
-import httpx2
+import httpx2 as httpx
 import pypdf
 import trafilatura
-
-httpx = httpx2
 
 from tools.topic import match_topic
 

@@ -3,7 +3,6 @@
 from types import SimpleNamespace as Obj
 
 from providers import (
-    DIALECTS,
     EFFORT_VALUES,
     PROVIDERS,
     Spend,
@@ -29,6 +28,7 @@ from providers import (
     takes_reasoning,
 )
 from providers.anthropic import LEGACY_EFFORT_BUDGETS
+from providers.registry import DIALECTS
 
 
 def request(model: str, temperature: float = 1.0) -> dict:

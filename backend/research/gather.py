@@ -213,10 +213,7 @@ async def gather(question, search_model, note_model, limit=6, spend=None, on_sou
         return {"question": question, "notes": [], "failed": [result]}
 
     try:
-        sources = await (
-            search(question, search_model, limit=limit, search_prompt=prompts.get("search"))
-            if prompts else search(question, search_model, limit=limit)
-        )
+        sources = await search(question, search_model, limit=limit, search_prompt=(prompts or {}).get("search"))
     except Exception as err:
         # A subquestion whose search fails becomes an empty section, leaving its siblings to finish.
         return barren(f"search failed: {err}")
@@ -229,10 +226,7 @@ async def gather(question, search_model, note_model, limit=6, spend=None, on_sou
             # Isolate source failures while allowing CancelledError (a BaseException) to stop the run.
             try:
                 page = await _page(source["url"], question)
-                body = await (
-                    note(question, page, note_model, spend=spend, note_prompt=prompts.get("note"))
-                    if prompts else note(question, page, note_model, spend=spend)
-                )
+                body = await note(question, page, note_model, spend=spend, note_prompt=(prompts or {}).get("note"))
                 result = (
                     {"url": page["url"], "title": page["title"] or source["title"], "note": body}
                     if body

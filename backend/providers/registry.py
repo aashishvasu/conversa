@@ -10,6 +10,8 @@ from openai import AsyncOpenAI
 # Provider modules read env values at import time, so load .env first.
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 from .anthropic import PROVIDER as ANTHROPIC  # noqa: E402
 from .compatible import PROVIDER as COMPATIBLE  # noqa: E402
 from .deepseek import PROVIDER as DEEPSEEK  # noqa: E402
@@ -85,7 +87,7 @@ CONFIG_ERRORS = []
 
 def _config_error(message: str) -> None:
     CONFIG_ERRORS.append(message)
-    logging.warning(message)
+    logger.warning("%s", message)
 
 
 _requested = parse_models(os.environ.get("MODELS", ""))

@@ -1,11 +1,10 @@
 """The research preparation and run endpoints."""
 
 import asyncio
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from api.auth import require_auth

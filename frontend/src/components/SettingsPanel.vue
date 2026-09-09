@@ -1,8 +1,8 @@
 <script setup>
 import { computed } from 'vue'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
-import { tr } from '../i18n.js'
-import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
+import { tr } from '../i18n/index.js'
+import { effectiveSettings, EFFORT_LEVELS, RESEARCH_MODEL_FIELDS } from '../state/settings.js'
 import {
   createFromTemplate,
   deleteConversation,
@@ -192,16 +192,12 @@ async function remove() {
       </TabsContent>
 
       <TabsContent value="research" class="space-y-3 outline-none">
-        <div v-for="field in [
-          { key: 'research_search_model', label: $t('research.searchModel') },
-          { key: 'research_note_model', label: $t('research.notesModel') },
-          { key: 'research_report_model', label: $t('research.reportModel') },
-        ]" :key="field.key">
+        <div v-for="field in RESEARCH_MODEL_FIELDS" :key="field.key">
           <div class="mb-1 flex items-center justify-between text-muted">
-            <span>{{ field.label }}</span>
+            <span>{{ $t(field.labelKey) }}</span>
             <OverrideReset :overridden="overridden(field.key)" @use-global="reset(field.key)" />
           </div>
-          <ModelSelect :model-value="eff(field.key)" :label="field.label" @update:model-value="setOv(field.key, $event)" />
+          <ModelSelect :model-value="eff(field.key)" :label="$t(field.labelKey)" @update:model-value="setOv(field.key, $event)" />
         </div>
 
         <div>

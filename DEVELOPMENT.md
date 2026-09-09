@@ -45,7 +45,7 @@ A chat request may make several provider calls while tools run. The final `usage
 
 ### Providers
 
-A provider file in `backend/providers/` exports a `PROVIDER` dictionary. `registry.py` combines provider data and creates clients. `dialects.py` builds requests and maps provider events to conversa frames. `tool_use.py` translates provider tool calls and results.
+A provider file in `backend/providers/` exports a `PROVIDER` dictionary. `registry.py` combines provider data and creates clients. `chat.py` runs the tool loop and aggregates usage across provider calls within one chat turn. `dialects.py` handles wire translation: building requests and mapping provider events to conversa frames. `tool_use.py` translates provider tool calls and results.
 
 | Dialect | Providers | API |
 |---------|-----------|-----|
@@ -97,7 +97,7 @@ The final frame contains:
 {name, summary, report: {name, text}, sections: [{question, notes: [{note, url}]}]}
 ```
 
-`frontend/src/state/store.js` saves the report as a document, links it to the conversation, records spend once, then asks the backend to forget the run.
+`frontend/src/state/runs.js` `finishRun` saves the report as a document, links it to the conversation, and records spend. `ResearchBlock.vue` calls `finishRun`, awaits `persistNow`, then calls `discardResearch` to tell the backend to forget the run.
 
 ### Transfers
 
@@ -134,7 +134,7 @@ With `use_cache` enabled, `system` becomes `[stable, volatile]`. The workspace p
 
 ### State and persistence
 
-`frontend/src/state/store.js` stores browser-owned data in IndexedDB.
+`frontend/src/state/` splits browser state across several modules. `persistence.js` holds the shared reactive state, IndexedDB keys, and debounced writes. `store.js` is the public facade: it re-exports all public APIs from the sub-modules and owns global settings, models, and `initStore`.
 
 - A workspace is `{id, name, systemPrompt, cards, docIds}`.
 - A document is `{id, name, text, createdAt, updatedAt, source, versions}`.
@@ -142,7 +142,7 @@ With `use_cache` enabled, `system` becomes `[stable, volatile]`. The workspace p
 - Documents are deleted when their final workspace or conversation reference is removed.
 - Image records use separate `conversa_img:<id>` keys; messages store image ids.
 
-Full exports use `SNAPSHOT_VERSION` and include conversations, workspaces, documents, images, research runs, settings, usage, and UI preferences. Merge import keeps local records on id collisions. Snapshot restore replaces browser-owned collections after confirmation. Older snapshots leave fields they lack unchanged.
+`snapshot.js` implements full export and restore. Full exports use `SNAPSHOT_VERSION` and include conversations, workspaces, documents, images, research runs, settings, usage, and UI preferences. Merge import keeps local records on id collisions. Snapshot restore replaces browser-owned collections after confirmation. Older snapshots leave fields they lack unchanged.
 
 The image pipeline accepts JPEG, PNG, GIF, and WebP. Canvas orientation and resizing cap the long edge at 2,000 pixels. Encoded records target less than 1 MB.
 
@@ -154,19 +154,31 @@ The image pipeline accepts JPEG, PNG, GIF, and WebP. Canvas orientation and resi
 |------|----------------|
 | `App.vue` | Application assembly, authentication state, and pane routing. |
 | `api/client.js` | HTTP, SSE, authentication, chat, research, and transfer calls. |
-| `state/store.js` | Conversations, workspaces, documents, images, research runs, import, and export. |
+| `state/persistence.js` | Shared reactive state, IndexedDB keys, and debounced persistence. |
+| `state/store.js` | Public facade: re-exports from sub-modules; owns global settings, models, and `initStore`. |
+| `state/conversations.js` | Conversation and template CRUD, `attachedDocs`. |
+| `state/runs.js` | Research run CRUD, finalization, and spend recording. |
+| `state/workspaces.js` | Workspace CRUD. |
+| `state/docs.js` | Document and image CRUD and GC. |
+| `state/snapshot.js` | Export, import, restore, and snapshot info. |
 | `state/settings.js` | Global defaults and per-conversation overrides. |
 | `state/usage.js` | Daily usage grouped by model and call kind. |
 | `prompt/cards.js` | Card triggers, overrides, generation parsing, and effective card sets. |
 | `prompt/payload.js` | Chat request assembly, send windows, recall, and cache blocks. |
 | `prompt/research-input.js` | Research preparation context. |
 | `jobs/` | Memory, titles, and shared utility-model calls. |
-| `views/ChatPane.vue` | Composer, chat stream, and research routing. |
+| `views/ChatPane.vue` | Composer and message management, delegates to composables and `research/orchestration.js`. |
+| `composables/useImageAttachments.js` | Image attachment lifecycle for the composer. |
+| `composables/useAutoScroll.js` | Chat scroll management. |
+| `composables/useAutoGrowTextarea.js` | Textarea auto-grow. |
+| `research/orchestration.js` | Streaming, research routing, live trace, and stream guard. |
+| `components/ConversationRow.vue` | Shared sidebar conversation row. |
 | `components/ResearchBlock.vue` | Research stream lifecycle and final report handoff. |
 | `components/ContextPanel.vue`, `CardsPanel.vue`, `WorkspacePanel.vue` | User-managed context. |
 | `components/DocRow.vue` | Document preview, revision, download, and removal. |
 | `components/ui/` | Shared Reka controls and conversa styling. |
-| `i18n.js`, `locales/` | EFIGS interface strings and locale setup. |
+| `styles/style.css` | Theme tokens and shared styles. |
+| `i18n/index.js`, `locales/` | EFIGS interface strings and locale setup. |
 | `utils/` | Markdown, formatting, preferences, confirmation, notifications, themes, and transfer phrases. |
 
 UI strings live in `frontend/src/locales/`. Model output, conversation content, documents, research material, backend logs, and provider errors retain their source language. `pnpm lint:i18n` checks Vue templates for untranslated interface text.
@@ -241,7 +253,7 @@ cd backend
 .venv/Scripts/python -m selfchecks.providers
 .venv/Scripts/python -m selfchecks.api
 .venv/Scripts/python -m selfchecks.auth
-.venv/Scripts/python -m selfchecks.fetcher
+.venv/Scripts/python -m selfchecks.fetch
 .venv/Scripts/python -m selfchecks.topic
 .venv/Scripts/python -m selfchecks.tools
 .venv/Scripts/python -m selfchecks.web_tools

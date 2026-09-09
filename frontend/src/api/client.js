@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { tr } from '../i18n.js'
+import { tr } from '../i18n/index.js'
 
 // /api/login exchanges the password for the stored bearer token. A 401 clears it and returns to login.
 

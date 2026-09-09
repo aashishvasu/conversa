@@ -54,10 +54,10 @@ assert len(lines("\n".join(f"subquestion number {i} here" for i in range(9)), 4)
 async def _resilience_checks():
     real_search, real_page, real_note = g.search, g._page, g.note
 
-    async def dead_note(question, page, model_id, spend=None):
+    async def dead_note(question, page, model_id, spend=None, note_prompt=None):
         raise RuntimeError("Error code: 529 - overloaded_error")
 
-    async def two_sources(query, model_id, limit=8):
+    async def two_sources(query, model_id, limit=8, search_prompt=None):
         return [{"title": "a", "url": "https://a.example/1"}, {"title": "b", "url": "https://b.example/2"}]
 
     async def fake_page(url, question):

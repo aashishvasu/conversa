@@ -26,6 +26,12 @@ export const SETTING_KEYS = [
   ...RESEARCH_KEYS,
 ]
 
+export const RESEARCH_MODEL_FIELDS = [
+  { key: 'research_search_model', labelKey: 'research.searchModel' },
+  { key: 'research_note_model', labelKey: 'research.notesModel' },
+  { key: 'research_report_model', labelKey: 'research.reportModel' },
+]
+
 // The one definition of the thinking-effort lever, rendered by the composer toolbar and both settings panels.
 // Values go to the API as output_config.effort, and the backend maps them to token budgets for pre-4.6 models.
 // Adding a level here (Anthropic also has 'xhigh' and 'max') surfaces it in all three places.
