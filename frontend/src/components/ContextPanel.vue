@@ -1,7 +1,8 @@
 <script setup>
 import { Trash2, X } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 import { deleteDoc, docs, docsOf, removeDocRef } from '../state/store.js'
+import { effectiveSettings } from '../state/settings.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { tr } from '../i18n.js'
 import DocRow from './DocRow.vue'
@@ -10,6 +11,7 @@ import UiDisclosure from './ui/UiDisclosure.vue'
 import UiIconButton from './ui/UiIconButton.vue'
 
 const props = defineProps({ convo: Object })
+const memoryId = useId()
 
 // The always-sent context: every system message plus any pinned turn.
 // These are the same message objects rendered inline in the chat, so editing here updates both places.
@@ -45,6 +47,12 @@ async function destroyDoc(id) {
   if (await confirmDelete(tr('confirm.deleteDoc'))) {
     deleteDoc(id)
   }
+}
+
+async function clearMemory() {
+  if (!(await confirmDelete(tr('confirm.clearMemory'), tr('common.clear')))) return
+  props.convo.memory = ''
+  props.convo.memoryCount = 0
 }
 </script>
 
@@ -84,5 +92,15 @@ async function destroyDoc(id) {
         </div>
       </div>
     </UiDisclosure>
+
+    <hr class="border-edge" />
+
+    <div v-if="effectiveSettings(convo).use_memory">
+      <div class="mb-1 flex items-center justify-between text-muted">
+        <label :for="memoryId" class="cursor-pointer">{{ $t('settings.memory') }}</label>
+        <UiButton size="compact" variant="ghost" @click="clearMemory">{{ $t('common.clear') }}</UiButton>
+      </div>
+      <textarea :id="memoryId" v-model="convo.memory" rows="4" :placeholder="$t('settings.memoryEmpty')" class="w-full rounded bg-surface2 px-2 py-1 text-xs"></textarea>
+    </div>
   </div>
 </template>

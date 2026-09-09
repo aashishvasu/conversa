@@ -21,7 +21,7 @@ Who ends up holding what:
 | A finished research report | ✔️ | 🟡 (Until collected, eviction, or restart) |
 | Your provider API key | ❌ | ✔️ (This is the whole reason it exists) |
 | The public pages chat and research read | ❌ | 🟡 (Up to `FETCH_CACHE_TTL_SECONDS`, size eviction, or restart) |
-| Your password | ❌ | ✔️ (As the env var you set it to) |
+| Your password | ❌ | ✔️ |
 
 
 
@@ -161,146 +161,63 @@ Set these as environment variables when you start the container.
 
 Change any of them globally (in **Global settings**) or per conversation (in **Conversation settings**).
 
-## How it works
+## Features
 
-Most of conversa is an ordinary chat window. In normal chat, supported models can call conversa's `search_web` and `fetch_url` tools. Search tries configured app backends before the model provider's hosted web tools. Fetched page content is returned to the model as tool context, while the browser receives only the URL, title, kind, and status. Recent extracts stay in a bounded process-local cache for 30 minutes by default.
+Conversa is a chat app at its core. Pick a model and start talking. Conversations can include images and documents, search the web, and keep the context that matters from older turns.
 
-### Context: what the assistant always sees
+### Local first
 
-Think of the **context editor** as a corkboard the assistant glances at on every reply.
-Two kinds of note live there:
+Every conversation transcript, image, card, workspace, document, template, setting, and usage record lives in IndexedDB in your browser. The server only holds your provider keys, your password, active research runs, and transfer payloads, all of which are ephemeral. The rule of thumb is: 
 
-- **System messages**: standing instructions ("You are a terse Rust expert").
-- **Pinned messages**: any normal message you've pinned.
-  Pinned messages skip the recent-messages limit and go every turn, so an important detail from 200 messages ago stays in context.
-  Pin a message with the button, or manage everything together in the context editor.
+>*"If its something durable to be stored, the client stores it."*
 
-### Research: a conversation turn that reads the web and writes you a report
+### Providers
 
-Flip the **Research** toggle in the composer toolbar (or start a conversation from the sidebar's Research tab) to let the selected conversation model route each send. It answers ordinary requests in chat, asks a normal clarification when required, or starts research when the request needs multiple external sources.
+Every conversation picks its own model from the providers you configure. Set one key or several, and the picker shows what is on offer.
 
-A research run breaks the request into subquestions, searches for each, reads what it finds, and writes a cited report, all inside the conversation.
-Its progress (subquestions, sources read, token spend) lives in a collapsible block on the turn, with a stop button.
-It keeps going if you close the tab, and reopening the conversation picks the stream back up.
-Other conversations stay usable while it runs; the one that started it waits for its result.
+| Dialect | Providers | API |
+|---------|-----------|-----|
+| `anthropic` | Anthropic | Messages |
+| `responses` | OpenAI, DeepSeek | Responses |
+| `chat_completions` | `compatible` | Chat Completions |
 
-The finished report lands in the document store, attached to the conversation, so follow-up questions in the same conversation have it in context and any other conversation can attach it from the Context editor.
-The turn keeps the run's plan, sources, and spend as its audit trail.
+### Cards, memory, recall, and templates
 
-Research and normal chat share the same app search and fetch implementations. Search tries configured app finders in Exa, Brave, SearXNG order. The selected model provider's hosted tool runs after those finders fail or when all three are absent.
+Four ways to bring context back without retyping it. Cards flip open at the right moment, memory keeps the gist, recall finds the old turn that matters now, and templates copy a whole conversation as a starting point.
 
-Research has separate search, note, and report models, set per run in the turn's models-and-depth section. The note model reads every page and accounts for most model input, so a cheap model belongs there.
+| Feature | What it does |
+|---------|--------------|
+| Cards | Think flash cards for the model. Write a trigger phrase, and when the chat mentions it the card flips open and adds its instructions to the prompt. List triggers with commas for any-of, and `&` for phrases that must appear together. |
+| Memory | A running summary the model keeps seeing, like a sticky note holding the gist of turns that have scrolled out of view. |
+| Recall | Flips back through dropped turns and resends the few that matter now, up to three, picked by how closely they match what you just asked. |
+| Templates | Copies a conversation with its cards, messages, and documents so you can start a new one from it or keep it to reuse later. |
 
-### Cards: notes that appear only when relevant
+### Research
 
-A **card** is like an index card in a box.
-Each card has some **trigger phrases** and a **note**.
-Before every reply, conversa scans your recent messages; if a card's trigger phrase shows up, that card's note is quietly handed to the assistant for that reply, then dropped again once the word stops coming up.
+Hand the model a question and it plays research assistant: breaks it into subquestions, searches the web, reads the pages, takes notes, and comes back with a report saved with the conversation. The run lives on the server, so it keeps going after you close the browser, and you return to a finished report.
 
-It's a lightweight way to give the assistant background knowledge ("when I say *Aria*, that's my D&D character, a half-elf rogue...") that costs you tokens only on the turns that mention it.
+| Phase | What happens |
+|------|--------------|
+| plan | Turn the goal into a list of subquestions. |
+| gather | Search the web, read pages, and take notes for each subquestion. |
+| gap | Plan again to fill any gaps the notes leave. |
+| report | Write the report and save it as a document on the conversation. |
 
-Triggers are comma-separated, and commas mean *or*: any one phrase fires the card.
-Use `&` when a card should only fire if several words all appear: `dragon & red, wyrm` triggers on "wyrm", or on "dragon" and "red" both showing up in recent messages.
+### Workspaces
 
-You can override the trigger matching per card with two buttons on the card's row: **force include** (✓) always sends the card regardless of triggers, and **force skip** (⃠) never sends it.
-Click again to clear the override and return to normal trigger matching.
-Forced-include and triggered cards show green; force-skip shows yellow.
-To keep cards tidy, give a card a **folder** name and it'll group under that heading.
-A folder is a display heading; triggering runs off the phrases alone.
+A workspace is a shared notebook of instructions, cards, and documents that every conversation in a group reads from. Each conversation can still turn one shared card on or off for itself without touching the others.
 
-### Memory: so long chats don't get forgotten or expensive
+### Import, export, and transfer
 
-Turn on **Compress history into memory** and conversa replaces messages above the recent-message window with a summary written by the utility model.
-The summary refreshes in the background after each reply while sending remains available.
-Recent messages stay word-for-word; anything older than both windows drops out (recall below brings it back when relevant).
-You can read, edit, or clear the summary in **Conversation settings**.
+Pack up your data as JSON files or short-lived phrase codes.
 
-### Recall: old messages that suddenly matter again
+| Action | What it does |
+|--------|--------------|
+| Export | Download a JSON file with everything, or just one conversation. |
+| Import | Merge an export into your browser, keeping what you already have when ids collide. |
+| Restore | Replace everything in your browser with a snapshot, after you confirm. |
+| Transfer | Create a five-word phrase code another browser can retrieve within one hour. |
 
-Turn on **Recall relevant old messages** and, before each reply, conversa looks at the turns that fell outside the recent-messages limit and re-sends the few that overlap most with what you just asked, verbatim, as reference.
-Ask "what was the dragon called again?" 200 messages later and the turn that names it comes back.
+Conversa also imports backups from [NextChat](https://github.com/ChatGPTNextWeb/NextChat) (formerly ChatGPT-Next-Web), bringing over your chat histories and mask templates. Imports run locally in your browser and ignore any API keys or access codes the backup contains.
 
-Recall returns the original turns word for word, where memory summarizes.
-
-### Languages
-
-The interface is available in British English, French, Italian, German, and Spanish. Pick one at the top of **Global settings**; conversa remembers it in this browser and includes it in full backups.
-
-Conversation content, model replies, documents, and research reports stay in the language they were written in.
-
-### Models
-
-The model picker in the composer toolbar (also in **Conversation settings** and **Global settings**) groups models under their provider.
-Cards, memory, recall, workspaces, templates, and the utility model work across providers. Provider-specific controls are disabled when the selected model cannot use them.
-You can point the utility model at one provider while chatting with another.
-
-### Thinking effort
-
-The brain picker turns on extended thinking: **Off**, **Low**, **Medium**, **High**.
-More effort means the model reasons longer before answering, at the cost of tokens and latency.
-The same four levels drive Anthropic's `effort` and OpenAI's `reasoning_effort`.
-
-Two API behaviours to expect.
-On Claude 4.6 and newer, turning thinking on makes the model ignore the temperature setting.
-And effort is a hint: at **Low**, GPT models often answer an easy question with no reasoning at all, which shows up as an empty trace.
-
-The model's thinking, and any web searches it runs, stream above the reply as a live trace you can collapse.
-The trace is ephemeral: it lives in memory for the current turn, and a reload clears it.
-
-### Workspaces: shared context for a group of conversations
-
-A **workspace** bundles a shared system prompt, shared cards, and plain-text documents (`.txt`/`.md`), and any number of conversations can point at it.
-Every reply in a member conversation carries the workspace's prompt, its documents in full, and whichever of its cards trigger, on top of the conversation's own system messages and cards.
-Where the same topic has a card in both, the workspace card is sent first and the conversation card after it, so a conversation can refine the shared note.
-
-The sidebar is a vertical tab rail: **Chat** lists templates and chat conversations outside any workspace, **Research** lists research conversations wherever they live, **Workspaces** lists each workspace with its member conversations beneath it, and **Usage** shows the spend table.
-The + in a list's header creates its kind, clicking a workspace row opens its editor (name, prompt, documents, cards), and a workspace's menu can also spawn a member conversation.
-A conversation joins or leaves through **Conversation settings**; membership is a single link, so joining, leaving, or deleting the workspace leaves the conversation's own cards and messages exactly as they were.
-In a member conversation the card panel lists the workspace's cards read-only, with the same live "active" dots as its own; editing them happens in the workspace so a change to shared context is always a deliberate act.
-The include and exclude buttons on a workspace card are the exception: they are stored on the conversation, so one conversation can force a shared card to send every turn, or silence it, while the rest of the workspace keeps it as is.
-
-Documents are sent whole with every request and count as input tokens, so keep them to what the conversations actually need.
-Click a document in the workspace editor to read it rendered, or use the download button to save it as a file.
-
-### Documents: one copy, referenced anywhere
-
-Every document lives once in a browser-side document store; workspaces and conversations reference it.
-An uploaded file or a promoted reply can therefore back several workspaces and conversations at the same time, with no copies to drift apart.
-
-A conversation attaches a document directly in its **Context** panel, whether or not it belongs to a workspace: attached documents are sent whole with every request, right after any workspace documents.
-The same panel detaches a document, and its picker deletes one from the store outright.
-Removing a document from its last workspace or conversation also deletes it.
-
-The save-as-document button on any assistant reply turns that reply into a document, named after its first heading, ready to attach anywhere.
-
-Every document row has a **Revise** box: describe a change, and the utility model rewrites the document in place.
-The previous text is kept (the last ten revisions), and the undo button restores it.
-
-### Prompt caching: reuse stable context
-
-For Anthropic models, turn on **Cache stable prompt context** to cache the workspace prompt, system messages, and attached documents. The initial request pays Anthropic's cache-write rate; matching follow-ups pay its lower cache-read rate until expiry.
-
-It is off by default because a short conversation can cost more with caching. Anthropic charges 25% extra for a cache write, so caching suits a large stable prompt followed by several turns.
-
-Caching is prefix-match: change one byte and everything after it is re-billed. That makes conversa's assembly order the thing that decides what stays cached.
-
-> [!TIP]
-> Cards are assembled after the cache breakpoint. A card firing on turn seven changes the uncached tail while the workspace prompt and documents above it stay cached.
-
-> [!NOTE]
-> Memory and recall occupy the volatile prompt block. The summary changes after replies, and recall selects turns for each request, so both are billed each turn.
-
-> [!WARNING]
-> The messages array is uncached because its sliding window changes the prefix. This setting applies to the system prompt and pays back when that block contains enough shared context.
-
-### Templates
-
-Set up a conversation the way you like (system messages, cards, settings, a few seed messages) and save it as a **template**. Starting from a template clones all of that into a fresh conversation.
-Templates live in the sidebar.
-
-Templates keep their workspace link: save a workspace conversation as a template and every conversation started from it joins that workspace automatically.
-
----
-
-Built with Vue + FastAPI.
-For the stack, architecture, and local development, see **[DEVELOPMENT.md](DEVELOPMENT.md)**.
+[MIT licensed](LICENSE). Built with Vue and FastAPI. See [DEVELOPMENT.md](DEVELOPMENT.md) for the architecture and local development setup.

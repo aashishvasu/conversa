@@ -5,7 +5,7 @@
 # has no per-provider cache multiplier or time-of-day rate yet, so both discounts currently read as spend.
 PRICES = {
     "deepseek-v4-pro": (1.32, 3.96),
-    "deepseek-v4-flash": (0.14, 0.28),
+    "deepseek-v4-flash": (0.44, 1.32),
 }
 
 PROVIDER = {

@@ -40,8 +40,15 @@
   },
   "settings": {
     "intro": "Le conversazioni usano queste impostazioni, salvo modifiche specifiche. Vengono salvate in questo browser.",
+    "advanced": "Avanzato",
+    "tabChat": "Chat",
+    "tabContext": "Contesto",
+    "tabData": "Dati",
+    "tabInterface": "Interfaccia",
+    "tabResearch": "Ricerca",
     "inheritGlobal": "Usa il valore globale",
-    "utilityModel": "Modello di servizio (titoli, memoria, schede e revisioni)",
+    "utilityModel": "Modello di servizio",
+    "utilityModelHelp": "Titoli, memoria, schede e revisioni",
     "temperature": "Temperatura: {value}",
     "messagesToSend": "Messaggi da inviare",
     "messagesToSendValue": "Messaggi da inviare: {value}",
@@ -50,8 +57,8 @@
     "thinkingEffort": "Livello di ragionamento",
     "sendSystem": "Invia i messaggi di sistema e il prompt dello spazio di lavoro",
     "compressHistory": "Riassumi la cronologia della chat nella memoria",
-    "messagesToSummarise": "Messaggi da riassumere (prima della finestra inviata)",
-    "messagesToSummariseValue": "Messaggi da riassumere (prima della finestra inviata): {value}",
+    "messagesToSummarise": "Messaggi da riassumere",
+    "messagesToSummariseValue": "Messaggi da riassumere: {value}",
     "recall": "Recupera vecchi messaggi pertinenti",
     "cache": "Memorizza il contesto stabile nella cache",
     "cacheUnsupported": "{model} non supporta la cache dei prompt",
@@ -59,8 +66,11 @@
     "appearance": "Aspetto e inserimento. Vale solo per questo browser.",
     "backup": "Backup (istantanea completa)",
     "fontSize": "Dimensione testo: {size}%",
-    "enterSends": "Invio spedisce il messaggio (disattivato: Maiusc+Invio spedisce, Invio va a capo)",
-    "showThinkingAndSearch": "Mostra ragionamento e ricerca",
+    "enterSends": "Invio spedisce il messaggio",
+    "enterSendsHelp": "Quando disattivato, Maiusc+Invio spedisce e Invio va a capo",
+    "showThinkingAndSearch": "Mostra ragionamento e ricerche",
+    "uiRefreshLabel": "Aggiorna l'interfaccia senza svuotare la cache",
+    "uiRefresh": "Ricarica l'interfaccia",
     "memory": "Memoria (aggiornata dopo ogni risposta della chat)",
     "memoryEmpty": "(vuota; viene creata automaticamente quando la conversazione si allunga)",
     "scanAssistant": "Cerca attivatori delle schede nelle risposte",
@@ -160,6 +170,7 @@
   },
   "notification": {
     "warning": "Avviso",
+    "success": "Successo",
     "error": "Errore",
     "storage": "Il salvataggio nel browser non riesce. Alcune modifiche potrebbero andare perse; scarica subito un backup.",
     "downloadBackup": "Scarica backup"
@@ -236,6 +247,7 @@
     "deleteTemplate": "Elimina modello",
     "newConversation": "Nuova conversazione",
     "exportConversation": "Esporta conversazione",
+    "transferConversation": "Trasferisci conversazione",
     "noResearch": "Non ci sono ancora conversazioni di ricerca.",
     "newResearch": "Nuova conversazione di ricerca",
     "newWorkspace": "Nuovo spazio di lavoro",
@@ -249,6 +261,24 @@
     "logOut": "Esci",
     "messageCount": "{count} messaggio | {count} messaggi",
     "menu": "Menu"
+  },
+  "transfer": {
+    "heading": "Trasferisci su un altro dispositivo",
+    "helpSnapshot": "Genera un codice che consente a un altro browser di ripristinare questa istantanea.",
+    "helpConversation": "Genera un codice che consente a un altro browser di importare questa conversazione.",
+    "createSnapshot": "Crea codice di trasferimento istantanea",
+    "createConversation": "Crea codice di trasferimento conversazione",
+    "copy": "Copia",
+    "copied": "Copiato",
+    "expires": "Scade il {date}",
+    "retrieveHelp": "Incolla un codice di trasferimento da un altro dispositivo.",
+    "retrievePlaceholder": "codice di trasferimento",
+    "retrieve": "Recupera",
+    "badPhrase": "Inserisci un codice di trasferimento: cinque parole separate da trattini.",
+    "createFailed": "Impossibile creare il trasferimento: {error}",
+    "retrieveFailed": "Impossibile recuperare il trasferimento: {error}",
+    "retrieveLabel": "Codice di trasferimento",
+    "notSnapshot": "Non è un backup di Conversa"
   },
   "usage": {
     "title": "Utilizzo",
@@ -293,6 +323,9 @@
     "notExport": "Il file non è un'esportazione di Conversa",
     "notSnapshot": "Il file non è un backup di Conversa",
     "noSuchRun": "Questa ricerca non è più disponibile",
-    "unknownEffort": "Livello di ragionamento sconosciuto: {effort}"
+    "unknownEffort": "Livello di ragionamento sconosciuto: {effort}",
+    "noSuchTransfer": "Nessun trasferimento corrisponde a questo codice, oppure è scaduto",
+    "transferTooLarge": "Questo trasferimento supera il limite del server",
+    "transfersFull": "L'archivio dei trasferimenti è pieno, riprova più tardi"
   }
 }

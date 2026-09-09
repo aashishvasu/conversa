@@ -1,9 +1,10 @@
 <script setup>
-import { Boxes, CopyPlus, Download, LogOut, MessageSquarePlus, Moon, Plus, SlidersHorizontal, Sun, X } from '@lucide/vue'
+import { BookmarkPlus, Boxes, CopyPlus, Download, LogOut, MessageSquarePlus, Moon, Plus, Send, SlidersHorizontal, Sun, X } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { DrawerContent, DrawerOverlay, DrawerPortal, DrawerRoot, DrawerTitle } from 'reka-ui'
 import { logout } from '../api/client.js'
 import { confirmDelete } from '../utils/confirm.js'
+import { notify } from '../utils/notify.js'
 import { formatShort } from '../utils/format.js'
 import {
   activePane,
@@ -16,6 +17,7 @@ import {
   deleteWorkspace,
   downloadExport,
   persistNow,
+  saveAsTemplate,
   selectConversation,
   sidebarOpen,
   templates,
@@ -27,6 +29,7 @@ import { tr } from '../i18n.js'
 import GlobalSettings from '../components/GlobalSettings.vue'
 import Modal from '../components/Modal.vue'
 import RowActionsMenu from '../components/RowActionsMenu.vue'
+import TransferControls from '../components/TransferControls.vue'
 import PaneTabs from '../components/shell/PaneTabs.vue'
 import WorkspacePanel from '../components/WorkspacePanel.vue'
 import UiButton from '../components/ui/UiButton.vue'
@@ -37,6 +40,7 @@ import UiTooltip from '../components/ui/UiTooltip.vue'
 
 const showGlobal = ref(false)
 const editingWs = ref(null) // workspace being edited in the modal, or null
+const transferConvo = ref(null) // conversation being transferred, or null
 const desktop = ref(false)
 const drawerOpen = computed(() => desktop.value || sidebarOpen.value)
 let desktopQuery
@@ -68,10 +72,19 @@ function openGlobalSettings() {
   showGlobal.value = true
   sidebarOpen.value = false
 }
+function openTransfer(convo) {
+  transferConvo.value = convo
+  sidebarOpen.value = false
+}
 async function removeWorkspace(w) {
   if (await confirmDelete(tr('confirm.deleteWorkspace', { name: w.name }))) {
     deleteWorkspace(w.id)
   }
+}
+
+function saveTemplate(convo) {
+  saveAsTemplate(convo)
+  notify({ key: 'template', severity: 'success', foreground: true, text: tr('settings.templateCreated') })
 }
 
 const version = __APP_VERSION__ // injected by Vite at build time (package.json version)
@@ -164,7 +177,9 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         </button>
         <div class="absolute right-1 top-1.5">
           <RowActionsMenu :actions="[
+            { label: tr('sidebar.transferConversation'), icon: Send, onSelect: () => openTransfer(c) },
             { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => downloadExport(c.id) },
+            { label: tr('settings.saveTemplate'), icon: BookmarkPlus, onSelect: () => saveTemplate(c) },
             { label: tr('common.delete'), icon: X, danger: true, onSelect: () => remove(c.id, tr('confirm.deleteConversation')) },
           ]" />
         </div>
@@ -194,7 +209,9 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         </button>
         <div class="absolute right-1 top-1.5">
           <RowActionsMenu :actions="[
+            { label: tr('sidebar.transferConversation'), icon: Send, onSelect: () => openTransfer(c) },
             { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => downloadExport(c.id) },
+            { label: tr('settings.saveTemplate'), icon: BookmarkPlus, onSelect: () => saveTemplate(c) },
             { label: tr('common.delete'), icon: X, danger: true, onSelect: () => remove(c.id, tr('confirm.deleteConversation')) },
           ]" />
         </div>
@@ -240,7 +257,9 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
           </button>
           <div class="absolute right-1 top-1.5">
             <RowActionsMenu :actions="[
+              { label: tr('sidebar.transferConversation'), icon: Send, onSelect: () => openTransfer(c) },
               { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => downloadExport(c.id) },
+              { label: tr('settings.saveTemplate'), icon: BookmarkPlus, onSelect: () => saveTemplate(c) },
               { label: tr('common.delete'), icon: X, danger: true, onSelect: () => remove(c.id, tr('confirm.deleteConversation')) },
             ]" />
           </div>
@@ -287,6 +306,9 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
     <!-- Flush on close so quitting right after an edit can't outrun the debounce. -->
     <Modal v-if="editingWs" :title="$t('common.workspace')" @close="editingWs = null; persistNow()">
       <WorkspacePanel :workspace="editingWs" />
+    </Modal>
+    <Modal v-if="transferConvo" :title="$t('sidebar.transferConversation')" @close="transferConvo = null">
+      <TransferControls scope="conversation" :convo-id="transferConvo.id" :show-retrieve="false" />
     </Modal>
   </DrawerRoot>
 </template>

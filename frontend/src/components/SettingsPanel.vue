@@ -1,22 +1,33 @@
 <script setup>
-import { RotateCcw } from '@lucide/vue'
-import { computed, ref } from 'vue'
-import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
-import { globalSettings, modelSupportsCache, saveAsTemplate, workspaces } from '../state/store.js'
-import { confirmDelete } from '../utils/confirm.js'
+import { computed } from 'vue'
+import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import { tr } from '../i18n.js'
+import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
+import {
+  createFromTemplate,
+  deleteConversation,
+  downloadExport,
+  globalSettings,
+  modelSupportsCache,
+  saveAsTemplate,
+  workspaces,
+} from '../state/store.js'
+import { confirmDelete } from '../utils/confirm.js'
+import { notify } from '../utils/notify.js'
 import { showThinkingAndSearch } from '../utils/prefs.js'
 import ModelSelect from './ModelSelect.vue'
+import OverrideReset from './settings/OverrideReset.vue'
+import TransferControls from './TransferControls.vue'
 import UiButton from './ui/UiButton.vue'
-import UiIconButton from './ui/UiIconButton.vue'
+import UiDisclosure from './ui/UiDisclosure.vue'
 import UiNumberField from './ui/UiNumberField.vue'
 import UiSelect from './ui/UiSelect.vue'
 import UiSlider from './ui/UiSlider.vue'
 import UiSwitch from './ui/UiSwitch.vue'
 
 const props = defineProps({ convo: Object })
+const emit = defineEmits(['close'])
 
-// Override helpers: an empty override inherits the global default.
 const eff = (k) => props.convo.settings[k] ?? globalSettings.value[k]
 const cacheSupported = computed(() => modelSupportsCache(eff('model')))
 const showTrace = computed(() => props.convo.showThinkingAndSearch ?? showThinkingAndSearch.value)
@@ -29,23 +40,27 @@ const reset = (k) => delete props.convo.settings[k]
 const setShowTrace = (value) => { props.convo.showThinkingAndSearch = value }
 const resetShowTrace = () => delete props.convo.showThinkingAndSearch
 
-const templateSaved = ref(false)
-function makeTemplate() {
+function saveTemplate() {
   saveAsTemplate(props.convo)
-  templateSaved.value = true
-  setTimeout(() => (templateSaved.value = false), 1500)
+  notify({ key: 'template', severity: 'success', foreground: true, text: tr('settings.templateCreated') })
 }
 
-async function clearMemory() {
-  if (!(await confirmDelete(tr('confirm.clearMemory'), tr('common.clear')))) return
-  props.convo.memory = ''
-  props.convo.memoryCount = 0
+function newFromTemplate() {
+  createFromTemplate(props.convo)
+  emit('close')
+}
+
+async function remove() {
+  const message = tr(props.convo.isTemplate ? 'confirm.deleteTemplate' : 'confirm.deleteConversation')
+  if (await confirmDelete(message)) {
+    deleteConversation(props.convo.id)
+    emit('close')
+  }
 }
 </script>
 
 <template>
   <div class="space-y-4 text-sm">
-    <!-- Joining or leaving sets only this pointer; the conversation's own cards, messages, and settings stay as they are. -->
     <div v-if="workspaces.length">
       <label class="mb-1 block text-muted">{{ $t('settings.workspaceHelp') }}</label>
       <UiSelect
@@ -56,123 +71,166 @@ async function clearMemory() {
       />
     </div>
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('common.model') }}</label>
-      <ModelSelect :model-value="eff('model')" :label="$t('common.model')" @update:model-value="setOv('model', $event)" />
-    </div>
+    <TabsRoot default-value="chat" class="space-y-3">
+      <TabsList class="flex gap-0.5 overflow-x-auto border-b border-edge py-2">
+        <TabsTrigger
+          v-for="tab in ['chat', 'context', 'research', 'data']"
+          :key="tab"
+          :value="tab"
+          class="shrink-0 rounded-md px-3 py-1.5 text-sm text-muted outline-none transition-colors hover:bg-surface2 focus-visible:ring-2 focus-visible:ring-focus data-[state=active]:bg-accent/10 data-[state=active]:text-base"
+        >
+          {{ $t(`settings.tab${tab.charAt(0).toUpperCase() + tab.slice(1)}`) }}
+        </TabsTrigger>
+      </TabsList>
 
-    <div>
-      <label class="mb-1 block text-muted">{{ $t('settings.utilityModel') }}</label>
-      <ModelSelect :model-value="eff('utility_model')" :label="$t('settings.utilityModel')" @update:model-value="setOv('utility_model', $event)" />
-    </div>
+      <TabsContent value="chat" class="space-y-3 outline-none">
+        <div>
+          <div class="mb-1 flex items-center justify-between text-muted">
+            <span>{{ $t('common.model') }}</span>
+            <OverrideReset :overridden="overridden('model')" @use-global="reset('model')" />
+          </div>
+          <ModelSelect :model-value="eff('model')" :label="$t('common.model')" @update:model-value="setOv('model', $event)" />
+        </div>
 
-    <div v-for="field in [
-      { key: 'research_search_model', label: $t('research.searchModel') },
-      { key: 'research_note_model', label: $t('research.notesModel') },
-      { key: 'research_report_model', label: $t('research.reportModel') },
-    ]" :key="field.key">
-      <div class="mb-1 flex items-center justify-between text-muted">
-        <label>{{ field.label }}</label>
-        <UiIconButton v-if="overridden(field.key)" class="!size-6" :label="$t('settings.inheritGlobal')" @click="reset(field.key)"><RotateCcw :size="12" /></UiIconButton>
-      </div>
-      <ModelSelect :model-value="eff(field.key)" :label="field.label" @update:model-value="setOv(field.key, $event)" />
-    </div>
+        <div>
+          <div class="mb-1 flex items-center justify-between text-muted">
+            <span>{{ $t('settings.utilityModel') }}</span>
+            <OverrideReset :overridden="overridden('utility_model')" @use-global="reset('utility_model')" />
+          </div>
+          <ModelSelect :model-value="eff('utility_model')" :label="$t('settings.utilityModel')" @update:model-value="setOv('utility_model', $event)" />
+        </div>
 
-    <div>
-      <div class="mb-1 flex items-center justify-between text-muted">
-        <span>{{ $t('research.sourcesPerQuestion') }}</span>
-        <UiIconButton v-if="overridden('research_depth')" class="!size-6" :label="$t('settings.inheritGlobal')" @click="reset('research_depth')"><RotateCcw :size="12" /></UiIconButton>
-      </div>
-      <UiNumberField :model-value="eff('research_depth')" :label="$t('research.sourcesPerQuestion')" :min="1" :max="12" @update:model-value="setOv('research_depth', $event)" />
-    </div>
+        <div>
+          <div class="mb-1 flex items-center justify-between text-muted">
+            <span>{{ $t('settings.thinkingEffort') }}</span>
+            <OverrideReset :overridden="overridden('effort')" @use-global="reset('effort')" />
+          </div>
+          <UiSelect
+            :model-value="eff('effort') || ''"
+            :aria-label="$t('settings.thinkingEffort')"
+            :options="EFFORT_LEVELS.map(value => ({ value, label: $t(`effort.${value || 'off'}`) }))"
+            @update:model-value="setOv('effort', $event)"
+          />
+        </div>
 
-    <div>
-      <div class="mb-1 flex items-center justify-between text-muted">
-        <span>{{ $t('settings.temperature', { value: eff('temperature') }) }}</span>
-        <UiIconButton v-if="overridden('temperature')" class="!size-6" :label="$t('settings.inheritGlobal')" @click="reset('temperature')"><RotateCcw :size="12" /></UiIconButton>
-      </div>
-      <UiSlider :model-value="eff('temperature')" :label="$t('settings.temperature', { value: eff('temperature') })" :min="0" :max="1" :step="0.1" @update:model-value="setOv('temperature', $event)" />
-    </div>
+        <UiSwitch :model-value="showTrace" :label="$t('settings.showThinkingAndSearch')" @update:model-value="setShowTrace">
+          <template #action>
+            <OverrideReset :overridden="convo.showThinkingAndSearch !== undefined" @use-global="resetShowTrace" />
+          </template>
+        </UiSwitch>
 
-    <div>
-      <div class="mb-1 flex items-center justify-between text-muted">
-        <span>{{ $t('settings.messagesToSendValue', { value: eff('num_messages_to_send') }) }}</span>
-        <UiIconButton v-if="overridden('num_messages_to_send')" class="!size-6" :label="$t('settings.inheritGlobal')" @click="reset('num_messages_to_send')"><RotateCcw :size="12" /></UiIconButton>
-      </div>
-      <UiNumberField :model-value="eff('num_messages_to_send')" :label="$t('settings.messagesToSend')" :min="1" @update:model-value="setOv('num_messages_to_send', $event)" />
-    </div>
+        <UiDisclosure>
+          <template #title><span class="text-muted">{{ $t('settings.advanced') }}</span></template>
+          <div class="space-y-3">
+            <div>
+              <div class="mb-1 flex items-center justify-between text-muted">
+                <span>{{ $t('settings.temperature', { value: eff('temperature') }) }}</span>
+                <OverrideReset :overridden="overridden('temperature')" @use-global="reset('temperature')" />
+              </div>
+              <UiSlider :model-value="eff('temperature')" :label="$t('settings.temperature', { value: eff('temperature') })" :min="0" :max="1" :step="0.1" @update:model-value="setOv('temperature', $event)" />
+            </div>
+            <div>
+              <div class="mb-1 flex items-center justify-between text-muted">
+                <span>{{ $t('settings.maxTokens') }}</span>
+                <OverrideReset :overridden="overridden('max_tokens')" @use-global="reset('max_tokens')" />
+              </div>
+              <UiNumberField :model-value="eff('max_tokens')" :label="$t('settings.maxTokens')" :min="1" @update:model-value="setOv('max_tokens', $event)" />
+            </div>
+          </div>
+        </UiDisclosure>
+      </TabsContent>
 
-    <div>
-      <div class="mb-1 flex items-center justify-between text-muted">
-        <span>{{ $t('settings.maxTokensValue', { value: eff('max_tokens') }) }}</span>
-        <UiIconButton v-if="overridden('max_tokens')" class="!size-6" :label="$t('settings.inheritGlobal')" @click="reset('max_tokens')"><RotateCcw :size="12" /></UiIconButton>
-      </div>
-      <UiNumberField :model-value="eff('max_tokens')" :label="$t('settings.maxTokens')" :min="1" @update:model-value="setOv('max_tokens', $event)" />
-    </div>
+      <TabsContent value="context" class="space-y-3 outline-none">
+        <div>
+          <div class="mb-1 flex items-center justify-between text-muted">
+            <span>{{ $t('settings.messagesToSend') }}</span>
+            <OverrideReset :overridden="overridden('num_messages_to_send')" @use-global="reset('num_messages_to_send')" />
+          </div>
+          <UiNumberField :model-value="eff('num_messages_to_send')" :label="$t('settings.messagesToSend')" :min="1" @update:model-value="setOv('num_messages_to_send', $event)" />
+        </div>
 
-    <div>
-      <div class="mb-1 flex items-center justify-between text-muted">
-        <span>{{ $t('settings.thinkingEffort') }}</span>
-        <UiIconButton v-if="overridden('effort')" class="!size-6" :label="$t('settings.inheritGlobal')" @click="reset('effort')"><RotateCcw :size="12" /></UiIconButton>
-      </div>
-      <UiSelect
-        :model-value="eff('effort') || ''"
-        :aria-label="$t('settings.thinkingEffort')"
-        :options="EFFORT_LEVELS.map(value => ({ value, label: $t(`effort.${value || 'off'}`) }))"
-        @update:model-value="setOv('effort', $event)"
-      />
-    </div>
+        <UiSwitch :model-value="eff('send_system_prompt')" :label="$t('settings.sendSystem')" @update:model-value="setOv('send_system_prompt', $event)">
+          <template #action>
+            <OverrideReset :overridden="overridden('send_system_prompt')" @use-global="reset('send_system_prompt')" />
+          </template>
+        </UiSwitch>
 
-    <UiSwitch :model-value="eff('send_system_prompt')" :label="$t('settings.sendSystem')" @update:model-value="setOv('send_system_prompt', $event)">
-      <template v-if="overridden('send_system_prompt')" #action><UiIconButton class="!size-6" :label="$t('settings.inheritGlobal')" @click="reset('send_system_prompt')"><RotateCcw :size="12" /></UiIconButton></template>
-    </UiSwitch>
+        <UiSwitch :model-value="eff('use_memory')" :label="$t('settings.compressHistory')" @update:model-value="setOv('use_memory', $event)">
+          <template #action>
+            <OverrideReset :overridden="overridden('use_memory')" @use-global="reset('use_memory')" />
+          </template>
+        </UiSwitch>
 
-    <hr class="border-edge" />
+        <div v-if="eff('use_memory')">
+          <div class="mb-1 flex items-center justify-between text-muted">
+            <span>{{ $t('settings.messagesToSummarise') }}</span>
+            <OverrideReset :overridden="overridden('summarize_n')" @use-global="reset('summarize_n')" />
+          </div>
+          <UiNumberField :model-value="eff('summarize_n')" :label="$t('settings.messagesToSummarise')" :min="1" @update:model-value="setOv('summarize_n', $event)" />
+        </div>
 
-    <UiSwitch :model-value="eff('use_memory')" :label="$t('settings.compressHistory')" @update:model-value="setOv('use_memory', $event)">
-      <template v-if="overridden('use_memory')" #action><UiIconButton class="!size-6" :label="$t('settings.inheritGlobal')" @click="reset('use_memory')"><RotateCcw :size="12" /></UiIconButton></template>
-    </UiSwitch>
+        <UiSwitch :model-value="eff('use_recall')" :label="$t('settings.recall')" @update:model-value="setOv('use_recall', $event)">
+          <template #action>
+            <OverrideReset :overridden="overridden('use_recall')" @use-global="reset('use_recall')" />
+          </template>
+        </UiSwitch>
 
-    <div>
-      <div class="mb-1 flex items-center justify-between text-muted">
-        <span>{{ $t('settings.messagesToSummariseValue', { value: eff('summarize_n') }) }}</span>
-        <UiIconButton v-if="overridden('summarize_n')" class="!size-6" :label="$t('settings.inheritGlobal')" @click="reset('summarize_n')"><RotateCcw :size="12" /></UiIconButton>
-      </div>
-      <UiNumberField :model-value="eff('summarize_n')" :label="$t('settings.messagesToSummarise')" :min="1" @update:model-value="setOv('summarize_n', $event)" />
-    </div>
+        <UiDisclosure>
+          <template #title><span class="text-muted">{{ $t('settings.advanced') }}</span></template>
+          <UiSwitch
+            :model-value="eff('use_cache')"
+            :label="$t('settings.cache')"
+            :help="cacheSupported ? $t('settings.cacheHelp') : $t('settings.cacheUnsupported', { model: eff('model') })"
+            :disabled="!cacheSupported"
+            @update:model-value="setOv('use_cache', $event)"
+          >
+            <template #action>
+              <OverrideReset :overridden="overridden('use_cache')" @use-global="reset('use_cache')" />
+            </template>
+          </UiSwitch>
+        </UiDisclosure>
+      </TabsContent>
 
-    <UiSwitch :model-value="eff('use_recall')" :label="$t('settings.recall')" @update:model-value="setOv('use_recall', $event)">
-      <template v-if="overridden('use_recall')" #action><UiIconButton class="!size-6" :label="$t('settings.inheritGlobal')" @click="reset('use_recall')"><RotateCcw :size="12" /></UiIconButton></template>
-    </UiSwitch>
+      <TabsContent value="research" class="space-y-3 outline-none">
+        <div v-for="field in [
+          { key: 'research_search_model', label: $t('research.searchModel') },
+          { key: 'research_note_model', label: $t('research.notesModel') },
+          { key: 'research_report_model', label: $t('research.reportModel') },
+        ]" :key="field.key">
+          <div class="mb-1 flex items-center justify-between text-muted">
+            <span>{{ field.label }}</span>
+            <OverrideReset :overridden="overridden(field.key)" @use-global="reset(field.key)" />
+          </div>
+          <ModelSelect :model-value="eff(field.key)" :label="field.label" @update:model-value="setOv(field.key, $event)" />
+        </div>
 
-    <UiSwitch
-      :model-value="eff('use_cache')"
-      :label="$t('settings.cache')"
-      :help="cacheSupported ? $t('settings.cacheHelp') : $t('settings.cacheUnsupported', { model: eff('model') })"
-      :disabled="!cacheSupported"
-      @update:model-value="setOv('use_cache', $event)"
-    >
-      <template v-if="overridden('use_cache')" #action><UiIconButton class="!size-6" :label="$t('settings.inheritGlobal')" @click="reset('use_cache')"><RotateCcw :size="12" /></UiIconButton></template>
-    </UiSwitch>
+        <div>
+          <div class="mb-1 flex items-center justify-between text-muted">
+            <span>{{ $t('research.sourcesPerQuestion') }}</span>
+            <OverrideReset :overridden="overridden('research_depth')" @use-global="reset('research_depth')" />
+          </div>
+          <UiNumberField :model-value="eff('research_depth')" :label="$t('research.sourcesPerQuestion')" :min="1" :max="12" @update:model-value="setOv('research_depth', $event)" />
+        </div>
+      </TabsContent>
 
-    <div v-if="eff('use_memory')">
-      <div class="mb-1 flex items-center justify-between text-muted">
-        <span>{{ $t('settings.memory') }}</span>
-        <UiButton size="compact" variant="ghost" @click="clearMemory">{{ $t('common.clear') }}</UiButton>
-      </div>
-      <textarea v-model="convo.memory" rows="4" :placeholder="$t('settings.memoryEmpty')" class="w-full rounded bg-surface2 px-2 py-1 text-xs"></textarea>
-    </div>
+      <TabsContent value="data" class="space-y-3 outline-none">
+        <div class="flex gap-2">
+          <UiButton class="flex-1" @click="downloadExport(convo.id)">{{ $t('sidebar.exportConversation') }}</UiButton>
+          <UiButton v-if="convo.isTemplate" class="flex-1" @click="newFromTemplate">{{ $t('sidebar.newFromTemplate') }}</UiButton>
+          <UiButton v-else class="flex-1" @click="saveTemplate">{{ $t('settings.saveTemplate') }}</UiButton>
+        </div>
 
-    <hr class="border-edge" />
+        <div>
+          <label class="mb-1 block text-muted">{{ $t('transfer.heading') }}</label>
+          <TransferControls scope="conversation" :convo-id="convo.id" :show-retrieve="false" />
+        </div>
 
-    <UiSwitch :model-value="showTrace" :label="$t('settings.showThinkingAndSearch')" @update:model-value="setShowTrace">
-      <template v-if="convo.showThinkingAndSearch !== undefined" #action><UiIconButton class="!size-6" :label="$t('settings.inheritGlobal')" @click="resetShowTrace"><RotateCcw :size="12" /></UiIconButton></template>
-    </UiSwitch>
-
-    <UiSwitch v-model="convo.scanAssistant" :label="$t('settings.scanAssistant')" />
-
-    <UiButton class="w-full" @click="makeTemplate">
-      {{ templateSaved ? `✓ ${$t('settings.templateCreated')}` : $t('settings.saveTemplate') }}
-    </UiButton>
+        <div class="border-t border-edge pt-3">
+          <UiButton variant="danger" @click="remove">
+            {{ convo.isTemplate ? $t('sidebar.deleteTemplate') : $t('common.delete') }}
+          </UiButton>
+        </div>
+      </TabsContent>
+    </TabsRoot>
   </div>
 </template>

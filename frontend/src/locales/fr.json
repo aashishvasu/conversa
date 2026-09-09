@@ -40,8 +40,15 @@
   },
   "settings": {
     "intro": "Les conversations utilisent ces réglages, sauf si elles ont leurs propres valeurs. Ils sont enregistrés dans ce navigateur.",
+    "advanced": "Avancé",
+    "tabChat": "Chat",
+    "tabContext": "Contexte",
+    "tabData": "Données",
+    "tabInterface": "Interface",
+    "tabResearch": "Recherche",
     "inheritGlobal": "Utiliser la valeur globale",
-    "utilityModel": "Modèle auxiliaire (titres, mémoire, fiches et révisions)",
+    "utilityModel": "Modèle auxiliaire",
+    "utilityModelHelp": "Titres, mémoire, fiches et révisions",
     "temperature": "Température : {value}",
     "messagesToSend": "Messages à envoyer",
     "messagesToSendValue": "Messages à envoyer : {value}",
@@ -50,8 +57,8 @@
     "thinkingEffort": "Niveau de réflexion",
     "sendSystem": "Envoyer les messages système et l'invite de l'espace de travail",
     "compressHistory": "Résumer l'historique du chat dans la mémoire",
-    "messagesToSummarise": "Messages de chat à résumer (avant la fenêtre envoyée)",
-    "messagesToSummariseValue": "Messages de chat à résumer (avant la fenêtre envoyée) : {value}",
+    "messagesToSummarise": "Messages à résumer",
+    "messagesToSummariseValue": "Messages à résumer : {value}",
     "recall": "Retrouver d'anciens messages de chat pertinents",
     "cache": "Mettre en cache le contexte stable",
     "cacheUnsupported": "{model} ne prend pas en charge la mise en cache des invites",
@@ -61,8 +68,11 @@
   "reset": "Réinitialiser les réglages",
   "resetHelp": "Rétablit les réglages globaux de ce navigateur. Les conversations restent inchangées.",
     "fontSize": "Taille du texte : {size} %",
-    "enterSends": "Entrée envoie le message (désactivé : Maj+Entrée envoie, Entrée ajoute une ligne)",
-    "showThinkingAndSearch": "Afficher la réflexion et la recherche",
+    "enterSends": "Entrée envoie le message",
+    "enterSendsHelp": "Quand désactivé, Maj+Entrée envoie et Entrée ajoute une ligne",
+    "showThinkingAndSearch": "Afficher la réflexion et les recherches",
+    "uiRefreshLabel": "Rafraîchir l'interface sans vider le cache",
+    "uiRefresh": "Recharger l'interface",
     "memory": "Mémoire (actualisée après chaque réponse du chat)",
     "memoryEmpty": "(vide ; se crée automatiquement lorsque la conversation s'allonge)",
     "scanAssistant": "Rechercher les déclencheurs de fiches dans les réponses",
@@ -160,6 +170,7 @@
   },
   "notification": {
     "warning": "Avertissement",
+    "success": "Succès",
     "error": "Erreur",
     "storage": "L'enregistrement dans le navigateur échoue. Certaines modifications risquent d'être perdues ; téléchargez une sauvegarde maintenant.",
     "downloadBackup": "Télécharger une sauvegarde"
@@ -236,6 +247,7 @@
     "deleteTemplate": "Supprimer le modèle",
     "newConversation": "Nouvelle conversation",
     "exportConversation": "Exporter la conversation",
+    "transferConversation": "Transférer la conversation",
     "noResearch": "Aucune conversation de recherche pour le moment.",
     "newResearch": "Nouvelle conversation de recherche",
     "newWorkspace": "Nouvel espace de travail",
@@ -249,6 +261,24 @@
     "logOut": "Se déconnecter",
     "messageCount": "{count} message | {count} messages",
     "menu": "Menu"
+  },
+  "transfer": {
+    "heading": "Transférer vers un autre appareil",
+    "helpSnapshot": "Génère un code permettant à un autre navigateur de restaurer cet instantané.",
+    "helpConversation": "Génère un code permettant à un autre navigateur d'importer cette conversation.",
+    "createSnapshot": "Créer un code de transfert d'instantané",
+    "createConversation": "Créer un code de transfert de conversation",
+    "copy": "Copier",
+    "copied": "Copié",
+    "expires": "Expire le {date}",
+    "retrieveHelp": "Collez un code de transfert provenant d'un autre appareil.",
+    "retrievePlaceholder": "code de transfert",
+    "retrieve": "Récupérer",
+    "badPhrase": "Saisissez un code de transfert : cinq mots séparés par des tirets.",
+    "createFailed": "Impossible de créer le transfert : {error}",
+    "retrieveFailed": "Impossible de récupérer le transfert : {error}",
+    "retrieveLabel": "Code de transfert",
+    "notSnapshot": "Ce n'est pas une sauvegarde Conversa"
   },
   "usage": {
     "title": "Utilisation",
@@ -293,6 +323,9 @@
     "notExport": "Ce fichier n'est pas une exportation Conversa",
     "notSnapshot": "Ce fichier n'est pas une sauvegarde Conversa",
     "noSuchRun": "Cette recherche n'est plus disponible",
-    "unknownEffort": "Niveau de réflexion inconnu : {effort}"
+    "unknownEffort": "Niveau de réflexion inconnu : {effort}",
+    "noSuchTransfer": "Aucun transfert ne correspond à ce code, ou il a expiré",
+    "transferTooLarge": "Ce transfert dépasse la limite du serveur",
+    "transfersFull": "Le stockage des transferts est plein, réessayez plus tard"
   }
 }

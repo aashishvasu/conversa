@@ -1,5 +1,5 @@
 <script setup>
-import { Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Paperclip, Plus, RotateCcw, Send, SlidersHorizontal, Square, Telescope, X } from '@lucide/vue'
+import { Brain, Bug, ChevronDown, Layers, Menu, NotebookText, Paperclip, Plus, Send, SlidersHorizontal, Sparkles, Square, Telescope, X } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { EditableArea, EditableInput, EditablePreview, EditableRoot, Toggle, ToolbarRoot } from 'reka-ui'
 import { prepareResearch, streamChat } from '../api/client.js'
@@ -425,7 +425,7 @@ async function regenTitle() {
         </EditableArea>
       </EditableRoot>
       <UiIconButton :label="$t('chat.regenerateTitle')" :disabled="titling" @click="regenTitle">
-        <RotateCcw :size="15" :class="titling && 'animate-spin'" />
+        <Sparkles :size="15" :class="titling && 'animate-pulse'" />
       </UiIconButton>
       <span v-if="convo.isTemplate" class="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] uppercase text-warning">{{ $t('chat.template') }}</span>
     </header>
@@ -554,7 +554,7 @@ async function regenTitle() {
       <ContextPanel :convo="convo" />
     </Modal>
     <Modal v-if="panel === 'settings'" :title="$t('chat.conversationSettings')" @close="panel = null">
-      <SettingsPanel :convo="convo" />
+      <SettingsPanel :convo="convo" @close="panel = null" />
     </Modal>
     <Modal v-if="panel === 'cards'" :title="$t('common.cards')" @close="panel = null">
       <CardsPanel :convo="convo" />
