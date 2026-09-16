@@ -70,6 +70,9 @@ export function useStreamOrchestration() {
       }, (usage) => {
         addConvoUsage(c, usage)
         recordUsage('chat', usage)
+      }, (artifact) => {
+        // Durable provenance attaches to the message regardless of trace visibility; persistNow below saves it with the reply.
+        (assistant.artifacts ||= []).push(artifact)
       })
       if (c.title === tr('sidebar.newConversation')) {
         try {

@@ -1,8 +1,10 @@
 """Provider tool schemas, calls, request selection, and continuations."""
 
 import json
+import time
 
 from tools import ConversaTool, ToolCall, ToolResult
+from tools.web import ARTIFACT_FRESH_SECONDS
 
 
 def field(obj: object, name: str) -> object | None:
@@ -148,6 +150,52 @@ def _response_items(response: object) -> list[dict]:
 
 def _anthropic_followup(messages: list[dict], response: object, results: list[ToolResult]) -> list[dict]:
     return [*messages, {"role": "assistant", "content": field(response, "content")}, {"role": "user", "content": [{"type": "tool_result", "tool_use_id": result.call_id, "content": result.content, **({"is_error": True} if result.error else {})} for result in results]}]
+
+
+def _artifact_frame(artifact: dict) -> dict:
+    recorded_at = int(time.time() * 1000)
+    return {"artifact": {**artifact, "recordedAt": recorded_at, "freshUntil": recorded_at + ARTIFACT_FRESH_SECONDS * 1000}}
+
+
+def hosted_artifacts(dialect: str, response: object) -> list[dict]:
+    """Normalize hosted web tool usage into the same artifact frames the app tools emit.
+
+    Only query/URL and result titles/URLs are kept: hosted fetch bodies can be base64 PDFs and
+    search results carry opaque encrypted fields, neither of which belongs in durable client state.
+    """
+    artifacts = []
+    if dialect == "anthropic":
+        for block in field(response, "content") or []:
+            if field(block, "type") == "server_tool_use":
+                if field(block, "name") == "web_search":
+                    artifacts.append({"tool": "search_web", "input": {"query": (field(block, "input") or {}).get("query")}, "output": {"results": []}})
+                elif field(block, "name") == "web_fetch":
+                    artifacts.append({"tool": "fetch_url", "input": {"url": (field(block, "input") or {}).get("url")}, "output": {}})
+            elif field(block, "type") == "web_search_tool_result" and artifacts and artifacts[-1]["tool"] == "search_web":
+                links = [{"title": field(result, "title"), "url": field(result, "url")} for result in field(block, "content") or [] if field(result, "type") == "web_search_result"]
+                artifacts[-1]["output"]["results"] = links
+    else:
+        for item in field(response, "output") or []:
+            if field(item, "type") != "web_search_call":
+                continue
+            action = field(item, "action")
+            if field(action, "type") == "open_page":
+                artifacts.append({"tool": "fetch_url", "input": {"url": field(action, "url")}, "output": {}})
+            elif field(action, "query"):
+                artifacts.append({"tool": "search_web", "input": {"query": field(action, "query")}, "output": {"results": []}})
+        # Citations are the search results the report actually leaned on; attach each to the nearest earlier search.
+        for item in field(response, "output") or []:
+            if field(item, "type") == "message":
+                for part in field(item, "content") or []:
+                    for annotation in field(part, "annotations") or []:
+                        if field(annotation, "type") == "url_citation":
+                            link = {"title": field(annotation, "title"), "url": field(annotation, "url")}
+                            for artifact in reversed(artifacts):
+                                if artifact["tool"] == "search_web":
+                                    if link not in artifact["output"]["results"]:
+                                        artifact["output"]["results"].append(link)
+                                    break
+    return [_artifact_frame(artifact) for artifact in artifacts]
 
 
 def _responses_followup(input_items: list[dict], response: object, results: list[ToolResult]) -> list[dict]:

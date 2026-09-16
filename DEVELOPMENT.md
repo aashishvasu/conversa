@@ -81,7 +81,7 @@ Responses events map to conversa frames as follows:
 
 `backend/tools/conversa_tool.py` defines provider-neutral tool calls. `registry.py` holds `TOOL_REGISTRY`, keyed by name, and `resolve_enabled_tools()`. `runner.py` enforces round and call limits. Anthropic and Responses models receive the resolved tools as part of their request; the generic Chat Completions adapter receives text and optional `reasoning_content` only, never tools.
 
-Five tools are registered: `search_web` and `fetch_url` (`web.py`), `datetime` (`temporal.py`), `calculator` (`calculator.py`, with unit conversions in `units.py`), and `random` (`random_tool.py`).
+Five tools are registered: `search_web` and `fetch_url` (`web.py`), `datetime` (`temporal.py`), `calculator` (`calculator.py`, with unit conversions in `units.py`), and `random` (`random_tool.py`). Every tool declares `artifact_fresh_for`: `search_web` and `fetch_url` opt into artifact history (1,800 seconds, matching `FETCH_CACHE_TTL_SECONDS`); the others pass `None` and keep none.
 
 `/api/chat`'s `enabled_tools` is the authoritative list for the turn; `resolve_enabled_tools()` looks up each name in `TOOL_REGISTRY` and raises `ToolConfigError` (surfaced as HTTP 400) on an unknown or duplicate name. The legacy `allow_tools` boolean is read only when `enabled_tools` is omitted, mapping `true` to `DEFAULT_WEB_TOOLS` (`search_web`, `fetch_url`) for callers on a cached frontend that predates the per-tool schema. `backend/api/chat.py` resolves the list once per turn; a disabled tool is absent from the resulting provider schema.
 
@@ -94,6 +94,12 @@ Search providers run in Exa, Brave, then SearXNG order. `BLOCKED_DOMAINS` applie
 `calculator` (`calculator.py`) evaluates expressions by walking a parsed `ast.Expression` against an operator and function allowlist; it never calls `eval`. Bounds cap expression length, node count, exponent magnitude, factorial input, and result bit length. Unit conversion (`units.py`) covers length, mass, duration, data size (case-sensitive, so `MB` and `Mb` differ), speed, area, volume, pressure, energy, and temperature; US customary volume units (cups, pints, quarts, gallons, tablespoons, teaspoons, fluid ounces) require an explicit `_us` suffix because the bare names are ambiguous with imperial units.
 
 `random` (`random_tool.py`) draws from `secrets.SystemRandom()` by default, so calls are not reproducible. Passing an integer `seed` switches to `random.Random(seed)`, making that call's output reproducible. Actions are `integers` (inclusive range), `sample` (with or without replacement), and `shuffle`.
+
+### Tool evidence artifacts
+
+Tool execution stays ephemeral; only the client keeps durable state. An opted-in tool returns a client-safe provenance record in `ToolOutput.artifact` (built by the tool itself, never derived from `ToolResult.content`, which is model-facing). On success `runner.py` emits an SSE `artifact` frame `{tool, recordedAt, freshUntil, input, output}`; errors, rejections, and budget-limited calls emit nothing. Hosted fallback web tools bypass the runner, so `tool_use.py`'s `hosted_artifacts()` normalizes the provider response into the same frames, keeping only queries, URLs, and result titles (hosted fetch bodies can be base64 PDFs and never enter durable state).
+
+The frontend attaches each artifact to the assistant message that produced it (`research/orchestration.js`), so persistence, exports, cloning, deletion, and regeneration handle it with no second store. `prompt/artifacts.js` serializes artifacts into the outgoing assistant text (a stale record is marked so the model refetches when freshness matters), and adds a fixed trust instruction to the volatile system half only when evidence is in context, preserving the cached stable prefix. Recall and the memory summary include artifact evidence. Editing an assistant message's text or role clears its artifacts (`ChatPane.vue`); cancelling the edit keeps them.
 
 ### Research
 
@@ -153,6 +159,7 @@ The Tools tabs in Global Settings and Conversation Settings control a master swi
 - Conversations link to workspaces through `workspaceId` and to documents through `docIds`.
 - Documents are deleted when their final workspace or conversation reference is removed.
 - Image records use separate `conversa_img:<id>` keys; messages store image ids.
+- An assistant message may carry `artifacts`, the durable tool-evidence records described under Tool evidence artifacts. Pre-v3 snapshots lack the field; it simply stays absent.
 
 `snapshot.js` implements full export and restore. Full exports use `SNAPSHOT_VERSION` and include conversations, workspaces, documents, images, research runs, settings, usage, and UI preferences. Merge import keeps local records on id collisions. Snapshot restore replaces browser-owned collections after confirmation. Older snapshots leave fields they lack unchanged.
 
@@ -176,6 +183,7 @@ The image pipeline accepts JPEG, PNG, GIF, and WebP. Canvas orientation and resi
 | `state/settings.js` | Global defaults, per-conversation overrides, and enabled-tool allowlists. |
 | `state/usage.js` | Daily usage grouped by model and call kind. |
 | `prompt/cards.js` | Card triggers, overrides, generation parsing, and effective card sets. |
+| `prompt/artifacts.js` | Tool-evidence serialization and the fixed trust instruction. |
 | `prompt/payload.js` | Chat request assembly, send windows, recall, and cache blocks. |
 | `prompt/research-input.js` | Research preparation context. |
 | `jobs/` | Memory, titles, and shared utility-model calls. |

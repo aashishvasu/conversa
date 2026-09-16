@@ -233,4 +233,5 @@ CALCULATOR_TOOL = ConversaTool(
     description="Evaluate math expressions (+, -, *, /, //, %, **, functions) or convert units across length, mass, duration, data size, speed, area, volume, pressure, energy, and temperature.",
     arguments=CalculatorArguments,
     execute=execute_calculator,
+    artifact_fresh_for=None,
 )

@@ -215,4 +215,5 @@ DATETIME_TOOL = ConversaTool(
     description="Current date and time in IANA timezones, date math (add elapsed or calendar units), and time differences between ISO-8601 timestamps.",
     arguments=DatetimeArguments,
     execute=execute_datetime,
+    artifact_fresh_for=None,
 )

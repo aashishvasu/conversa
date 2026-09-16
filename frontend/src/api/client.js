@@ -93,8 +93,9 @@ export async function fetchModels() {
 
 // Streams assistant text.
 // Calls onText(chunk) per token; onTrace(type, value) for non-visible activity; onUsage(usage) once per turn.
+// onArtifact(artifact) fires for durable tool provenance records, independent of trace visibility.
 // Resolves when done.
-export async function streamChat(payload, onText, signal, onTrace, onUsage) {
+export async function streamChat(payload, onText, signal, onTrace, onUsage, onArtifact) {
   const res = await check(
     await fetch('/api/chat', {
       method: 'POST',
@@ -112,6 +113,7 @@ export async function streamChat(payload, onText, signal, onTrace, onUsage) {
     else if (data.fetch && onTrace) onTrace('fetch', data.fetch)
     else if (data.results && onTrace) onTrace('results', data.results)
     else if (data.tool && onTrace) onTrace('tool', data.tool)
+    else if (data.artifact && onArtifact) onArtifact(data.artifact)
     else if (data.usage && onUsage) onUsage(data.usage)
   })
 }
