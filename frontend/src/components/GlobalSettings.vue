@@ -199,6 +199,19 @@ function resetDefaults() {
         <UiSwitch v-model="g.tool_datetime" :label="$t('settings.toolDatetime')" :disabled="!g.tools_enabled" @update:model-value="persistGlobal" />
         <UiSwitch v-model="g.tool_calculator" :label="$t('settings.toolCalculator')" :disabled="!g.tools_enabled" @update:model-value="persistGlobal" />
         <UiSwitch v-model="g.tool_random" :label="$t('settings.toolRandom')" :disabled="!g.tools_enabled" @update:model-value="persistGlobal" />
+        <div v-if="g.tools_enabled" class="border-t border-edge pt-3">
+          <span class="mb-1 block text-muted">{{ $t('settings.toolLimits') }}</span>
+          <div class="flex gap-2">
+            <div class="flex-1">
+              <label class="mb-1 block text-muted">{{ $t('settings.toolMaxRounds') }}</label>
+              <UiNumberField :model-value="g.tool_max_rounds" :label="$t('settings.toolMaxRounds')" :min="1" @update:model-value="setGlobal('tool_max_rounds', $event)" />
+            </div>
+            <div class="flex-1">
+              <label class="mb-1 block text-muted">{{ $t('settings.toolMaxCalls') }}</label>
+              <UiNumberField :model-value="g.tool_max_calls" :label="$t('settings.toolMaxCalls')" :min="1" @update:model-value="setGlobal('tool_max_calls', $event)" />
+            </div>
+          </div>
+        </div>
       </TabsContent>
 
       <TabsContent value="research" class="space-y-3 outline-none">

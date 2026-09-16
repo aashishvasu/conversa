@@ -34,6 +34,8 @@ class ToolCall:
 class ToolOutput:
     value: object
     trace: dict[str, object] | None = None
+    # Client-safe provenance record for durable history (see ToolResult.artifact); None opts this call out.
+    artifact: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +45,7 @@ class ToolResult:
     content: str
     trace: dict[str, object] | None = None
     error: str | None = None
+    artifact: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +54,9 @@ class ConversaTool:
     description: str
     arguments: type[ToolArguments]
     execute: Callable[[ToolArguments], Awaitable[ToolOutput]]
+    # Seconds an artifact stays current; None means this tool keeps no artifact history.
+    # Every tool must declare it so the choice is visible at the definition site.
+    artifact_fresh_for: int | None
 
     def __post_init__(self):
         if not issubclass(self.arguments, ToolArguments):
@@ -98,4 +104,4 @@ async def execute_tool(tool: ConversaTool, call: ToolCall) -> ToolResult:
     except ToolFailed as error:
         return _error(call, "tool_error", str(error) or "tool execution failed")
     trace = json.loads(_json(output.trace)) if output.trace is not None else None
-    return ToolResult(call.id, call.name, _json(output.value), trace)
+    return ToolResult(call.id, call.name, _json(output.value), trace, None, json.loads(_json(output.artifact)) if output.artifact is not None else None)

@@ -6,7 +6,7 @@ from tools import ConversaTool
 from tools.runner import DEFAULT_MAX_CALLS, DEFAULT_MAX_ROUNDS, ToolRunner, error_result, tool_frame
 
 from .dialects import _anthropic_stream, _chat_completions_stream, _responses_stream, openai_messages
-from .tool_use import _anthropic_followup, _responses_followup
+from .tool_use import _anthropic_followup, _responses_followup, hosted_artifacts
 from .registry import PROVIDERS, cost, join_model
 
 
@@ -73,6 +73,10 @@ async def stream_chat(provider: str, model: str, messages: list[dict], system: s
                     calls = frame.get("_tool_calls", [])
                     internal = True
                 if not internal:
+                    yield frame
+            # Hosted web tools bypass the runner, so their provenance is normalized straight off the provider response.
+            if (hosted_search_enabled or hosted_fetch_enabled) and response is not None:
+                for frame in hosted_artifacts(dialect, response):
                     yield frame
             if not calls:
                 break

@@ -96,8 +96,15 @@ function startEdit(m) {
   editingId.value = m.id
 }
 function cancelEdit(m) {
-  if (editBackup) Object.assign(m, editBackup) // existing: revert edits
+  if (editBackup) Object.assign(m, editBackup) // existing: revert edits (artifacts survive, the original answer is back)
   else removeMessage(m.id) // newly added: drop it
+  editBackup = null
+  editingId.value = null
+}
+function doneEdit(m) {
+  // Edited prose no longer matches the evidence recorded for the original answer, so the artifacts go with it.
+  if (editBackup && (m.role !== editBackup.role || m.content !== editBackup.content)) delete m.artifacts
+  editBackup = null
   editingId.value = null
 }
 function removeMessage(id) {
@@ -250,7 +257,7 @@ async function regenTitle() {
             @activate="activeId = m.id"
             @edit="startEdit(m)"
             @cancel-edit="cancelEdit(m)"
-            @done-edit="editingId = null"
+            @done-edit="doneEdit(m)"
             @delete="confirmRemoveMessage(m.id)"
             @regenerate="regenerate(m)"
             @toggle-trace="liveOpen = !liveOpen"

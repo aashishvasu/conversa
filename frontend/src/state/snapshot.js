@@ -8,7 +8,7 @@ import { isDark } from '../utils/theme.js'
 import { enterToSend, fontScale, locale, showThinkingAndSearch } from '../utils/prefs.js'
 import { tr } from '../i18n/index.js'
 
-export const SNAPSHOT_VERSION = 2
+export const SNAPSHOT_VERSION = 3
 
 function wire(value) {
   return JSON.parse(JSON.stringify(value))

@@ -1,5 +1,6 @@
 // Request assembly: send window, lexical recall, and buildPayload. Pure functions, no Vue, so it runs in node.
 import { effectiveCards, matchCards } from './cards.js'
+import { ARTIFACT_INSTRUCTION, evidenceBlock } from './artifacts.js'
 
 // The turns sent verbatim this round.
 // With memory on, that is everything past the summary's coverage (memoryCount), floored at num_messages_to_send.
@@ -54,7 +55,8 @@ export function recallMessages(convo, outgoing) {
     .sort((a, b) => b.score - a.score)
     .slice(0, RECALL_COUNT)
     .sort((a, b) => a.i - b.i) // chronological reads better in the prompt
-    .map((x) => `${x.m.role}: ${x.m.content}`)
+    // Recalled turns keep their tool evidence so an old sourced answer still cites its sources.
+    .map((x) => `${x.m.role}: ${x.m.content}${evidenceBlock(x.m.artifacts)}`)
 }
 
 // Build the {system, messages} payload for the API from a conversation + settings.
@@ -106,6 +108,9 @@ export function buildPayload(convo, settings, workspace = null, docs = [], image
   }
   // Cards are intentional, trigger-gated context, injected even when the base system prompt is off.
   parts.push(...matchCards(effectiveCards(convo, workspace), window, convo.scanAssistant))
+  // Artifact instruction rides in the volatile half: it appears only when evidence is in context,
+  // and flipping it must never invalidate the cached stable prefix.
+  if (outgoing.some((m) => m.artifacts?.length)) parts.push(ARTIFACT_INSTRUCTION)
 
   // Array = [stable, volatile] for the backend to cache the first half, and a plain string when there is no stable half.
   // Messages stay uncached.
@@ -118,13 +123,17 @@ export function buildPayload(convo, settings, workspace = null, docs = [], image
 
   return {
     system,
+    tool_max_rounds: settings.tool_max_rounds,
+    tool_max_calls: settings.tool_max_calls,
     // Contentless turns (a research placeholder awaiting its report) carry nothing and providers reject empty messages.
     messages: outgoing.map((m) => {
       const imageBlocks = (m.imageIds || []).map((id) => imageMap.get(id)).filter(Boolean).map((image) => ({
         type: 'image', source: { type: 'base64', media_type: image.media_type, data: image.data },
       }))
-      const content = imageBlocks.length ? [...imageBlocks, ...(m.content ? [{ type: 'text', text: m.content }] : [])] : m.content
-      return content ? { role: m.role, content } : null
+      // Evidence trails the assistant's own text so it arrives in the messages array, provider-neutral.
+      const content = `${m.content ?? ''}${evidenceBlock(m.artifacts)}`
+      const blocks = imageBlocks.length ? [...imageBlocks, ...(content ? [{ type: 'text', text: content }] : [])] : content
+      return blocks ? { role: m.role, content: blocks } : null
     }).filter(Boolean),
     model: settings.model,
     temperature: settings.temperature,

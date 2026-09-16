@@ -34,9 +34,14 @@ async def checks():
     assert json.loads(page.content)["content"] == "PRIVATE PAGE BODY", page
     assert page.trace == {"url": "https://example.com/release", "title": "Release", "kind": "article"}, page
     assert "PRIVATE PAGE BODY" not in str(page.trace), page
+    # The durable artifact is the client-safe provenance record: query, hits, and the fetched body itself.
+    assert found.artifact == {"input": {"query": "current release", "limit": 2}, "output": {"results": [{"title": "Release", "url": "https://example.com/release"}]}}, found
+    assert page.artifact == {"input": {"url": "https://example.com/release", "topic": "release date"}, "output": {"url": "https://example.com/release", "title": "Release", "kind": "article", "content": "PRIVATE PAGE BODY"}}, page
+    assert tools["search_web"].artifact_fresh_for == 1800 and tools["fetch_url"].artifact_fresh_for == 1800
 
     missing_topic = await execute_tool(tools["fetch_url"], ToolCall("f2", "fetch_url", {"url": "https://example.com"}))
     assert missing_topic.error == "invalid_arguments", missing_topic
+    assert missing_topic.artifact is None, missing_topic
 
     async def no_search(_query, _limit):
         return None
@@ -45,6 +50,7 @@ async def checks():
     unavailable = await execute_tool(tools["search_web"], ToolCall("s2", "search_web", {"query": "x"}))
     search.search = real_search
     assert unavailable.error == "tool_unavailable", unavailable
+    assert unavailable.artifact is None, unavailable
 
     async def failed_fetch(_url, _topic):
         raise fetch.FetchError("timed out")
@@ -53,9 +59,11 @@ async def checks():
     failed = await execute_tool(tools["fetch_url"], ToolCall("f3", "fetch_url", {"url": "https://example.com/slow", "topic": "slow"}))
     fetch.fetch = real_fetch
     assert failed.error == "tool_error", failed
+    assert failed.artifact is None, failed
 
     rejected = await execute_tool(tools["fetch_url"], ToolCall("f4", "fetch_url", {"url": "file:///etc/passwd", "topic": "passwords"}))
     assert rejected.error == "tool_rejected", rejected
+    assert rejected.artifact is None, rejected
 
 
 asyncio.run(checks())

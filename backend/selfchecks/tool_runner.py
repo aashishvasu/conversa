@@ -5,6 +5,7 @@ from contextlib import contextmanager
 
 import providers.chat as chat
 import providers.dialects as dialects
+from providers.tool_use import hosted_artifacts
 from tools import ConversaTool, ToolArguments, ToolCall, ToolFailed, ToolOutput, ToolRejected, ToolUnavailable
 
 
@@ -25,7 +26,7 @@ async def lookup(arguments: CountArguments):
     return ToolOutput({"private": arguments.count}, {"source": "lookup", "count": arguments.count, "content": "private", "echo": f'{{"private":{arguments.count}}}'})
 
 
-tool = ConversaTool("lookup", "Look up a count.", CountArguments, lookup)
+tool = ConversaTool("lookup", "Look up a count.", CountArguments, lookup, artifact_fresh_for=None)
 
 
 class AnthropicStream:
@@ -150,6 +151,7 @@ async def check_anthropic() -> None:
     assert tool_frames[-1] == {"id": "a-1", "name": "lookup", "status": "completed", "trace": {"source": "lookup", "count": 2, "echo": "[redacted]"}}, tool_frames
     assert "private" not in str(tool_frames), tool_frames
     assert {"text": "done"} in frames, frames
+    assert not any("artifact" in frame for frame in frames), frames  # a tool that returns no artifact emits no artifact frame
     assert frames[-2]["usage"] == {"model": "claude-sonnet-5", "calls": 2, "input": 8, "output": 3, "cache_read": 0, "cache_write": 0, "usd": 0.000046, "unpriced": 0}, frames[-2]
     assert frames[-1] == {"done": True}, frames[-1]
 
@@ -201,11 +203,11 @@ async def check_hosted_fallback() -> None:
     async def unavailable(_arguments: CountArguments):
         raise ToolUnavailable("app backend unavailable")
 
-    search_tool = ConversaTool("search_web", "Search web.", CountArguments, unavailable)
-    fetch_tool = ConversaTool("fetch_url", "Fetch url.", CountArguments, unavailable)
+    search_tool = ConversaTool("search_web", "Search web.", CountArguments, unavailable, artifact_fresh_for=None)
+    fetch_tool = ConversaTool("fetch_url", "Fetch url.", CountArguments, unavailable, artifact_fresh_for=None)
 
     # 1. Non-web tool unavailable does not enable hosted web tools
-    non_web_tool = ConversaTool("lookup", "Look up a count.", CountArguments, unavailable)
+    non_web_tool = ConversaTool("lookup", "Look up a count.", CountArguments, unavailable, artifact_fresh_for=None)
     call = [{"type": "tool_use", "id": "missing", "name": "lookup", "input": {"count": 1}}]
     with mock_client("anthropic", anthropic_pair(call, "no hosted")) as client:
         frames = await collect(chat.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [non_web_tool]))
@@ -260,7 +262,7 @@ async def check_call_failure_keeps_tools() -> None:
     async def failed(_arguments: CountArguments):
         raise ToolFailed("request failed")
 
-    failed_tool = ConversaTool("lookup", "Look up a count.", CountArguments, failed)
+    failed_tool = ConversaTool("lookup", "Look up a count.", CountArguments, failed, artifact_fresh_for=None)
     call = [{"type": "tool_use", "id": "failed", "name": "lookup", "input": {"count": 1}}]
     with mock_client("anthropic", anthropic_pair(call, "recovered")) as client:
         frames = await collect(chat.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [failed_tool]))
@@ -273,7 +275,7 @@ async def check_policy_rejection_blocks_fallback() -> None:
     async def rejected_search(_arguments: CountArguments):
         raise ToolRejected("blocked query")
 
-    search_tool = ConversaTool("search_web", "Search web.", CountArguments, rejected_search)
+    search_tool = ConversaTool("search_web", "Search web.", CountArguments, rejected_search, artifact_fresh_for=None)
     calls = [{"type": "tool_use", "id": "blocked", "name": "search_web", "input": {"count": 1}}]
     with mock_client("anthropic", anthropic_pair(calls, "cannot search")) as client:
         frames = await collect(chat.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [search_tool]))
@@ -321,12 +323,69 @@ async def check_compatible_omits_tools() -> None:
     assert not any("usage" in frame for frame in frames), frames
 
 
+async def check_artifact_frames() -> None:
+    """An opted-in tool's artifact becomes a durable frame; an opted-out tool never emits one."""
+    async def sourced(arguments: CountArguments):
+        # WHY: the artifact deliberately differs from the model-facing value to prove the two stay separate.
+        return ToolOutput({"private": arguments.count}, {"source": "sourced"}, {"input": {"count": arguments.count}, "output": {"items": [arguments.count]}})
+
+    sourced_tool = ConversaTool("lookup", "Look up a count.", CountArguments, sourced, artifact_fresh_for=1800)
+    call = [{"type": "tool_use", "id": "a-1", "name": "lookup", "input": {"count": 2}}]
+    with mock_client("anthropic", anthropic_pair(call, "sourced")):
+        frames = await collect(chat.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [sourced_tool]))
+    artifacts = [frame["artifact"] for frame in frames if "artifact" in frame]
+    assert len(artifacts) == 1, frames
+    artifact = artifacts[0]
+    assert artifact["tool"] == "lookup" and artifact["input"] == {"count": 2} and artifact["output"] == {"items": [2]}, artifact
+    assert isinstance(artifact["recordedAt"], int) and artifact["freshUntil"] == artifact["recordedAt"] + 1_800_000, artifact
+    assert "private" not in str(artifact), artifact  # model-facing content never leaks into the durable record
+
+    # A failing opted-in call keeps no evidence artifact.
+    async def failing(_arguments: CountArguments):
+        raise ToolFailed("boom")
+
+    failing_tool = ConversaTool("lookup", "Look up a count.", CountArguments, failing, artifact_fresh_for=1800)
+    with mock_client("anthropic", anthropic_pair(call, "recovered")):
+        frames = await collect(chat.stream_chat("anthropic", "claude-sonnet-5", [{"role": "user", "content": "go"}], None, 32, "", 1.0, [failing_tool]))
+    assert not any("artifact" in frame for frame in frames), frames
+
+
+def check_hosted_artifacts() -> None:
+    message = Obj(content=[
+        Obj(type="server_tool_use", id="h1", name="web_search", input={"query": "hosted q"}),
+        Obj(type="web_search_tool_result", tool_use_id="h1", content=[Obj(type="web_search_result", title="Hosted", url="https://example.com/h")]),
+        Obj(type="server_tool_use", id="h2", name="web_fetch", input={"url": "https://example.com/page"}),
+    ])
+    (search_frame, fetch_frame) = hosted_artifacts("anthropic", message)
+    artifact = search_frame["artifact"]
+    assert artifact["tool"] == "search_web" and artifact["input"] == {"query": "hosted q"}, artifact
+    assert artifact["output"] == {"results": [{"title": "Hosted", "url": "https://example.com/h"}]}, artifact
+    assert fetch_frame["artifact"]["tool"] == "fetch_url" and fetch_frame["artifact"]["input"] == {"url": "https://example.com/page"}, fetch_frame
+    # Fetch results stay query/URL only: hosted bodies can be base64 PDFs and never belong in durable client state.
+    fetch_frames = hosted_artifacts("anthropic", Obj(content=[message.content[2], Obj(type="web_fetch_tool_result", tool_use_id="h2", content="T1BPIDA9PDF")]))
+    assert len(fetch_frames) == 1 and fetch_frames[0]["artifact"]["output"] == {}, fetch_frames
+    assert "T1BPIDA9PDF" not in str(fetch_frames), fetch_frames
+
+    response = Obj(output=[
+        Obj(type="web_search_call", action=Obj(type="search", query="resp q")),
+        Obj(type="message", content=[Obj(type="output_text", text="see", annotations=[Obj(type="url_citation", title="Cite", url="https://example.com/c")])]),
+    ])
+    (resp_frame,) = (frame for frame in hosted_artifacts("responses", response))
+    resp = resp_frame["artifact"]
+    assert resp["tool"] == "search_web" and resp["input"] == {"query": "resp q"}, resp
+    assert resp["output"] == {"results": [{"title": "Cite", "url": "https://example.com/c"}]}, resp
+
+    assert hosted_artifacts("responses", Obj(output=[])) == [], "a response without hosted usage yields no artifacts"
+
+
 async def main() -> None:
     await check_anthropic()
     await check_invalid_arguments_and_budget()
     await check_hosted_fallback()
     await check_call_failure_keeps_tools()
     await check_policy_rejection_blocks_fallback()
+    await check_artifact_frames()
+    check_hosted_artifacts()
     await check_responses()
     await check_compatible_omits_tools()
 

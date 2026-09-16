@@ -106,4 +106,5 @@ RANDOM_TOOL = ConversaTool(
     description="Generate random integers in an inclusive range, sample items with or without replacement, or shuffle a list. Supports optional integer seed for reproducibility.",
     arguments=RandomArguments,
     execute=execute_random,
+    artifact_fresh_for=None,
 )

@@ -222,6 +222,25 @@ async function remove() {
             <OverrideReset :overridden="overridden('tool_random')" @use-global="reset('tool_random')" />
           </template>
         </UiSwitch>
+        <div v-if="eff('tools_enabled')" class="border-t border-edge pt-3">
+          <span class="mb-1 block text-muted">{{ $t('settings.toolLimits') }}</span>
+          <div class="flex gap-2">
+            <div class="flex-1">
+              <div class="mb-1 flex items-center justify-between text-muted">
+                <span>{{ $t('settings.toolMaxRounds') }}</span>
+                <OverrideReset :overridden="overridden('tool_max_rounds')" @use-global="reset('tool_max_rounds')" />
+              </div>
+              <UiNumberField :model-value="eff('tool_max_rounds')" :label="$t('settings.toolMaxRounds')" :min="1" @update:model-value="setOv('tool_max_rounds', $event)" />
+            </div>
+            <div class="flex-1">
+              <div class="mb-1 flex items-center justify-between text-muted">
+                <span>{{ $t('settings.toolMaxCalls') }}</span>
+                <OverrideReset :overridden="overridden('tool_max_calls')" @use-global="reset('tool_max_calls')" />
+              </div>
+              <UiNumberField :model-value="eff('tool_max_calls')" :label="$t('settings.toolMaxCalls')" :min="1" @update:model-value="setOv('tool_max_calls', $event)" />
+            </div>
+          </div>
+        </div>
       </TabsContent>
 
       <TabsContent value="research" class="space-y-3 outline-none">

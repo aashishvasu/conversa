@@ -2,14 +2,16 @@
 
 import asyncio
 import json
+import os
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from .conversa_tool import ConversaTool, ToolCall, ToolResult, execute_tool
 
 
-DEFAULT_MAX_ROUNDS = 4
-DEFAULT_MAX_CALLS = 16
+DEFAULT_MAX_ROUNDS = max(1, int(os.environ.get("DEFAULT_TOOL_MAX_ROUNDS", "4")))
+DEFAULT_MAX_CALLS = max(1, int(os.environ.get("DEFAULT_TOOL_MAX_CALLS", "16")))
 _REDACTED_KEYS = {"arguments", "authorization", "content", "data", "input", "key", "output", "password", "result", "secret", "token", "value"}
 
 
@@ -44,6 +46,14 @@ def redact_trace(value: object, content: str | None = None) -> object:
 def tool_frame(result: ToolResult, status: str) -> dict:
     """Render a result without exposing its model-facing content."""
     return {"tool": {"id": result.call_id, "name": result.name, "status": status, "trace": redact_trace(result.trace, result.content)}}
+
+
+def artifact_frame(result: ToolResult, fresh_for: int | None) -> dict | None:
+    """Durable client-side provenance for a successful artifact-history call; errors keep no evidence."""
+    if result.error is not None or result.artifact is None:
+        return None
+    recorded_at = int(time.time() * 1000)
+    return {"artifact": {**result.artifact, "tool": result.name, "recordedAt": recorded_at, "freshUntil": recorded_at + fresh_for * 1000 if fresh_for else None}}
 
 
 @dataclass(slots=True)
@@ -86,6 +96,8 @@ class ToolRunner:
         iterator = iter(completed)
         ordered = [result if result is not None else next(iterator) for result in results]
         frames = [*running, *(tool_frame(result, "error" if result.error else "completed") for result in ordered)]
+        fresh_for = {name: tool.artifact_fresh_for for name, tool in self._tools.items()}
+        frames.extend(frame for result in ordered if (frame := artifact_frame(result, fresh_for.get(result.name))) is not None)
         return ordered, frames
 
     async def _execute(self, call: ToolCall) -> ToolResult:
