@@ -31,6 +31,8 @@ DEFAULT_TOOL_FETCH_URL = os.environ.get("DEFAULT_TOOL_FETCH_URL", "true").lower(
 DEFAULT_TOOL_DATETIME = os.environ.get("DEFAULT_TOOL_DATETIME", "true").lower() == "true"
 DEFAULT_TOOL_CALCULATOR = os.environ.get("DEFAULT_TOOL_CALCULATOR", "true").lower() == "true"
 DEFAULT_TOOL_RANDOM = os.environ.get("DEFAULT_TOOL_RANDOM", "true").lower() == "true"
+DEFAULT_TOOL_MAX_ROUNDS = max(1, int(os.environ.get("DEFAULT_TOOL_MAX_ROUNDS", "4")))
+DEFAULT_TOOL_MAX_CALLS = max(1, int(os.environ.get("DEFAULT_TOOL_MAX_CALLS", "16")))
 
 router = APIRouter()
 
@@ -66,6 +68,8 @@ class ChatRequest(BaseModel):
     effort: str | None = None  # "" | low | medium | high; empty/None = thinking off
     allow_tools: bool = False
     enabled_tools: list[str] | None = None
+    tool_max_rounds: int | None = None
+    tool_max_calls: int | None = None
 
 
 @router.get("/api/settings")
@@ -88,6 +92,8 @@ def settings(_=Depends(require_auth)):
         "tool_datetime": DEFAULT_TOOL_DATETIME,
         "tool_calculator": DEFAULT_TOOL_CALCULATOR,
         "tool_random": DEFAULT_TOOL_RANDOM,
+        "tool_max_rounds": DEFAULT_TOOL_MAX_ROUNDS,
+        "tool_max_calls": DEFAULT_TOOL_MAX_CALLS,
         "research_search_model": os.environ.get("DEFAULT_RESEARCH_SEARCH_MODEL", DEFAULT_MODEL),
         "research_note_model": os.environ.get("DEFAULT_RESEARCH_NOTE_MODEL", DEFAULT_UTILITY_MODEL),
         "research_report_model": os.environ.get("DEFAULT_RESEARCH_REPORT_MODEL", DEFAULT_MODEL),
@@ -128,6 +134,8 @@ async def chat(req: ChatRequest, _=Depends(require_auth)):
         effort,
         req.temperature if req.temperature is not None else DEFAULT_TEMPERATURE,
         tools=selected_tools if selected_tools else None,
+        max_tool_rounds=req.tool_max_rounds or DEFAULT_TOOL_MAX_ROUNDS,
+        max_tool_calls=req.tool_max_calls or DEFAULT_TOOL_MAX_CALLS,
         allow_hosted_tools=True,
     )
     return StreamingResponse(sse_stream(events), media_type="text/event-stream")

@@ -30,6 +30,8 @@ export const SETTING_KEYS = [
   'tool_datetime',
   'tool_calculator',
   'tool_random',
+  'tool_max_rounds',
+  'tool_max_calls',
 ]
 
 export const RESEARCH_MODEL_FIELDS = [

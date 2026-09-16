@@ -118,6 +118,8 @@ export function buildPayload(convo, settings, workspace = null, docs = [], image
 
   return {
     system,
+    tool_max_rounds: settings.tool_max_rounds,
+    tool_max_calls: settings.tool_max_calls,
     // Contentless turns (a research placeholder awaiting its report) carry nothing and providers reject empty messages.
     messages: outgoing.map((m) => {
       const imageBlocks = (m.imageIds || []).map((id) => imageMap.get(id)).filter(Boolean).map((image) => ({

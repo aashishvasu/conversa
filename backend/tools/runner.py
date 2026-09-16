@@ -8,8 +8,11 @@ from dataclasses import dataclass, field
 from .conversa_tool import ConversaTool, ToolCall, ToolResult, execute_tool
 
 
-DEFAULT_MAX_ROUNDS = 4
-DEFAULT_MAX_CALLS = 16
+import os
+
+
+DEFAULT_MAX_ROUNDS = max(1, int(os.environ.get("DEFAULT_TOOL_MAX_ROUNDS", "4")))
+DEFAULT_MAX_CALLS = max(1, int(os.environ.get("DEFAULT_TOOL_MAX_CALLS", "16")))
 _REDACTED_KEYS = {"arguments", "authorization", "content", "data", "input", "key", "output", "password", "result", "secret", "token", "value"}
 
 
