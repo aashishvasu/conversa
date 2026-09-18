@@ -95,7 +95,10 @@ class ResearchRequest(BaseModel):
 
 @router.post("/api/research")
 async def research_start(req: ResearchRequest, _=Depends(require_auth)):
-    run, resumed = runs.start(req.goal, req.models, depth=max(1, min(req.depth, 12)), title=req.title, prompts=req.prompts, run_id=req.id)
+    try:
+        run, resumed = runs.start(req.goal, req.models, depth=max(1, min(req.depth, 12)), title=req.title, prompts=req.prompts, run_id=req.id)
+    except runs.RunLimitError as error:
+        raise HTTPException(429, {"code": "too_many_runs", "message": str(error)}) from error
     return {"id": run.id, "resumed": resumed, "status": run.status, "phase": run.phase}
 
 

@@ -6,3 +6,4 @@
 **/dist
 backend/static
 .git
+**/*.log

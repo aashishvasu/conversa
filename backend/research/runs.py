@@ -8,6 +8,7 @@ The finished payload is the research result: a short summary, the report, and it
 """
 
 import asyncio
+import os
 import re
 import time
 import uuid
@@ -17,10 +18,16 @@ from research.gather import PROMPTS, gather, lines
 
 RUNS = {}
 FINISHED_TTL = 3600  # a finished run is evicted this long after the client could have collected it
+# Concurrent runs one client may start before further starts are refused.
+MAX_ACTIVE_RUNS = int(os.environ.get("MAX_ACTIVE_RUNS", "2"))
 MAX_ROUNDS = 2  # a gap check may add subquestions once
 MAX_SUBQUESTIONS = 7
 PLAN_MAX_TOKENS = 1024
 REPORT_MAX_TOKENS = 16000
+
+
+class RunLimitError(Exception):
+    """The active-run ceiling is already reached."""
 
 
 class Run:
@@ -183,6 +190,8 @@ def start(brief, models, depth=6, title=None, prompts=None, run_id=None):
     evict()
     if run_id and (existing := RUNS.get(run_id)):
         return existing, True
+    if sum(1 for run in RUNS.values() if run.status == "running") >= MAX_ACTIVE_RUNS:
+        raise RunLimitError(f"at most {MAX_ACTIVE_RUNS} research runs at once")
     run = Run(brief, models, depth, title=title, prompts=prompts, run_id=run_id)
     RUNS[run.id] = run
     run.task = asyncio.create_task(_run(run))
