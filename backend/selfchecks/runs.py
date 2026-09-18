@@ -95,6 +95,41 @@ async def _idempotent_start_check():
 
 asyncio.run(_idempotent_start_check())
 
+
+# The active-run ceiling refuses a new id, never blocks a resume, and frees a slot when a run finishes.
+async def _run_limit_check():
+    real_run, real_limit = r._run, r.MAX_ACTIVE_RUNS
+
+    async def parked(_run):
+        await asyncio.Event().wait()
+
+    r._run, r.MAX_ACTIVE_RUNS = parked, 2
+    RUNS.clear()
+    try:
+        started = [r.start(f"goal {i}", {"search": "m", "note": "m", "report": "m"}, run_id=f"cap-{i}")[0] for i in range(r.MAX_ACTIVE_RUNS)]
+        assert all(run.status == "running" for run in started)
+        try:
+            r.start("one too many", {"search": "m", "note": "m", "report": "m"}, run_id="cap-overflow")
+            raise AssertionError("started past MAX_ACTIVE_RUNS")
+        except r.RunLimitError as error:
+            assert "2" in str(error), error
+        resumed, was_resumed = r.start("resume", {"search": "m", "note": "m", "report": "m"}, run_id=started[0].id)
+        assert was_resumed and resumed is started[0], "a retained id resumes even at the ceiling"
+        started[0].status = "done"
+        fresh, created = r.start("after one finished", {"search": "m", "note": "m", "report": "m"}, run_id="cap-ok")
+        assert created is False and fresh.status == "running", "a finished run releases its slot"
+    finally:
+        for run in list(RUNS.values()):
+            if run.task:
+                run.task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await run.task
+        r._run, r.MAX_ACTIVE_RUNS = real_run, real_limit
+        RUNS.clear()
+
+
+asyncio.run(_run_limit_check())
+
 # A collected run is forgotten, and an uncollected one is swept once it is past its window.
 # Retention is bounded by the next bit of research activity, and by the process ending.
 RUNS.clear()

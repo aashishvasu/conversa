@@ -38,6 +38,11 @@ function colAlign(role) {
   return role === 'user' ? 'items-end' : 'items-start'
 }
 
+// Trace links come from a search backend, so only an http(s) URL is allowed to become an anchor.
+function isSafeUrl(url) {
+  return /^https?:\/\//i.test(url)
+}
+
 function togglePin() {
   props.message.pinned = !props.message.pinned
 }
@@ -64,7 +69,10 @@ function promote() {
       <div v-for="(s, i) in trace" :key="i">
         <div class="text-[10px] uppercase tracking-wide opacity-60">{{ s.type }}</div>
         <div v-if="s.type === 'results'" class="flex flex-col gap-0.5">
-          <a v-for="(l, j) in s.links" :key="j" :href="l.url" target="_blank" rel="noopener" class="truncate text-accent hover:underline">{{ l.title || l.url }}</a>
+          <template v-for="(l, j) in s.links" :key="j">
+            <a v-if="isSafeUrl(l.url)" :href="l.url" target="_blank" rel="noopener" class="truncate text-accent hover:underline">{{ l.title || l.url }}</a>
+            <span v-else class="truncate">{{ l.title || l.url }}</span>
+          </template>
         </div>
         <div v-else class="whitespace-pre-wrap [overflow-wrap:anywhere]">{{ s.text }}</div>
       </div>

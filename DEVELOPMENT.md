@@ -39,7 +39,7 @@ The browser stores conversations, settings, cards, templates, documents, images,
 | `POST` | `/api/transfers` | Stores a browser export with scope `conversation` or `snapshot`. |
 | `POST` | `/api/transfers/retrieve` | Returns `{scope, data}` for a live transfer phrase. |
 
-Every route except `/api/login` requires `Authorization: Bearer <token>`. A 401 clears client authentication. Production serves the SPA and API from one origin. `CORS_ORIGINS` permits the separate Vite origin used during development.
+Every route except `/api/login` requires `Authorization: Bearer <token>`. A token must carry `exp`. A 401 clears client authentication. Production serves the SPA and API from one origin. `CORS_ORIGINS` permits the separate Vite origin used during development. `/api/login` accepts `LOGIN_RATE_LIMIT` attempts per client IP (default `5/minute`) and answers 429 past that; the counter is in-process, so it applies per worker.
 
 A chat request may make several provider calls while tools run. The final `usage` frame contains summed tokens, cost, and call count. A list-valued `system` is `[stable, volatile]`; Anthropic can cache the stable block, while the other dialects join both blocks.
 
@@ -105,7 +105,7 @@ The frontend attaches each artifact to the assistant message that produced it (`
 
 `backend/research/runs.py` stores each active run as an `asyncio.Task` and event list. `gather.py` handles planning, searches, page reads, and notes. Runs have four phases: `plan`, `gather`, `gap`, and `report`.
 
-The client creates the run id and persists it with the conversation. Reusing a retained id resumes that run. A backend restart clears active runs and allows the client to start the saved id again. One `starting` or `running` run blocks new sends in its conversation.
+The client creates the run id and persists it with the conversation. Reusing a retained id resumes that run. A backend restart clears active runs and allows the client to start the saved id again. One `starting` or `running` run blocks new sends in its conversation. `MAX_ACTIVE_RUNS` (default 2) caps concurrent runs across the process; a start past the cap returns 429.
 
 The final frame contains:
 
