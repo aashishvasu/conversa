@@ -3,7 +3,7 @@ import { Ban, ChevronRight, Play, Telescope } from '@lucide/vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger, ProgressIndicator, ProgressRoot } from 'reka-ui'
 import { discardResearch, startResearch, streamResearch } from '../api/client.js'
-import { applyFailure, applyStart, prepareReplacement } from '../research/lifecycle.js'
+import { applyCancel, applyFailure, applyStart, prepareReplacement } from '../research/lifecycle.js'
 import { docs, finishRun, persistNow, runById } from '../state/store.js'
 import { renderMarkdown } from '../utils/md.js'
 import SpendBadge from './SpendBadge.vue'
@@ -120,9 +120,12 @@ async function onEvent(data) {
 }
 
 async function stopRun() {
-  if (!run.value?.serverId) return
+  const current = run.value
+  if (!current?.serverId) return
   try {
-    await discardResearch(run.value.serverId)
+    await discardResearch(current.serverId)
+    applyCancel(current)
+    await persistNow()
   } catch (err) {
     error.value = err.message
   }
