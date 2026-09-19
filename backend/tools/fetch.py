@@ -22,6 +22,7 @@ MAX_BYTES = 5 * 1024 * 1024
 MAX_CONTENT = 500_000
 MAX_CACHE_CHARS = 2_000_000
 TOPIC_BUDGET = 40_000
+WINDOW_BUDGET = 100_000
 REQUEST_TIMEOUT = 20
 DNS_TIMEOUT = 5
 MAX_REDIRECTS = 5
@@ -148,11 +149,13 @@ def _pdf_text(body: bytes) -> str:
     return text
 
 
-def _extract_sync(response: httpx.Response, body: bytes, url: str) -> tuple[str, str | None, str]:
+def _extract_sync(response: httpx.Response, body: bytes, url: str, raw: bool = False) -> tuple[str, str | None, str]:
     content_type = response.headers.get("content-type", "")
     if "application/pdf" in content_type or url.lower().endswith(".pdf"):
         return "pdf", None, _pdf_text(body)
     if "html" in content_type or body[:200].lstrip().lower().startswith((b"<!doctype", b"<html")):
+        if raw:
+            return "html", None, body.decode(response.charset_encoding or "utf-8", errors="replace")
         markdown = trafilatura.extract(body, output_format="markdown", include_links=True, include_tables=True) or trafilatura.extract(body, output_format="markdown", include_links=True, favor_recall=True)
         if not markdown:
             raise FetchError(f"no readable content in {url}")
@@ -168,11 +171,11 @@ def _extract_sync(response: httpx.Response, body: bytes, url: str) -> tuple[str,
     return "text", None, text
 
 
-async def _extract(response: httpx.Response, body: bytes, url: str) -> tuple[str, str | None, str]:
-    return await asyncio.to_thread(_extract_sync, response, body, url)
+async def _extract(response: httpx.Response, body: bytes, url: str, raw: bool = False) -> tuple[str, str | None, str]:
+    return await asyncio.to_thread(_extract_sync, response, body, url, raw)
 
 
-async def _wayback(client: httpx.AsyncClient, url: str, original: FetchError) -> tuple[str, str | None, str]:
+async def _wayback(client: httpx.AsyncClient, url: str, original: FetchError, raw: bool = False) -> tuple[str, str | None, str]:
     probe = f"https://archive.org/wayback/available?url={quote(url)}"
     try:
         _, body = await _get(client, probe)
@@ -180,7 +183,7 @@ async def _wayback(client: httpx.AsyncClient, url: str, original: FetchError) ->
         if not snapshot.get("available"):
             raise original
         response, snap_body = await _get(client, snapshot["url"])
-        kind, title, content = await _extract(response, snap_body, snapshot["url"])
+        kind, title, content = await _extract(response, snap_body, snapshot["url"], raw)
     except FetchPolicyError:
         raise
     except FetchError:
@@ -189,25 +192,26 @@ async def _wayback(client: httpx.AsyncClient, url: str, original: FetchError) ->
     return kind, title, f"{note}\n\n{content}"
 
 
-async def _fetch_full(url: str) -> dict[str, str | None]:
+async def _fetch_full(url: str, raw: bool = False) -> dict[str, str | None]:
     canonical = canonicalize(url)
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
         try:
             response, body = await _get(client, canonical)
-            kind, title, content = await _extract(response, body, canonical)
+            kind, title, content = await _extract(response, body, canonical, raw)
         except FetchError as error:
             if error.status not in WAYBACK_STATUSES:
                 raise
-            kind, title, content = await _wayback(client, canonical, error)
-    return {"url": canonical, "title": title, "kind": kind, "content": content[:MAX_CONTENT]}
+            kind, title, content = await _wayback(client, canonical, error, raw)
+    if len(content) > MAX_CONTENT:
+        content = content[:MAX_CONTENT] + f"\n\n(truncated at {MAX_CONTENT} characters)"
+    return {"url": canonical, "title": title, "kind": kind, "content": content}
 
 
-async def _fetch_page(url: str) -> dict[str, str | None]:
+async def _fetch_page(url: str, raw: bool = False) -> dict[str, str | None]:
     try:
-        return await asyncio.wait_for(_fetch_full(url), FETCH_DEADLINE)
+        return await asyncio.wait_for(_fetch_full(url, raw), FETCH_DEADLINE)
     except asyncio.TimeoutError:
         raise FetchError(f"gave up on {url} after {FETCH_DEADLINE}s")
-
 
 def select(content: str, topic: str | None) -> str:
     """Select the content relevant to `topic`, or the content head when unmatched."""
@@ -217,10 +221,10 @@ def select(content: str, topic: str | None) -> str:
 
 
 class PageCache:
-    """Process-local LRU cache of full extracted pages."""
-    def __init__(self, fetch: Callable[[str], Awaitable[dict[str, str | None]]] | None = None, clock: Callable[[], float] | None = None, ttl: float | None = None, max_chars: int = MAX_CACHE_CHARS):
-        self.pages: OrderedDict[str, tuple[dict[str, str | None], float]] = OrderedDict()
-        self.inflight: dict[str, asyncio.Task[dict[str, str | None]]] = {}
+    """Process-local LRU cache of full pages, keyed by canonical URL and raw flag."""
+    def __init__(self, fetch: Callable[[str, bool], Awaitable[dict[str, str | None]]] | None = None, clock: Callable[[], float] | None = None, ttl: float | None = None, max_chars: int = MAX_CACHE_CHARS):
+        self.pages: OrderedDict[tuple[str, bool], tuple[dict[str, str | None], float]] = OrderedDict()
+        self.inflight: dict[tuple[str, bool], asyncio.Task[dict[str, str | None]]] = {}
         self.fetches = 0
         self.size = 0
         self._fetch = fetch or _fetch_page
@@ -228,50 +232,50 @@ class PageCache:
         self._ttl = FETCH_CACHE_TTL_SECONDS if ttl is None else ttl
         self._max_chars = max_chars
 
-    async def get(self, url: str, topic: str | None = None) -> dict[str, str | None]:
-        canonical = canonicalize(url)
-        page = self._cached(canonical)
+    async def get(self, url: str, raw: bool = False) -> dict[str, str | None]:
+        key = (canonicalize(url), raw)
+        page = self._cached(key)
         if page is None:
-            task = self.inflight.get(canonical)
+            task = self.inflight.get(key)
             if task is None:
                 self.fetches += 1
-                task = asyncio.create_task(self._load(canonical))
-                self.inflight[canonical] = task
-                task.add_done_callback(lambda done, key=canonical: self._finished(key, done))
+                task = asyncio.create_task(self._load(*key))
+                self.inflight[key] = task
+                task.add_done_callback(lambda done, k=key: self._finished(k, done))
             page = await asyncio.shield(task)
-        return {**page, "content": select(str(page["content"]), topic)}
-
-    async def _load(self, canonical: str) -> dict[str, str | None]:
-        page = await self._fetch(canonical)
-        self._store(canonical, page)
         return page
 
-    def _finished(self, canonical: str, task: asyncio.Task) -> None:
-        if self.inflight.get(canonical) is task:
-            del self.inflight[canonical]
+    async def _load(self, canonical: str, raw: bool) -> dict[str, str | None]:
+        page = await self._fetch(canonical, raw)
+        self._store((canonical, raw), page)
+        return page
+
+    def _finished(self, key: tuple[str, bool], task: asyncio.Task) -> None:
+        if self.inflight.get(key) is task:
+            del self.inflight[key]
         if not task.cancelled():
             task.exception()
 
-    def _cached(self, canonical: str) -> dict[str, str | None] | None:
-        entry = self.pages.get(canonical)
+    def _cached(self, key: tuple[str, bool]) -> dict[str, str | None] | None:
+        entry = self.pages.get(key)
         if entry is None:
             return None
         page, expires_at = entry
         if expires_at <= self._clock():
             self.size -= len(str(page["content"]))
-            del self.pages[canonical]
+            del self.pages[key]
             return None
-        self.pages.move_to_end(canonical)
+        self.pages.move_to_end(key)
         return page
 
-    def _store(self, canonical: str, page: dict[str, str | None]) -> None:
+    def _store(self, key: tuple[str, bool], page: dict[str, str | None]) -> None:
         content_size = len(str(page["content"]))
         if self._ttl <= 0 or content_size > self._max_chars:
             return
-        old = self.pages.pop(canonical, None)
+        old = self.pages.pop(key, None)
         if old is not None:
             self.size -= len(str(old[0]["content"]))
-        self.pages[canonical] = (page, self._clock() + self._ttl)
+        self.pages[key] = (page, self._clock() + self._ttl)
         self.size += content_size
         while self.size > self._max_chars:
             _, (evicted, _) = self.pages.popitem(last=False)
@@ -281,6 +285,25 @@ class PageCache:
 PAGE_CACHE = PageCache()
 
 
-async def fetch(url: str, topic: str | None = None) -> dict[str, str | None]:
-    """Fetch `url` and select content for this call's topic."""
-    return await PAGE_CACHE.get(url, topic)
+def view(page: dict[str, str | None], topic: str | None, raw: bool, offset: int, budget: int = WINDOW_BUDGET) -> dict[str, object]:
+    """Window one cached page for the model, with continuation info."""
+    content = str(page["content"])
+    if topic and not raw:
+        content = select(content, topic)
+    total = len(content)
+    chunk = content[offset : offset + budget]
+    end = offset + len(chunk)
+    return {
+        "url": page["url"],
+        "title": page["title"],
+        "kind": page["kind"],
+        "content": chunk,
+        "offset": offset,
+        "totalChars": total,
+        "nextOffset": end if end < total else None,
+    }
+
+
+async def fetch(url: str, topic: str | None = None, raw: bool = False, offset: int = 0) -> dict[str, object]:
+    """Fetch `url` and return one window: topic-selected, whole, or raw source."""
+    return view(await PAGE_CACHE.get(url, raw), topic, raw, offset)

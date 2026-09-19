@@ -22,7 +22,9 @@ class SearchWebOutput(BaseModel):
 
 class FetchUrlArguments(ToolArguments):
     url: str = Field(min_length=1, max_length=2048)
-    topic: str = Field(min_length=1, max_length=500)
+    topic: str | None = Field(default=None, max_length=500)
+    raw: bool = False
+    offset: int = Field(default=0, ge=0)
 
 
 class FetchUrlOutput(BaseModel):
@@ -30,6 +32,9 @@ class FetchUrlOutput(BaseModel):
     title: str | None
     kind: str
     content: str
+    offset: int
+    totalChars: int
+    nextOffset: int | None
 
 
 async def search_web(arguments: SearchWebArguments) -> ToolOutput:
@@ -50,7 +55,7 @@ async def search_web(arguments: SearchWebArguments) -> ToolOutput:
 
 async def fetch_url(arguments: FetchUrlArguments) -> ToolOutput:
     try:
-        page = await fetch.fetch(arguments.url, arguments.topic)
+        page = await fetch.fetch(arguments.url, arguments.topic, arguments.raw, arguments.offset)
     except fetch.FetchPolicyError as error:
         raise ToolRejected(str(error)) from error
     except fetch.FetchError as error:
@@ -59,8 +64,8 @@ async def fetch_url(arguments: FetchUrlArguments) -> ToolOutput:
     return ToolOutput(
         result,
         {"url": result.url, "title": result.title, "kind": result.kind},
-        # WHY: persists the topic-selected content (bounded to MAX_CONTENT by fetch.py) so later turns can cite it without refetching; the trace keeps no body by design.
-        {"input": {"url": arguments.url, "topic": arguments.topic}, "output": {"url": result.url, "title": result.title, "kind": result.kind, "content": result.content}},
+        # WHY: persists the window (bounded by fetch.py budgets) so later turns can cite it without refetching; the trace keeps no body by design.
+        {"input": {"url": arguments.url, "topic": arguments.topic, "raw": arguments.raw, "offset": arguments.offset}, "output": result.model_dump(mode="json")},
     )
 
 
@@ -78,7 +83,7 @@ WEB_TOOLS = [
     ),
     ConversaTool(
         "fetch_url",
-        "Read a public HTTP or HTTPS URL and return the sections relevant to a stated topic. Use it for URLs supplied by the user or returned by search_web.",
+        "Read a public HTTP or HTTPS URL and return one window of it. `topic` returns only the sections relevant to it; omit `topic` to read the whole page; `raw` returns the page's HTML source instead of extracted content, ignoring `topic`; `offset` continues a long page where a previous call stopped. The response includes `totalChars` and `nextOffset` for reading the rest. Use it for URLs supplied by the user or returned by search_web.",
         FetchUrlArguments,
         fetch_url,
         artifact_fresh_for=ARTIFACT_FRESH_SECONDS,
