@@ -1,7 +1,7 @@
 // Run: node src/selfchecks/research-lifecycle.selfcheck.js.
 import assert from 'node:assert'
 import { readFile } from 'node:fs/promises'
-import { applyFailure, applyStart, prepareReplacement } from '../research/lifecycle.js'
+import { applyCancel, applyFailure, applyStart, prepareReplacement } from '../research/lifecycle.js'
 
 const run = {
   id: 'client-run', serverId: 'client-run', status: 'running', phase: 'gather',
@@ -24,6 +24,11 @@ const failed = { status: 'running', error: null }
 applyFailure(failed, new Error('provider returned 500'))
 assert.equal(failed.status, 'error', 'an exhausted stream failure releases the conversation lock')
 assert.equal(failed.error, 'provider returned 500')
+
+const stopped = { id: 'client-run', serverId: 'client-run', status: 'running', events: [], payload: null }
+applyCancel(stopped)
+assert.equal(stopped.status, 'cancelled', 'stopping releases the conversation lock before the final frame lands')
+assert.equal(prepareReplacement(stopped, { code: 'no_such_run' }), false, 'a stopped run is never restarted by stream recovery')
 
 const chatPane = await readFile(new URL('../views/ChatPane.vue', import.meta.url), 'utf8')
 const researchBlock = await readFile(new URL('../components/ResearchBlock.vue', import.meta.url), 'utf8')

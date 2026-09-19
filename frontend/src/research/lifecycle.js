@@ -20,9 +20,13 @@ export function applyFailure(run, error) {
   Object.assign(run, { status: 'error', error: error.message, updatedAt: Date.now() })
 }
 
+export function applyCancel(run) {
+  Object.assign(run, { status: 'cancelled', updatedAt: Date.now() })
+}
+
 // Do not erase replay state until the start response confirms this is a replacement backend run.
 export function prepareReplacement(run, error) {
-  if (!isNoSuchRun(error)) return false
+  if (!isNoSuchRun(error) || run.status === 'cancelled') return false
   Object.assign(run, { status: 'starting', error: null, updatedAt: Date.now() })
   return true
 }
