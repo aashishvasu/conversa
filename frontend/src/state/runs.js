@@ -4,10 +4,37 @@ import { foldRunUsage } from './usage.js'
 
 export function migrateRun(r) {
   if (!r || typeof r !== 'object') return null
-  const next = { ...r, events: Array.isArray(r.events) ? r.events : [], checkpoint: r.checkpoint ?? null, retryFailed: r.retryFailed ?? false, spendLedgered: r.spendLedgered ?? false }
-  next.prepared = r.prepared?.brief
-    ? { ...r.prepared, brief: { ...r.prepared.brief, questions: Array.isArray(r.prepared.brief.questions) ? r.prepared.brief.questions : [] } }
-    : { brief: { objective: r.prepared?.goal || '', deliverable: r.prepared?.goal || '', scope: [], constraints: [], questions: r.prepared?.questions || [] }, answers: {} }
+  const next = { ...r, events: Array.isArray(r.events) ? r.events : [], checkpoint: r.checkpoint ?? null, retryFailed: r.retryFailed ?? false, spendLedgered: r.spendLedgered ?? false, isPreparing: false, preparationFailed: r.preparationFailed ?? false }
+  const rawBrief = r.prepared?.brief
+  if (rawBrief && typeof rawBrief === 'object') {
+    const rawScope = Array.isArray(rawBrief.scope) ? rawBrief.scope : typeof rawBrief.scope === 'string' ? [rawBrief.scope] : []
+    const rawConstraints = Array.isArray(rawBrief.constraints) ? rawBrief.constraints : typeof rawBrief.constraints === 'string' ? [rawBrief.constraints] : []
+    const scope = rawScope.filter((s) => typeof s === 'string' && s.trim())
+    const constraints = rawConstraints.filter((c) => typeof c === 'string' && c.trim())
+    next.prepared = {
+      ...r.prepared,
+      brief: {
+        ...rawBrief,
+        objective: (rawBrief.objective || r.prepared?.goal || 'Research').trim() || 'Research',
+        deliverable: (rawBrief.deliverable || rawBrief.objective || 'A sourced research brief').trim() || 'A sourced research brief',
+        scope: scope.length ? scope : ['The requested subject'],
+        constraints: constraints.length ? constraints : ['Use current public sources'],
+        questions: Array.isArray(rawBrief.questions) ? rawBrief.questions : [],
+      },
+    }
+  } else {
+    const goal = (r.prepared?.goal || 'Research').trim() || 'Research'
+    next.prepared = {
+      brief: {
+        objective: goal,
+        deliverable: 'A sourced research brief',
+        scope: ['The requested subject'],
+        constraints: ['Use current public sources'],
+        questions: Array.isArray(r.prepared?.questions) ? r.prepared.questions : [],
+      },
+      answers: {},
+    }
+  }
   next.answers = r.answers || next.prepared.answers || {}
   return next
 }
@@ -37,6 +64,8 @@ export function createRun(convo, promptMessageId, resultMessageId, input, prepar
     serverId: id,
     status: prepared.brief?.questions?.length ? 'waiting_for_clarification' : 'starting',
     phase: '',
+    isPreparing: false,
+    preparationFailed: false,
     events: [],
     spend: null,
     spendLedgered: false,
@@ -59,7 +88,7 @@ export function removeRun(id) {
 
 // The run blocking new sends in this conversation, or null.
 export function activeRunOf(convoId) {
-  return state.runs.find((r) => r.convoId === convoId && ['starting', 'waiting_for_clarification', 'running'].includes(r.status)) || null
+  return state.runs.find((r) => r.convoId === convoId && ['starting', 'waiting_for_clarification', 'running', 'recovering'].includes(r.status)) || null
 }
 
 // Land a run's final stream frame: status, then the report into the doc store, then the spend fold.

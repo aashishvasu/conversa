@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { prepareResearch, streamChat } from '../api/client.js'
+import { beginPreparation, endPreparation, getPreparationSignal, isPreparationCurrent, startRun } from './coordinator.js'
 import { useStreamGuard } from '../composables/useStreamGuard.js'
 import { refreshMemory } from '../jobs/memory.js'
 import { generateTitle } from '../jobs/titles.js'
@@ -98,25 +99,49 @@ export function useStreamOrchestration() {
     preparing.value = true
     const chatSettings = effectiveSettings(c)
     const input = buildResearchInput(c, chatSettings, workspaceOf(c), attachedDocs(c), images.value)
+    const generation = beginPreparation(c.id)
     try {
       await persistNow()
-      const prepared = await prepareResearch({ ...input, model: chatSettings.model })
-      if (prepared.action === 'answer') {
+      const signal = getPreparationSignal(c.id)
+      const prepared = await prepareResearch({ ...input, model: chatSettings.model }, signal)
+      if (!isPreparationCurrent(c.id, generation) || c.mode !== 'research') {
+        user.mode = 'chat'
+        await persistNow()
         runCompletion(c)
         return
       }
-      const brief = prepared.brief || { objective: prepared.goal, deliverable: prepared.goal, scope: [], constraints: [], questions: [] }
+      if (prepared.action === 'answer') {
+        user.mode = 'chat'
+        await persistNow()
+        runCompletion(c)
+        return
+      }
+      const rawBrief = prepared.brief || { objective: prepared.goal, deliverable: prepared.goal }
+      const scope = Array.isArray(rawBrief.scope) && rawBrief.scope.length ? rawBrief.scope : ['The requested subject']
+      const constraints = Array.isArray(rawBrief.constraints) && rawBrief.constraints.length ? rawBrief.constraints : ['Use current public sources']
+      const brief = {
+        objective: (rawBrief.objective || 'Research').trim(),
+        deliverable: (rawBrief.deliverable || 'A sourced research brief').trim(),
+        scope,
+        constraints,
+        questions: Array.isArray(rawBrief.questions) ? rawBrief.questions : [],
+      }
       const placeholder = { id: crypto.randomUUID(), role: 'assistant', content: '', mode: 'research', createdAt: Date.now() }
       const researchSettings = effectiveSettings(c, RESEARCH_KEYS)
       const run = createRun(c, user.id, placeholder.id, { ...input, model: chatSettings.model }, { brief }, researchSettings)
       user.runId = placeholder.runId = run.id
       c.messages.push(placeholder)
       if (c.title === tr('sidebar.newConversation')) c.title = user.content.slice(0, 60)
-      // ResearchBlock owns the one initial POST after this durable record reaches IndexedDB.
       await persistNow()
+      if (!brief.questions?.length) {
+        void startRun(run)
+      }
     } catch (error) {
+      if (error?.name === 'AbortError' || !isPreparationCurrent(c.id, generation)) {
+        return
+      }
       const placeholder = { id: crypto.randomUUID(), role: 'assistant', content: '', mode: 'research', createdAt: Date.now() }
-      const run = createRun(c, user.id, placeholder.id, { ...input, model: chatSettings.model }, { brief: { objective: user.content, deliverable: user.content, scope: [], constraints: [], questions: [] } }, effectiveSettings(c, RESEARCH_KEYS))
+      const run = createRun(c, user.id, placeholder.id, { ...input, model: chatSettings.model }, { brief: { objective: user.content, deliverable: user.content, scope: ['The requested subject'], constraints: ['Use current public sources'], questions: [] } }, effectiveSettings(c, RESEARCH_KEYS))
       run.status = 'error'
       run.preparationFailed = true
       run.error = error.message
@@ -124,6 +149,7 @@ export function useStreamOrchestration() {
       c.messages.push(placeholder)
       await persistNow()
     } finally {
+      endPreparation(c.id, generation)
       preparing.value = false
     }
   }

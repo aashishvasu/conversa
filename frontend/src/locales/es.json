@@ -219,8 +219,11 @@
     "resumeWithModels": "Reanudar con los modelos actuales",
     "missingRun": "Falta el registro de esta investigación.",
     "reportSurvives": "El informe sigue disponible como «{name}».",
+    "preparingRequest": "Analizando la solicitud con el modelo de chat…",
+    "reconnecting": "Reconectando a la investigación…",
     "status": {
       "preparing": "preparando",
+      "recovering": "reconectando",
       "waiting_for_clarification": "esperando respuestas",
       "researching": "investigando",
       "writing": "escribiendo",

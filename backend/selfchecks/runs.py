@@ -137,4 +137,31 @@ else:
 source = {"id": "S1", "url": "https://example.test/page"}
 assert report.compile_links("claim [E1]", {"E1": source}) == "claim [E1](https://example.test/page)"
 
+# Retention, ack, and revision checks
+mock_run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
+mock_run.status = "done"
+mock_run.finished_at = 100.0
+r.RUNS[mock_run.id] = mock_run
+assert mock_run.state()["revision"] == 0
+assert not r.ack("nonexistent")
+active_run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
+r.RUNS[active_run.id] = active_run
+assert not r.ack(active_run.id), "active run cannot be acked"
+assert r.ack(mock_run.id)
+assert mock_run.id not in r.RUNS
+r.RUNS[active_run.id] = active_run
+r.forget(active_run.id)
+
+old_ttl = r.FINISHED_TTL
+try:
+    r.FINISHED_TTL = 10
+    stale_run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
+    stale_run.status = "done"
+    stale_run.finished_at = 50.0
+    r.RUNS[stale_run.id] = stale_run
+    r.evict()
+    assert stale_run.id not in r.RUNS, "stale finished runs must be evicted past TTL"
+finally:
+    r.FINISHED_TTL = old_ttl
+
 print("runs selfcheck OK")
