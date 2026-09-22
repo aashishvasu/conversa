@@ -2,13 +2,13 @@ import { delMany, keys, setMany } from 'idb-keyval'
 import { IMAGE_KEY_PREFIX, isLoaded, persistNow, state } from './persistence.js'
 import { activePane, cloneWithNewIds, conversations, currentId } from './conversations.js'
 import { docsOf, hoistInlineDocs, validImage } from './docs.js'
-import { validRun } from './runs.js'
+import { migrateRun, validRun } from './runs.js'
 import { replaceUsage, usageDays } from './usage.js'
 import { isDark } from '../utils/theme.js'
 import { enterToSend, fontScale, locale, showThinkingAndSearch } from '../utils/prefs.js'
 import { tr } from '../i18n/index.js'
 
-export const SNAPSHOT_VERSION = 3
+export const SNAPSHOT_VERSION = 4
 
 function wire(value) {
   return JSON.parse(JSON.stringify(value))
@@ -84,7 +84,7 @@ export async function importData(data) {
   state.images.push(...newImages)
   let changed = addMissing(state.docs, incomingDocs)
   changed += addMissing(state.workspaces, extras.workspaces)
-  changed += addMissing(state.runs, Array.isArray(extras.runs) ? extras.runs.filter(validRun) : [])
+  changed += addMissing(state.runs, Array.isArray(extras.runs) ? extras.runs.map(migrateRun).filter(validRun) : [])
   const have = new Set(state.conversations.map((c) => c.id))
   let added = 0
   for (const c of list) {
@@ -104,7 +104,7 @@ export async function restoreData(data, applySettings) {
   const restored = structuredClone(data)
   state.conversations = restored.conversations.filter(validConversation)
   state.workspaces = restored.workspaces.filter((w) => w?.id)
-  state.runs = (Array.isArray(restored.runs) ? restored.runs : []).filter(validRun)
+  state.runs = (Array.isArray(restored.runs) ? restored.runs : []).map(migrateRun).filter(validRun)
   // A pre-v3 snapshot carries its docs inline on workspaces; the hoist turns them into the replacing doc set.
   state.docs = (Array.isArray(restored.docs) ? restored.docs : []).filter((d) => d?.id)
   const restoredImages = (Array.isArray(restored.images) ? restored.images : state.images).filter(validImage)

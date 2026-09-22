@@ -1,153 +1,140 @@
 """Selfcheck: python -m selfchecks.runs"""
 
 import asyncio
-import time
+import json
 from contextlib import suppress
 
+from research import gather as g
+from research import report
 from research import runs as r
-from research.runs import FINISHED_TTL, PROMPTS, RUNS, Run, answered, evict, forget, report_summary, result_payload
-
-# The payload's sections are the answered subquestions in report order, notes reduced to {note, url}.
-plan_sections = [
-    {"question": "one", "notes": [{"url": "https://a.example/1", "note": "NOTE_A", "title": "extra"}]},
-    {"question": "two", "notes": []},
-    {"question": "three", "notes": [{"url": "https://a.example/3", "note": "NOTE_C"}]},
-]
-found = answered(plan_sections)
-assert [s["question"] for s in found] == ["one", "three"], found
-report = "## Summary\n\nFIRST\n\nSECOND\n\nTHIRD\n\n## q1. one\n\nREPORT_BODY"
-payload = result_payload("brief text", found, report)
-assert payload["summary"] == "FIRST\n\nSECOND", "the assistant handoff keeps at most two model-written paragraphs"
-assert report_summary("## q1. no summary") == "", "a malformed report never becomes a long chat message"
-assert payload["report"] == {"name": "Research report.md", "text": report}
-assert [s["question"] for s in payload["sections"]] == ["one", "three"], "sections follow the answered order"
-assert payload["sections"][0]["notes"] == [{"note": "NOTE_A", "url": "https://a.example/1"}], "notes carry note and url only"
-
-# Prompt overrides are copied to one run; a later request keeps the module defaults.
-custom = Run("goal", {"search": "m", "note": "m", "report": "m"}, 2, prompts={"plan": "CUSTOM_PLAN"})
-plain = Run("goal", {"search": "m", "note": "m", "report": "m"}, 2)
-assert custom.prompts["plan"] == "CUSTOM_PLAN"
-assert plain.prompts["plan"] == PROMPTS["plan"]
-assert PROMPTS["plan"] != "CUSTOM_PLAN", "per-run overrides never mutate global prompts"
+from research.runs import RUNS, Run
+from research.state import empty_state, validate_checkpoint
 
 
-# Report failure preserves the gathered notes.
-# The run loop reads gather and complete off its module, so the stubs are set there.
-async def _resilience_checks():
-    real_gather, real_complete = r.gather, r.complete
+def brief():
+    return {"objective": "Investigate Project Orion", "deliverable": "A sourced brief", "scope": ["current public sources"], "constraints": ["cite evidence"], "questions": [], "answers": {"region": "US"}}
 
-    async def canned_gather(question, *a, **k):
-        return {"question": question, "notes": [{"url": "https://a.example/1", "note": "NOTE_BODY"}], "failed": []}
 
-    async def complete_but_no_report(model_id, system, prompt, **k):
-        if system is r.PROMPTS["plan"]:
-            return "first subquestion here"
-        if system is r.PROMPTS["report"]:
-            raise RuntimeError("Error code: 529 - overloaded_error")
-        return "DONE"
+async def workflow_checks():
+    real = g.search, g._page, g.note, r.complete, report.complete
+    calls = []
 
-    r.gather, r.complete = canned_gather, complete_but_no_report
+    async def search(query, model, limit=8, search_prompt=None, spend=None):
+        calls.append(("search", query))
+        if "follow" in query:
+            return [{"title": "same", "url": "https://EXAMPLE.test/page?utm_source=x"}]
+        return [{"title": "source", "url": "https://example.test/page"}]
+
+    async def page(url, question):
+        calls.append(("fetch", url))
+        return {"url": "https://example.test/page#fragment", "title": "Source", "content": "supported fact"}
+
+    async def note(question, page, model, spend=None, note_prompt=None):
+        return "The source supports the fact."
+
+    coord = [
+        '{"action":"continue","resolve":["T1"],"prune":[],"add":[{"question":"follow-up question","reason":"cover a gap"}],"merge":[],"gaps":["check follow-up"]}',
+        '{"action":"finish","resolve":["T2"],"prune":[],"add":[],"merge":[],"gaps":[]}',
+    ]
+
+    async def complete(model, system, prompt, **kwargs):
+        if system == r.COORDINATOR:
+            return coord.pop(0)
+        if system == report.REPORT:
+            return "## Summary\n\nSupported fact [E1]"
+        if system == report.VERIFY:
+            return '{"valid":true,"corrections":"","gaps":[]}'
+        return ""
+
+    g.search, g._page, g.note, r.complete, report.complete = search, page, note, complete, complete
     try:
-        run = Run("brief", {"search": "m", "note": "m", "report": "m"}, 2)
+        run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=2)
         await r._run(run)
     finally:
-        r.gather, r.complete = real_gather, real_complete
+        g.search, g._page, g.note, r.complete, report.complete = real
     assert run.status == "done", (run.status, run.error)
-    assert "report stage failed" in run.error, run.error
-    assert "NOTE_BODY" in run.payload["report"]["text"], "a failed report still hands over the notes"
-    assert run.payload["sections"][0]["notes"], "and the note sections survive too"
+    checkpoint_events = [event for event in run.events if event["kind"] == "checkpoint"]
+    assert checkpoint_events and all(isinstance(event["checkpoint"], dict) for event in checkpoint_events)
+    resume_data = checkpoint_events[0]["checkpoint"]
+    resume_data["frontier"][0]["status"] = "running"
+    resume_data["frontier"][0]["operation_id"] = "uncompleted"
+    prior_calls = resume_data["budgets"]["calls"]
+    resumed = Run(brief(), {"search": "new", "note": "new", "report": "new"}, checkpoint_data=resume_data)
+    assert resumed.frontier[0]["status"] == "pending"
+    assert resumed.update_calls() == prior_calls, "checkpoint resume must retain spent call budget without double counting"
+    retry_data = validate_checkpoint(resume_data)
+    retry_data["evidence"] = []
+    retry_data["frontier"][0].update(status="pruned", attempts=1, operation_id="failed-op")
+    retry_data["operations"]["completed"]["failed-op"] = True
+    retry_data["operations"]["queries"]["investigate project orion"] = 2
+    retried = Run(brief(), {"search": "new", "note": "new", "report": "new"}, checkpoint_data=retry_data, restart_failed=True)
+    assert retried.frontier[0]["status"] == "pending" and "failed-op" not in retried.data["operations"]["completed"]
+    assert "investigate project orion" not in retried.data["operations"]["queries"]
+    assert any(task["question"] == "follow-up question" for task in run.frontier)
+    assert len(run.evidence) == 1 and len(calls) == 3, calls
+    run.evidence[0]["excerpt"] = "x" * 1000
+    assert len(json.loads(r._worker_context(run))["known_findings"][0]["excerpt"]) == 600
+    assert run.data["budgets"]["calls"] == run.prior_calls + run.spend.calls + run.data["budgets"].get("fallback_calls", 0)
+    assert any(event["kind"] == "source_reused" for event in run.events), "run-wide URL reuse is visible"
 
-asyncio.run(_resilience_checks())
 
-
-async def _idempotent_start_check():
-    real_run = r._run
-
-    async def parked(_run):
-        await asyncio.Event().wait()
-
-    RUNS.clear()
-    r._run = parked
+async def breaker_and_resume_checks():
+    real = g.search, r.complete, report.complete
+    async def repeated(query, *args, **kwargs):
+        return []
+    decisions = 0
+    async def complete(model, system, prompt, **kwargs):
+        nonlocal decisions
+        if system == r.COORDINATOR:
+            decisions += 1
+            if decisions == 1:
+                return '{"action":"continue","resolve":[],"prune":[],"add":[{"question":"Investigate Project Orion","reason":"retry"}],"merge":[],"gaps":["missing"]}'
+            return '{"action":"continue","resolve":[],"prune":[],"add":[],"merge":[],"gaps":["missing"]}'
+        if system == report.REPORT:
+            return "## Summary\n\nNo claim [E1]"
+        if system == report.VERIFY:
+            return '{"valid":true,"corrections":"","gaps":[]}'
+        return ""
+    g.search, r.complete, report.complete = repeated, complete, complete
     try:
-        first, created = r.start("goal", {"search": "m", "note": "m", "report": "m"}, run_id="browser-run")
-        duplicate, resumed = r.start("other goal", {"search": "m", "note": "m", "report": "m"}, run_id="browser-run")
-        assert created is False and resumed is True
-        assert duplicate is first and len(RUNS) == 1, "a duplicate browser start does not launch a second task"
-        assert first.id == "browser-run" and first.status == "running"
-        # A lost start response may be retried after completion; retention still returns that terminal run.
-        first.status = "done"
-        terminal, terminal_resumed = r.start("other goal", {"search": "m", "note": "m", "report": "m"}, run_id="browser-run")
-        assert terminal_resumed is True and terminal is first and len(RUNS) == 1
-        # Explicit collection (or a process restart, which has no RUNS entry) permits a replacement.
-        forget(first.id)
-        replacement, replaced = r.start("goal", {"search": "m", "note": "m", "report": "m"}, run_id="browser-run")
-        assert replaced is False and replacement is not first and replacement.id == "browser-run"
-        first.task.cancel()
-        replacement.task.cancel()
-        with suppress(asyncio.CancelledError):
-            await first.task
-        with suppress(asyncio.CancelledError):
-            await replacement.task
+        run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
+        await r._run(run)
     finally:
-        r._run = real_run
-        RUNS.clear()
+        g.search, r.complete, report.complete = real
+    assert run.status == "error" and "no evidence" in run.error
+    assert any(event["kind"] == "breaker" for event in run.events)
+    assert run.data["breakers"], "breaker history must survive in checkpoints"
 
-
-asyncio.run(_idempotent_start_check())
-
-
-# The active-run ceiling refuses a new id, never blocks a resume, and frees a slot when a run finishes.
-async def _run_limit_check():
-    real_run, real_limit = r._run, r.MAX_ACTIVE_RUNS
-
-    async def parked(_run):
-        await asyncio.Event().wait()
-
-    r._run, r.MAX_ACTIVE_RUNS = parked, 2
-    RUNS.clear()
+    old_calls = r.MAX_CALLS
+    r.MAX_CALLS = 0
+    r.complete, report.complete = complete, complete
     try:
-        started = [r.start(f"goal {i}", {"search": "m", "note": "m", "report": "m"}, run_id=f"cap-{i}")[0] for i in range(r.MAX_ACTIVE_RUNS)]
-        assert all(run.status == "running" for run in started)
-        try:
-            r.start("one too many", {"search": "m", "note": "m", "report": "m"}, run_id="cap-overflow")
-            raise AssertionError("started past MAX_ACTIVE_RUNS")
-        except r.RunLimitError as error:
-            assert "2" in str(error), error
-        resumed, was_resumed = r.start("resume", {"search": "m", "note": "m", "report": "m"}, run_id=started[0].id)
-        assert was_resumed and resumed is started[0], "a retained id resumes even at the ceiling"
-        started[0].status = "done"
-        fresh, created = r.start("after one finished", {"search": "m", "note": "m", "report": "m"}, run_id="cap-ok")
-        assert created is False and fresh.status == "running", "a finished run releases its slot"
+        partial = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
+        partial.sources["https://example.test/page"] = {"id": "S1", "url": "https://example.test/page", "title": "Source", "task_ids": ["T1"]}
+        partial.evidence.append({"id": "E1", "source_id": "S1", "task_id": "T1", "question": "Investigate Project Orion", "excerpt": "fact", "note": "fact", "title": "Source"})
+        await r._run(partial)
     finally:
-        for run in list(RUNS.values()):
-            if run.task:
-                run.task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await run.task
-        r._run, r.MAX_ACTIVE_RUNS = real_run, real_limit
-        RUNS.clear()
+        r.MAX_CALLS = old_calls
+        r.complete, report.complete = real[1], real[2]
+    assert partial.status == "partial" and partial.payload["gaps"], partial.state()
+
+    checkpoint = empty_state(brief(), {"id": "T1", "question": "Investigate Project Orion"})
+    checkpoint["sources"]["https://example.test/page"] = {"id": "S1", "url": "https://example.test/page", "title": "Source", "task_ids": ["T1"]}
+    checkpoint["evidence"].append({"id": "E1", "source_id": "S1", "task_id": "T1", "task_ids": ["T1"], "excerpt": "fact", "note": "fact", "title": "Source"})
+    checkpoint["frontier"][0]["status"] = "done"
+    assert validate_checkpoint(checkpoint)["revision"] == 0
 
 
-asyncio.run(_run_limit_check())
+asyncio.run(workflow_checks())
+asyncio.run(breaker_and_resume_checks())
 
-# A collected run is forgotten, and an uncollected one is swept once it is past its window.
-# Retention is bounded by the next bit of research activity, and by the process ending.
-RUNS.clear()
-kept = Run("b", {}, 1)
-RUNS[kept.id] = kept
-taken = Run("b", {}, 1)
-RUNS[taken.id] = taken
-forget(taken.id)
-assert taken.id not in RUNS and kept.id in RUNS, "collecting drops one run and leaves the others"
-
-stale = Run("b", {}, 1)
-stale.finished_at = time.time() - FINISHED_TTL - 1
-RUNS[stale.id] = stale
-running = Run("b", {}, 1)
-RUNS[running.id] = running
-evict()
-assert stale.id not in RUNS, "a finished run past its window is swept"
-assert running.id in RUNS, "a run that never finished is left alone"
-RUNS.clear()
+try:
+    report.reject_unknown("claim [E9]", [{"id": "E1"}])
+except ValueError:
+    pass
+else:
+    raise AssertionError("unknown citation accepted")
+source = {"id": "S1", "url": "https://example.test/page"}
+assert report.compile_links("claim [E1]", {"E1": source}) == "claim [E1](https://example.test/page)"
 
 print("runs selfcheck OK")

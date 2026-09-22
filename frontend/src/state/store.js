@@ -16,7 +16,7 @@ import {
 } from './persistence.js'
 import { conversations, createConversation, currentId } from './conversations.js'
 import { gcImages, hoistInlineDocs, downloadText, validImage } from './docs.js'
-import { validRun } from './runs.js'
+import { migrateRun, validRun } from './runs.js'
 import { exportData as _exportData, restoreData as _restoreData } from './snapshot.js'
 
 export { persistNow } from './persistence.js'
@@ -25,7 +25,7 @@ export {
   currentConversation, currentId, deleteConversation, saveAsTemplate, selectConversation,
   sidebarOpen, templates,
 } from './conversations.js'
-export { activeRunOf, createRun, finishRun, removeRun, runById } from './runs.js'
+export { activeRunOf, createRun, finishRun, migrateRun, removeRun, runById } from './runs.js'
 export { createWorkspace, deleteWorkspace, workspaceOf, workspaces } from './workspaces.js'
 export {
   createDoc, createImage, deleteDoc, docs, docsOf, downloadText,
@@ -97,7 +97,7 @@ export async function initStore() {
   globalThis.navigator?.storage?.persist?.()
   state.conversations = (await get(STORE_KEY)) || []
   state.workspaces = (await get(WORKSPACES_KEY)) || []
-  state.runs = ((await get(RUNS_KEY)) || []).filter(validRun)
+  state.runs = ((await get(RUNS_KEY)) || []).map(migrateRun).filter(validRun)
   state.docs = (await get(DOCS_KEY)) || []
   const imageKeys = (await keys()).filter((key) => typeof key === 'string' && key.startsWith(IMAGE_KEY_PREFIX))
   state.images = (await getMany(imageKeys)).filter(validImage)

@@ -6,6 +6,7 @@
 PRICES = {
     "deepseek-v4-pro": (1.32, 3.96),
     "deepseek-v4-flash": (0.44, 1.32),
+    "deepseek-flash": (0.30, 1.20),
 }
 
 PROVIDER = {
@@ -14,5 +15,5 @@ PROVIDER = {
     "base_url": "https://api.deepseek.com",
     "search_tool": "web_search",
     "prices": PRICES,
-    "models": "deepseek/deepseek-v4-pro:DeepSeek V4 Pro,deepseek/deepseek-v4-flash:DeepSeek V4 Flash",
+    "models": "deepseek/deepseek-v4-pro:DeepSeek V4 Pro,deepseek/deepseek-v4-flash:DeepSeek V4 Flash,deepseek/deepseek-flash:DeepSeek V4.1 Flash",
 }

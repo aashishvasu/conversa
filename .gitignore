@@ -20,3 +20,6 @@ standards/
 /tools/
 CLAUDE.md
 AGENTS.md
+# Playwright CLI state and output (may contain credentials)
+.playwright/
+.playwright-cli/
