@@ -16,7 +16,7 @@ from .report import payload as report_payload, verify_and_correct, write as writ
 from .state import checkpoint, empty_state, validate_checkpoint
 
 RUNS = {}
-FINISHED_TTL = 3600
+FINISHED_TTL = int(os.environ.get("RESEARCH_RESULT_TTL", "3600"))
 MAX_ACTIVE_RUNS = int(os.environ.get("MAX_ACTIVE_RUNS", "2"))
 MAX_WAVES = int(os.environ.get("RESEARCH_MAX_WAVES", "8"))
 MAX_TASKS = int(os.environ.get("RESEARCH_MAX_TASKS", "18"))
@@ -103,7 +103,7 @@ class Run:
         return budget["calls"]
 
     def state(self, after=0):
-        return {"id": self.id, "status": self.status, "phase": self.phase, "spend": self.spend.as_dict(), "events": self.events[after:], "payload": self.payload, "error": self.error, "checkpoint": deepcopy(self.data), "evidence": self.evidence, "sources": list(self.sources.values()), "gaps": self.data["gaps"], "decisions": self.data["decisions"], "breakers": self.data["breakers"]}
+        return {"id": self.id, "revision": self.data.get("revision", 0), "status": self.status, "phase": self.phase, "spend": self.spend.as_dict(), "events": self.events[after:], "payload": self.payload, "error": self.error, "checkpoint": deepcopy(self.data), "evidence": self.evidence, "sources": list(self.sources.values()), "gaps": self.data["gaps"], "decisions": self.data["decisions"], "breakers": self.data["breakers"]}
 
 
 def _valid_coord(value):
@@ -360,7 +360,15 @@ def start(brief, models, depth=6, title=None, prompts=None, run_id=None, checkpo
     run = Run(brief, models, depth, title, prompts, run_id, checkpoint_data, restart_failed)
     RUNS[run.id] = run
     run.task = asyncio.create_task(_run(run))
-    return run, False
+    return run, checkpoint_data is not None
+
+
+def ack(run_id):
+    run = RUNS.get(run_id)
+    if not run or run.status == "running":
+        return False
+    RUNS.pop(run_id, None)
+    return True
 
 
 def forget(run_id):

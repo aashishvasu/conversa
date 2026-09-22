@@ -11,6 +11,7 @@ import { tr } from '../i18n/index.js'
 import { sendWindow } from '../prompt/payload.js'
 import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
 import { activeRunOf, createDoc, currentConversation, imagesOf, persistNow, releaseImages, removeRun, sidebarOpen } from '../state/store.js'
+import { cancelPreparation } from '../research/coordinator.js'
 import { useStreamOrchestration } from '../research/orchestration.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { CHECK_SVG, COPY_SVG } from '../utils/md.js'
@@ -82,7 +83,20 @@ function toggleResearch() {
     notify({ key: 'image:attach', severity: 'warning', text: tr('chat.sendImagesFirst') })
     return
   }
-  convo.value.mode = researchMode.value ? 'chat' : 'research'
+  const next = researchMode.value ? 'chat' : 'research'
+  convo.value.mode = next
+  if (next === 'chat') {
+    const cancelled = cancelPreparation(convo.value?.id)
+    if (cancelled) {
+      const pendingUser = convo.value.messages.slice().reverse().find((m) => m.role === 'user' && m.mode === 'research' && !m.runId)
+      if (pendingUser) {
+        pendingUser.mode = 'chat'
+        preparing.value = false
+        void persistNow()
+        runCompletion(convo.value)
+      }
+    }
+  }
 }
 
 function addMessage() {
@@ -189,11 +203,29 @@ function regenerate(m) {
   c.messages = c.messages.filter((message, index) => index <= cut || message.role === 'system')
   releaseImages(removed)
 
-  if (user.mode === 'research') {
+  if (convo.value?.mode === 'research') {
+    user.mode = 'research'
     if (user.runId) removeRun(user.runId)
     delete user.runId
     void routeResearch(c, user)
     return
+  }
+  user.mode = 'chat'
+  if (user.runId) removeRun(user.runId)
+  delete user.runId
+  runCompletion(c)
+}
+
+function onResearchAnswer(msg) {
+  const c = convo.value
+  if (!c) return
+  if (msg.runId) removeRun(msg.runId)
+  const idx = c.messages.findIndex((m) => m.id === msg.id)
+  if (idx >= 0) c.messages.splice(idx, 1)
+  const user = c.messages.slice(0, idx).reverse().find((m) => m.role === 'user')
+  if (user) {
+    user.mode = 'chat'
+    delete user.runId
   }
   runCompletion(c)
 }
@@ -244,7 +276,7 @@ async function regenTitle() {
         </div>
         <!-- The component boundary scopes re-renders: streaming one message re-renders only its own bubble, so it doesn't re-parse markdown for every other visible message. -->
         <template v-for="m in visibleMessages" :key="m.id">
-          <ResearchBlock v-if="m.role === 'assistant' && m.runId" :message="m" :convo="convo" />
+          <ResearchBlock v-if="m.role === 'assistant' && m.runId" :message="m" :convo="convo" @answer="onResearchAnswer(m)" />
           <MessageBubble
             v-else
             :message="m"

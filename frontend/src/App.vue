@@ -4,6 +4,7 @@ import { ConfigProvider, TabsContent, TabsRoot, TooltipProvider } from 'reka-ui'
 import { locale } from './utils/prefs.js'
 import { authed, fetchModels, fetchSettings, getToken, logout } from './api/client.js'
 import { activePane, cacheModels, initStore, setGlobalSettings } from './state/store.js'
+import { syncActiveRuns } from './research/coordinator.js'
 import { initUsage } from './state/usage.js'
 import { dismiss, notify } from './utils/notify.js'
 import ConfirmModal from './components/ConfirmModal.vue'
@@ -31,6 +32,7 @@ onMounted(async () => {
   }
   if (getToken()) await loadSettings()
   else bootState.value = 'ready'
+  syncActiveRuns()
 })
 
 async function loadSettings() {

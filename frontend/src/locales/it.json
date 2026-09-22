@@ -219,8 +219,11 @@
     "resumeWithModels": "Riprendi con i modelli attuali",
     "missingRun": "Il registro di questa ricerca non è più disponibile.",
     "reportSurvives": "La relazione è ancora disponibile come “{name}”.",
+    "preparingRequest": "Analisi della richiesta con il modello di chat…",
+    "reconnecting": "Riconnessione alla ricerca…",
     "status": {
       "preparing": "preparazione",
+      "recovering": "riconnessione",
       "waiting_for_clarification": "in attesa di risposte",
       "researching": "ricerca",
       "writing": "scrittura",

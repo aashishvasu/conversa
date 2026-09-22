@@ -219,8 +219,11 @@
     "resumeWithModels": "Resume with current models",
     "missingRun": "Research turn without its run record.",
     "reportSurvives": "The report survives as \"{name}\".",
+    "preparingRequest": "Analyzing request with chat model…",
+    "reconnecting": "Reconnecting to research…",
     "status": {
       "preparing": "preparing",
+      "recovering": "reconnecting",
       "waiting_for_clarification": "waiting for answers",
       "researching": "researching",
       "writing": "writing",

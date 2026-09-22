@@ -25,6 +25,10 @@ const ERROR_KEYS = { no_such_run: 'errors.noSuchRun', unknown_effort: 'errors.un
 async function responseError(res) {
   try {
     const detail = (await res.json()).detail
+    if (Array.isArray(detail)) {
+      const msg = detail.map((d) => `${d.loc?.filter((x) => x !== 'body').join('.') || 'field'}: ${d.msg}`).join(', ')
+      return new Error(msg || tr('errors.server', { status: res.status }))
+    }
     if (detail && typeof detail === 'object') {
       const error = new Error(ERROR_KEYS[detail.code] ? tr(ERROR_KEYS[detail.code], detail) : typeof detail.message === 'string' ? detail.message : tr('errors.server', { status: res.status }))
       if (detail.code) error.code = detail.code
@@ -139,8 +143,8 @@ async function readSSE(res, onEvent) {
 }
 
 // --- Transient transfers ---------------------------------------------------------------
-// An export payload is held on the server under a phrase for a short TTL, then
-// retrieved by pasting the phrase on another device. Phrases never appear in URLs.
+// An export payload is held on the server under a phrase for a short TTL, then retrieved by pasting the phrase on another device.
+// Phrases never appear in URLs.
 
 export async function createTransfer(scope, data) {
   const res = await fetch('/api/transfers', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ scope, data }) })
@@ -157,8 +161,8 @@ export async function retrieveTransfer(phrase) {
 // Reconnect with the last seq seen and the events missed in between are replayed.
 
 // Prepare from the ordinary assembled system/messages context before a research placeholder exists.
-export async function prepareResearch(body) {
-  const res = await fetch('/api/research/prepare', { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) })
+export async function prepareResearch(body, signal) {
+  const res = await fetch('/api/research/prepare', { method: 'POST', headers: authHeaders(), body: JSON.stringify(body), signal })
   if (res.status === 400 || res.status === 502) throw await responseError(res)
   return (await check(res)).json()
 }
@@ -167,6 +171,20 @@ export async function startResearch(body) {
   const res = await fetch('/api/research', { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) })
   if (res.status === 400) throw await responseError(res)
   return (await check(res)).json()
+}
+
+export async function fetchResearchState(id, after = 0) {
+  const res = await fetch(`/api/research/${id}?after=${after}`, { headers: authHeaders(false) })
+  return (await check(res)).json()
+}
+
+export async function ackResearch(id) {
+  try {
+    const res = await fetch(`/api/research/${id}/ack`, { method: 'POST', headers: authHeaders(false) })
+    return (await check(res)).json()
+  } catch {
+    return null
+  }
 }
 
 // Done with this run.

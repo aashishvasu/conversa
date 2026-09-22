@@ -219,8 +219,11 @@
     "resumeWithModels": "Mit aktuellen Modellen fortsetzen",
     "missingRun": "Zu diesem Recherchebeitrag fehlt der Laufdatensatz.",
     "reportSurvives": "Der Bericht ist weiterhin als \"{name}\" vorhanden.",
+    "preparingRequest": "Anfrage wird mit dem Chat-Modell analysiert…",
+    "reconnecting": "Verbindung zur Recherche wird wiederhergestellt…",
     "status": {
       "preparing": "vorbereiten",
+      "recovering": "wiederverbinden",
       "waiting_for_clarification": "wartet auf Antworten",
       "researching": "recherchiert",
       "writing": "schreibt",

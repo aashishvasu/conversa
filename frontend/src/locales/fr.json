@@ -219,8 +219,11 @@
     "resumeWithModels": "Reprendre avec les modèles actuels",
     "missingRun": "Le suivi de cette recherche n'est plus disponible.",
     "reportSurvives": "Le rapport reste disponible sous le nom « {name} ».",
+    "preparingRequest": "Analyse de la demande avec le modèle de chat…",
+    "reconnecting": "Reconnexion à la recherche…",
     "status": {
       "preparing": "préparation",
+      "recovering": "reconnexion",
       "waiting_for_clarification": "en attente de réponses",
       "researching": "recherche",
       "writing": "rédaction",
