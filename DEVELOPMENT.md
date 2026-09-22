@@ -103,17 +103,23 @@ The frontend attaches each artifact to the assistant message that produced it (`
 
 ### Research
 
-`backend/research/runs.py` stores each active run as an `asyncio.Task` and event list. `gather.py` handles planning, searches, page reads, and notes. Runs have four phases: `plan`, `gather`, `gap`, and `report`.
+Research preparation uses the conversation's effective chat model. It returns either `answer`, which continues through normal chat, or a structured brief with an objective, deliverable, scope, constraints, and up to three consequential questions. The browser persists the original preparation input, brief, answers, selected research models, and browser-generated run id before starting work. A failed preparation retries against that same durable turn instead of appending another message.
 
-The client creates the run id and persists it with the conversation. Reusing a retained id resumes that run. A backend restart clears active runs and allows the client to start the saved id again. One `starting` or `running` run blocks new sends in its conversation. `MAX_ACTIVE_RUNS` (default 2) caps concurrent runs across the process; a start past the cap returns 429.
+`backend/research/runs.py` owns an iterative frontier. Each wave starts up to three pending tasks, `gather.py` searches and reads sources into excerpt-backed evidence, and a coordinator resolves, prunes, merges, or adds tasks from the combined findings. `state.py` checkpoints the brief, frontier, canonical source registry, evidence, gaps, decisions, budgets, and completed operations. Checkpoints stream to the browser after state transitions; a missing backend run restarts from the latest browser checkpoint without replaying completed operations.
 
-The final frame contains:
+URL canonicalization removes fragments and tracking parameters and deduplicates sources across the whole run. Breakers bound duplicate queries, task attempts, repeated fetch failures, no-progress waves, elapsed time, provider calls, tasks, and unique sources. A branch-local failure prunes that work where possible; authentication, credit, and invalid-model failures end the run with their provider detail. A run with useful evidence can end `partial` when a breaker or unresolved citation gap prevents a complete answer.
+
+`report.py` asks the writer to cite evidence IDs, rejects unknown IDs, runs one support-verification and correction pass, then renders IDs as links to registered source URLs. A report-generation error retains the checkpoint and exposes recovery with the current research models.
+
+The client owns run ids and durable state. Reusing a retained id reconnects to that run; after a backend restart it recreates the run from the checkpoint. One `starting`, `waiting_for_clarification`, or `running` run blocks new sends in its conversation. `MAX_ACTIVE_RUNS` (default 2) caps concurrent server runs. `RESEARCH_MAX_WAVES`, `RESEARCH_MAX_TASKS`, `RESEARCH_MAX_CALLS`, `RESEARCH_MAX_SOURCES`, and `RESEARCH_MAX_SECONDS` bound each run.
+
+The terminal payload contains the report plus its audit material:
 
 ```text
-{name, summary, report: {name, text}, sections: [{question, notes: [{note, url}]}]}
+{name, summary, report: {name, text}, sections, evidence, sources, gaps, decisions}
 ```
 
-`frontend/src/state/runs.js` `finishRun` saves the report as a document, links it to the conversation, and records spend. `ResearchBlock.vue` calls `finishRun`, awaits `persistNow`, then calls `discardResearch` to tell the backend to forget the run.
+`frontend/src/state/runs.js` saves `done` and `partial` reports as documents, links them to the conversation, and records spend once. `ResearchBlock.vue` shows the evolving task/source/evidence trace, persists each checkpoint, and forgets the backend run only after terminal state is durable.
 
 ### Transfers
 

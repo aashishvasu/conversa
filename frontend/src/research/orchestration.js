@@ -12,12 +12,6 @@ import { attachedDocs, createRun, currentConversation, images, persistNow, works
 import { notify } from '../utils/notify.js'
 import { showThinkingAndSearch } from '../utils/prefs.js'
 
-function clarificationContent(questions) {
-  return questions.length
-    ? `Before I research this, please answer:\n\n${questions.map((q) => `- ${q}`).join('\n')}`
-    : 'Before I research this, please provide the missing detail.'
-}
-
 // Orchestrates chat completion and research routing.
 // Both share the streaming/preparing flags and the live trace, so they live together.
 // Called once per ChatPane mount; lifecycle hooks (wake lock, visibility) bind to that component.
@@ -111,28 +105,24 @@ export function useStreamOrchestration() {
         runCompletion(c)
         return
       }
-      if (prepared.action === 'clarify') {
-        c.messages.push({
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: clarificationContent(prepared.questions),
-          // Normal text stays visible to preparation; this preserves the original standalone intent for export/debugging.
-          researchPreparation: { originalRequest: user.content, goal: prepared.goal, questions: prepared.questions },
-          createdAt: Date.now(),
-        })
-        await persistNow()
-        return
-      }
+      const brief = prepared.brief || { objective: prepared.goal, deliverable: prepared.goal, scope: [], constraints: [], questions: [] }
       const placeholder = { id: crypto.randomUUID(), role: 'assistant', content: '', mode: 'research', createdAt: Date.now() }
       const researchSettings = effectiveSettings(c, RESEARCH_KEYS)
-      const run = createRun(c, user.id, placeholder.id, input, prepared, researchSettings)
+      const run = createRun(c, user.id, placeholder.id, { ...input, model: chatSettings.model }, { brief }, researchSettings)
       user.runId = placeholder.runId = run.id
       c.messages.push(placeholder)
       if (c.title === tr('sidebar.newConversation')) c.title = user.content.slice(0, 60)
       // ResearchBlock owns the one initial POST after this durable record reaches IndexedDB.
       await persistNow()
     } catch (error) {
-      notify({ key: 'research:prepare', text: error.message, foreground: true })
+      const placeholder = { id: crypto.randomUUID(), role: 'assistant', content: '', mode: 'research', createdAt: Date.now() }
+      const run = createRun(c, user.id, placeholder.id, { ...input, model: chatSettings.model }, { brief: { objective: user.content, deliverable: user.content, scope: [], constraints: [], questions: [] } }, effectiveSettings(c, RESEARCH_KEYS))
+      run.status = 'error'
+      run.preparationFailed = true
+      run.error = error.message
+      user.runId = placeholder.runId = run.id
+      c.messages.push(placeholder)
+      await persistNow()
     } finally {
       preparing.value = false
     }

@@ -2,9 +2,19 @@ import { state } from './persistence.js'
 import { createDoc } from './docs.js'
 import { foldRunUsage } from './usage.js'
 
+export function migrateRun(r) {
+  if (!r || typeof r !== 'object') return null
+  const next = { ...r, events: Array.isArray(r.events) ? r.events : [], checkpoint: r.checkpoint ?? null, retryFailed: r.retryFailed ?? false, spendLedgered: r.spendLedgered ?? false }
+  next.prepared = r.prepared?.brief
+    ? { ...r.prepared, brief: { ...r.prepared.brief, questions: Array.isArray(r.prepared.brief.questions) ? r.prepared.brief.questions : [] } }
+    : { brief: { objective: r.prepared?.goal || '', deliverable: r.prepared?.goal || '', scope: [], constraints: [], questions: r.prepared?.questions || [] }, answers: {} }
+  next.answers = r.answers || next.prepared.answers || {}
+  return next
+}
+
 export function validRun(r) {
-  // The retired draft format has no immutable prepared input and cannot resume honestly.
-  return Boolean(r?.id && r.convoId && r.input && r.prepared?.goal && r.settings)
+  const run = migrateRun(r)
+  return Boolean(run?.id && run.convoId && run.input && run.prepared?.brief && run.settings)
 }
 
 export function createRun(convo, promptMessageId, resultMessageId, input, prepared, settings) {
@@ -18,11 +28,14 @@ export function createRun(convo, promptMessageId, resultMessageId, input, prepar
     sourceWorkspaceId: convo.workspaceId,
     // Snapshot these before the POST. A later settings edit cannot change an in-flight turn.
     input: structuredClone(input),
-    prepared: structuredClone(prepared),
+    prepared: structuredClone({ brief: prepared.brief || prepared, answers: prepared.answers || {} }),
+    answers: {},
+    checkpoint: null,
+    retryFailed: false,
     settings: structuredClone(settings),
     // The backend accepts this browser-generated id idempotently, so it survives a lost start response.
     serverId: id,
-    status: 'starting',
+    status: prepared.brief?.questions?.length ? 'waiting_for_clarification' : 'starting',
     phase: '',
     events: [],
     spend: null,
@@ -46,7 +59,7 @@ export function removeRun(id) {
 
 // The run blocking new sends in this conversation, or null.
 export function activeRunOf(convoId) {
-  return state.runs.find((r) => r.convoId === convoId && ['starting', 'running'].includes(r.status)) || null
+  return state.runs.find((r) => r.convoId === convoId && ['starting', 'waiting_for_clarification', 'running'].includes(r.status)) || null
 }
 
 // Land a run's final stream frame: status, then the report into the doc store, then the spend fold.
@@ -57,10 +70,11 @@ export function finishRun(run, frame) {
     phase: frame.phase,
     payload: frame.payload,
     spend: frame.spend ?? run.spend,
+    checkpoint: frame.checkpoint ?? run.checkpoint,
     updatedAt: Date.now(),
   })
   const convo = state.conversations.find((c) => c.id === run.convoId)
-  if (frame.status === 'done' && frame.payload && !run.reportDocId) {
+  if (['done', 'partial'].includes(frame.status) && frame.payload && !run.reportDocId) {
     const doc = createDoc({
       name: `${frame.payload.name} report.md`,
       text: frame.payload.report.text,

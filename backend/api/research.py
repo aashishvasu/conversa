@@ -1,64 +1,88 @@
-"""The research preparation and run endpoints."""
+"""Research preparation and run endpoints."""
 
 import asyncio
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from api.auth import require_auth
 from api.chat import Msg
 from api.sse import sse
 from providers import DEFAULT_MODEL, complete_messages
 from research import runs
+from research.parsing import object_from_text
+from research.state import validate_checkpoint
+from research.prompts import PREPARE_SYSTEM
 
 router = APIRouter()
 
-PREPARE_SYSTEM = """Decide how to handle the latest user request in this conversation.
 
-Research capability is enabled for every request. That alone is not a reason to research. Default to `answer` and reserve `research` for requests that explicitly ask for investigation or whose answer genuinely requires gathering multiple external sources. Greetings, ordinary conversation, advice, explanations, writing, coding help that can be answered from the supplied context, and follow-up discussion are `answer`. Choose `clarify` only when neither an answer nor useful research can proceed without user input.
+class Clarification(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    question: str
+    reason: str
+    default: str
 
-Return JSON only, with exactly these keys: action, goal, questions.
-`action` is one of `answer`, `clarify`, or `research`.
-`goal` is a standalone, specific restatement of the user's intended outcome. It must retain the subject and constraints from the conversation; never use context-dependent wording such as "research this".
-`questions` is an array of zero to five concise questions. It is normally empty unless action is `clarify`."""
+    @field_validator("question", "reason", "default")
+    @classmethod
+    def non_empty(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("brief fields must not be empty")
+        return value
 
 
-class PrepareRequest(BaseModel):
-    messages: list[Msg]
-    system: str | list[str] | None = None
-    model: str | None = None
+class ResearchBrief(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    objective: str
+    deliverable: str
+    scope: list[str]
+    constraints: list[str]
+    questions: list[Clarification] = Field(default_factory=list)
+
+    @field_validator("objective", "deliverable")
+    @classmethod
+    def non_empty(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("brief fields must not be empty")
+        return value
+
+    @field_validator("scope", "constraints")
+    @classmethod
+    def non_empty_list(cls, value):
+        if not value or any(not isinstance(item, str) or not item.strip() for item in value):
+            raise ValueError("brief list fields must contain non-empty strings")
+        return [item.strip() for item in value]
+
+    @field_validator("questions")
+    @classmethod
+    def limited_questions(cls, value):
+        if len(value) > 3:
+            raise ValueError("brief has at most three clarification questions")
+        return value
 
 
 class PrepareResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
+    action: Literal["answer", "research"]
+    brief: ResearchBrief | None
 
-    action: Literal["answer", "clarify", "research"]
-    goal: str
-    questions: list[str]
-
-    @field_validator("goal")
-    @classmethod
-    def standalone_goal(cls, value):
-        value = value.strip()
-        if not value:
-            raise ValueError("goal must not be empty")
-        return value
-
-    @field_validator("questions")
-    @classmethod
-    def valid_questions(cls, value):
-        if len(value) > 5 or any(not question.strip() for question in value):
-            raise ValueError("questions must contain at most five non-empty strings")
-        return [question.strip() for question in value]
+    @model_validator(mode="after")
+    def matching_brief(self):
+        if self.action == "research" and self.brief is None:
+            raise ValueError("research requires a brief")
+        if self.action == "answer" and self.brief is not None:
+            raise ValueError("answer must not include a brief")
+        return self
 
 
 def parse_prepare_response(text):
-    """Accept only the JSON object that the browser contract understands."""
     try:
-        return PrepareResponse.model_validate_json(text)
-    except (ValidationError, ValueError) as error:
+        return PrepareResponse.model_validate(object_from_text(text))
+    except (ValidationError, ValueError, TypeError) as error:
         raise ValueError("preparation model returned an invalid decision") from error
 
 
@@ -69,37 +93,69 @@ def prepare_system(system):
 
 
 @router.post("/api/research/prepare", response_model=PrepareResponse)
-async def research_prepare(req: PrepareRequest, _=Depends(require_auth)):
+async def research_prepare(req: "PrepareRequest", _=Depends(require_auth)):
     try:
-        text = await complete_messages(
-            req.model or DEFAULT_MODEL,
-            prepare_system(req.system),
-            [message.model_dump() for message in req.messages],
-            max_tokens=1024,
-        )
+        text = await complete_messages(req.model or DEFAULT_MODEL, prepare_system(req.system), [message.model_dump() for message in req.messages], max_tokens=1400)
         return parse_prepare_response(text)
     except ValueError as error:
         raise HTTPException(502, {"code": "research_prepare_failed", "message": str(error)}) from error
     except Exception as error:
-        raise HTTPException(502, {"code": "research_prepare_failed", "message": "research preparation failed"}) from error
+        # Provider messages include actionable auth, quota, and model details.
+        raise HTTPException(502, {"code": "research_prepare_failed", "message": str(error)}) from error
+
+
+class PrepareRequest(BaseModel):
+    messages: list[Msg]
+    system: str | list[str] | None = None
+    model: str | None = None
 
 
 class ResearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
     id: str
-    goal: str
+    brief: ResearchBrief | None = None
+    goal: str | None = None
     title: str | None = None
-    models: dict[str, str]  # search | note | report -> model id
-    depth: int = 6  # sources per subquestion
+    models: dict[str, str]
+    answers: dict[str, str]
+    depth: int = 6
     prompts: dict[str, str] | None = None
+    checkpoint: dict | None = None
+    restart_failed: bool = False
+
+    @field_validator("models")
+    @classmethod
+    def research_models(cls, value):
+        if set(value) != {"search", "note", "report"} or any(not isinstance(model, str) or not model.strip() for model in value.values()):
+            raise ValueError("models must contain non-empty search, note, and report IDs")
+        return {role: model.strip() for role, model in value.items()}
+
+    @field_validator("answers")
+    @classmethod
+    def non_empty_answers(cls, value):
+        if any(not isinstance(key, str) or not key.strip() or not isinstance(answer, str) or not answer.strip() for key, answer in value.items()):
+            raise ValueError("answers must have non-empty string keys and values")
+        return {key.strip(): answer.strip() for key, answer in value.items()}
+
+    @model_validator(mode="after")
+    def require_brief(self):
+        if self.brief is None and not self.goal:
+            raise ValueError("brief is required")
+        return self
 
 
 @router.post("/api/research")
 async def research_start(req: ResearchRequest, _=Depends(require_auth)):
     try:
-        run, resumed = runs.start(req.goal, req.models, depth=max(1, min(req.depth, 12)), title=req.title, prompts=req.prompts, run_id=req.id)
+        checkpoint_data = validate_checkpoint(req.checkpoint) if req.checkpoint is not None else None
+        brief = req.brief.model_dump() if req.brief else {"objective": req.goal, "deliverable": "A sourced research brief", "scope": ["The requested subject"], "constraints": ["Use current public sources"], "questions": []}
+        brief["answers"] = req.answers
+        run, resumed = runs.start(brief, req.models, depth=max(1, min(req.depth, 12)), title=req.title, prompts=req.prompts, run_id=req.id, checkpoint_data=checkpoint_data, restart_failed=req.restart_failed)
     except runs.RunLimitError as error:
         raise HTTPException(429, {"code": "too_many_runs", "message": str(error)}) from error
-    return {"id": run.id, "resumed": resumed, "status": run.status, "phase": run.phase}
+    except ValueError as error:
+        raise HTTPException(400, {"code": "invalid_checkpoint", "message": str(error)}) from error
+    return {"id": run.id, "resumed": resumed, "status": run.status, "phase": run.phase, "checkpoint": run.data}
 
 
 @router.get("/api/research/{run_id}")
@@ -113,11 +169,6 @@ async def research_state(run_id: str, after: int = 0, _=Depends(require_auth)):
 
 @router.get("/api/research/{run_id}/stream")
 async def research_stream(run_id: str, after: int = 0, _=Depends(require_auth)):
-    """Replay this run's events from `after`, then tail it live until it finishes.
-
-    Reconnecting with the last seq you saw is lossless, because the events are a list rather than a broadcast.
-    """
-
     run = runs.RUNS.get(run_id)
     if not run:
         raise HTTPException(404, {"code": "no_such_run", "message": "no such run, or it ended before you came back"})
@@ -132,9 +183,6 @@ async def research_stream(run_id: str, after: int = 0, _=Depends(require_auth)):
             if run.status != "running":
                 yield sse(kind="final", **run.state(len(run.events)))
                 return
-            # Gather and report each run for a minute or more without emitting an event.
-            # A connection silent that long is one a proxy closes, and the client cannot tell that from a finished run.
-            # The tick carries no seq, so it never counts toward the caller's replay position.
             yield sse(kind="tick", phase=run.phase, spend=run.spend.as_dict())
             await asyncio.sleep(1)
 
@@ -143,11 +191,6 @@ async def research_stream(run_id: str, after: int = 0, _=Depends(require_auth)):
 
 @router.delete("/api/research/{run_id}")
 async def research_discard(run_id: str, _=Depends(require_auth)):
-    """Done with this run.
-
-    Running means cancel, and the run stays so the stream can deliver its final frame.
-    Finished means forget, which is what the client calls once it has stored the payload.
-    """
     run = runs.RUNS.get(run_id)
     if not run:
         raise HTTPException(404, {"code": "no_such_run", "message": "no such run"})

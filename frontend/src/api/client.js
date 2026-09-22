@@ -26,12 +26,13 @@ async function responseError(res) {
   try {
     const detail = (await res.json()).detail
     if (detail && typeof detail === 'object') {
-      if (ERROR_KEYS[detail.code]) return tr(ERROR_KEYS[detail.code], detail)
-      if (typeof detail.message === 'string') return detail.message
+      const error = new Error(ERROR_KEYS[detail.code] ? tr(ERROR_KEYS[detail.code], detail) : typeof detail.message === 'string' ? detail.message : tr('errors.server', { status: res.status }))
+      if (detail.code) error.code = detail.code
+      return error
     }
-    if (typeof detail === 'string') return detail
+    if (typeof detail === 'string') return new Error(detail)
   } catch { /* use the status fallback */ }
-  return tr('errors.server', { status: res.status })
+  return new Error(tr('errors.server', { status: res.status }))
 }
 
 async function check(res) {
@@ -39,7 +40,7 @@ async function check(res) {
     logout()
     throw new Error(tr('errors.sessionExpired'))
   }
-  if (!res.ok) throw new Error(await responseError(res))
+  if (!res.ok) throw await responseError(res)
   maybeRefresh()
   return res
 }
@@ -78,7 +79,7 @@ export async function login(password) {
     body: JSON.stringify({ password }),
   })
   if (res.status === 401) throw new Error(tr('errors.wrongPassword'))
-  if (!res.ok) throw new Error(await responseError(res))
+  if (!res.ok) throw await responseError(res)
   const { token } = await res.json()
   localStorage.setItem(TOKEN_KEY, token)
 }
@@ -143,7 +144,7 @@ async function readSSE(res, onEvent) {
 
 export async function createTransfer(scope, data) {
   const res = await fetch('/api/transfers', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ scope, data }) })
-  if (res.status === 413 || res.status === 507) throw new Error(await responseError(res))
+  if (res.status === 413 || res.status === 507) throw await responseError(res)
   return (await check(res)).json()
 }
 
@@ -158,13 +159,13 @@ export async function retrieveTransfer(phrase) {
 // Prepare from the ordinary assembled system/messages context before a research placeholder exists.
 export async function prepareResearch(body) {
   const res = await fetch('/api/research/prepare', { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) })
-  if (res.status === 400 || res.status === 502) throw new Error(await responseError(res))
+  if (res.status === 400 || res.status === 502) throw await responseError(res)
   return (await check(res)).json()
 }
 
 export async function startResearch(body) {
   const res = await fetch('/api/research', { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) })
-  if (res.status === 400) throw new Error(await responseError(res))
+  if (res.status === 400) throw await responseError(res)
   return (await check(res)).json()
 }
 
@@ -175,7 +176,6 @@ export async function discardResearch(id) {
   return (await check(await fetch(`/api/research/${id}`, { method: 'DELETE', headers: authHeaders(false) }))).json()
 }
 
-// Tails a run until it ends. onEvent gets every event; the last one is kind 'final' and carries the payload.
 export async function streamResearch(id, after, onEvent, signal) {
   const res = await fetch(`/api/research/${id}/stream?after=${after || 0}`, { headers: authHeaders(false), signal })
   if (res.status === 404) {
