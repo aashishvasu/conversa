@@ -75,6 +75,8 @@ assert PROVIDERS["compatible"]["base_url_env"] == "OPENAI_COMPATIBLE_BASE_URL"
 deepseek_models = {model["id"] for model in parse_models(PROVIDERS["deepseek"]["models"])}
 assert deepseek_models == {"deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-flash", "deepseek/deepseek-flash"}, deepseek_models
 assert cost("deepseek", "deepseek-flash", 1_000_000, 0) == (0.3, True)
+# DeepSeek's Responses API ignores web_search and other built-in tools, so the entry must not claim one.
+assert not PROVIDERS["deepseek"].get("search_tool"), PROVIDERS["deepseek"]
 
 assert takes_reasoning("openai", "gpt-5.6-sol") and not takes_reasoning("openai", "gpt-4o")
 assert takes_reasoning("deepseek", "deepseek-v4-flash") and takes_reasoning("deepseek", "deepseek-flash")

@@ -69,13 +69,13 @@ async def _resilience_checks():
         async def create(self, **kwargs):
             return SimpleNamespace(output=response.output, usage=SimpleNamespace(input_tokens=3, output_tokens=4))
 
-    real_client = g.providers.CLIENTS["deepseek"]
-    g.providers.CLIENTS["deepseek"] = SimpleNamespace(responses=FakeResponses())
+    real_client = g.providers.CLIENTS["openai"]
+    g.providers.CLIENTS["openai"] = SimpleNamespace(responses=FakeResponses())
     spend = Spend()
     try:
-        await g._search_responses("q", "deepseek-v4-pro", 2, "deepseek", "prompt", spend, "deepseek/deepseek-v4-pro")
+        await g._search_responses("q", "gpt-5.6-sol", 2, "openai", "prompt", spend, "openai/gpt-5.6-sol")
     finally:
-        g.providers.CLIENTS["deepseek"] = real_client
+        g.providers.CLIENTS["openai"] = real_client
     assert (spend.calls, spend.input, spend.output) == (1, 3, 4)
 
     async def dead_note(question, page, model_id, spend=None, note_prompt=None):

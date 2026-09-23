@@ -41,7 +41,7 @@ async def search_web(arguments: SearchWebArguments) -> ToolOutput:
     try:
         hits = await search.search(arguments.query, arguments.limit)
     except Exception as error:
-        raise ToolUnavailable("app web search failed") from error
+        raise ToolUnavailable(f"app web search failed: {error}") from error
     if hits is None:
         raise ToolUnavailable("app web search is not configured")
     result = SearchWebOutput(results=[SearchHit.model_validate(hit) for hit in hits])
@@ -59,7 +59,7 @@ async def fetch_url(arguments: FetchUrlArguments) -> ToolOutput:
     except fetch.FetchPolicyError as error:
         raise ToolRejected(str(error)) from error
     except fetch.FetchError as error:
-        raise ToolFailed("app URL fetch failed") from error
+        raise ToolFailed(f"app URL fetch failed: {error}") from error
     result = FetchUrlOutput.model_validate(page)
     return ToolOutput(
         result,
