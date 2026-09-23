@@ -71,6 +71,7 @@ async def checks():
     failed = await execute_tool(tools["fetch_url"], ToolCall("f3", "fetch_url", {"url": "https://example.com/slow", "topic": "slow"}))
     fetch.fetch = real_fetch
     assert failed.error == "tool_error", failed
+    assert failed.trace == {"status": "error", "code": "tool_error", "message": "app URL fetch failed: timed out"}, failed
     assert failed.artifact is None, failed
 
     rejected = await execute_tool(tools["fetch_url"], ToolCall("f4", "fetch_url", {"url": "file:///etc/passwd", "topic": "passwords"}))

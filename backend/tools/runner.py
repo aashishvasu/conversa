@@ -20,7 +20,7 @@ def error_result(call: ToolCall, code: str, message: str) -> ToolResult:
         call.id,
         call.name,
         json.dumps({"error": {"code": code, "message": message}}, separators=(",", ":")),
-        {"status": "error", "code": code},
+        {"status": "error", "code": code, "message": message},
         code,
     )
 

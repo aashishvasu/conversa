@@ -74,7 +74,7 @@ def _error(call: ToolCall, code: str, message: str) -> ToolResult:
         call_id=call.id,
         name=call.name,
         content=_json({"error": {"code": code, "message": message}}),
-        trace={"status": "error", "code": code},
+        trace={"status": "error", "code": code, "message": message},
         error=code,
     )
 

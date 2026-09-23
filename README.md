@@ -127,7 +127,7 @@ Set these as environment variables when you start the container.
 |----------|----------|---------|--------------|
 | `ANTHROPIC_API_KEY` | one key | _(none)_ | Your Anthropic key. Stays on the server. |
 | `OPENAI_API_KEY` | one key | _(none)_ | Your OpenAI key. Stays on the server. |
-| `DEEPSEEK_API_KEY` | one key | _(none)_ | Your DeepSeek key. DeepSeek models and hosted web search appear once it is set. |
+| `DEEPSEEK_API_KEY` | one key | _(none)_ | Your OpenAI key. Stays on the server. |
 | `OPENAI_COMPATIBLE_API_KEY` | one key | _(none)_ | Key for one generic chat.completions endpoint. Requires `OPENAI_COMPATIBLE_BASE_URL`. |
 | `OPENAI_COMPATIBLE_BASE_URL` | with compatible key | _(none)_ | Base URL for that endpoint, for example `https://api.moonshot.ai/v1`. |
 | `APP_PASSWORD` | **yes** | _(none)_ | The password used to log in. |

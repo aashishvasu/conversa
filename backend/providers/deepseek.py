@@ -13,7 +13,8 @@ PROVIDER = {
     "dialect": "responses",
     "key_env": "DEEPSEEK_API_KEY",
     "base_url": "https://api.deepseek.com",
-    "search_tool": "web_search",
+    # WHY: no search_tool; DeepSeek's Responses API ignores web_search and every other built-in tool type,
+    # so advertising one would send the chat fallback and research gather down a silent no-op path.
     "prices": PRICES,
     "models": "deepseek/deepseek-v4-pro:DeepSeek V4 Pro,deepseek/deepseek-v4-flash:DeepSeek V4 Flash,deepseek/deepseek-flash:DeepSeek V4.1 Flash",
 }
