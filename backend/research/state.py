@@ -3,10 +3,21 @@
 from copy import deepcopy
 from tools.fetch import canonicalize
 
-CHECKPOINT_VERSION = 1
+CHECKPOINT_VERSION = 2
+
+
+def empty_theory():
+    return {
+        "hypothesis": "",
+        "confidence": "low",
+        "supporting": [],
+        "contradicting": [],
+        "revised_at_wave": 0,
+    }
 
 
 def empty_state(brief, task):
+    scope = brief.get("scope", []) if isinstance(brief, dict) else []
     return {
         "version": CHECKPOINT_VERSION,
         "revision": 0,
@@ -14,6 +25,8 @@ def empty_state(brief, task):
         "frontier": [{**task, "status": "pending", "attempts": 0}],
         "sources": {},
         "evidence": [],
+        "theory": empty_theory(),
+        "coverage": {item: [] for item in scope if isinstance(item, str)},
         "gaps": [],
         "decisions": [],
         "breakers": [],
@@ -32,7 +45,8 @@ def validate_checkpoint(value):
     """Validate and copy the browser-owned checkpoint before it enters a run."""
     if not isinstance(value, dict):
         raise ValueError("checkpoint must be an object")
-    if value.get("version") != CHECKPOINT_VERSION:
+    version = value.get("version")
+    if version not in {1, CHECKPOINT_VERSION}:
         raise ValueError("unsupported checkpoint version")
     if not isinstance(value.get("revision"), int) or value["revision"] < 0:
         raise ValueError("checkpoint revision must be a non-negative integer")
@@ -81,7 +95,29 @@ def validate_checkpoint(value):
         if item["id"] in evidence_ids:
             raise ValueError("checkpoint contains duplicate evidence IDs")
         evidence_ids.add(item["id"])
-    return deepcopy(value)
+    copied = deepcopy(value)
+    copied["version"] = CHECKPOINT_VERSION
+    if "theory" not in copied or not isinstance(copied["theory"], dict):
+        copied["theory"] = empty_theory()
+    else:
+        th = copied["theory"]
+        copied["theory"] = {
+            "hypothesis": str(th.get("hypothesis", "")),
+            "confidence": th.get("confidence") if th.get("confidence") in {"low", "medium", "high"} else "low",
+            "supporting": [str(i) for i in th.get("supporting", []) if isinstance(i, str)],
+            "contradicting": [str(i) for i in th.get("contradicting", []) if isinstance(i, str)],
+            "revised_at_wave": int(th.get("revised_at_wave", 0)) if isinstance(th.get("revised_at_wave"), (int, float)) else 0,
+        }
+    if "coverage" not in copied or not isinstance(copied["coverage"], dict):
+        copied["coverage"] = {item: [] for item in brief.get("scope", []) if isinstance(item, str)}
+    else:
+        cov = {}
+        for scope_item in brief.get("scope", []):
+            if isinstance(scope_item, str):
+                items = copied["coverage"].get(scope_item, [])
+                cov[scope_item] = [str(i) for i in items if isinstance(i, str)] if isinstance(items, list) else []
+        copied["coverage"] = cov
+    return copied
 
 
 def checkpoint(state):

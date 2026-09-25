@@ -3,7 +3,7 @@
 from tools import TOOL_REGISTRY, ToolConfigError, resolve_enabled_tools, resolve_research_tools
 
 assert [tool.name for tool in resolve_research_tools("search")] == ["search_web"]
-assert resolve_research_tools("note") == []
+assert [tool.name for tool in resolve_research_tools("note")] == ["fetch_url"]
 assert resolve_research_tools("unknown") == []
 
 expected_tools = {"search_web", "fetch_url", "datetime", "calculator", "random"}

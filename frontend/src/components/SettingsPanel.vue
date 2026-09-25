@@ -259,6 +259,22 @@ async function remove() {
           </div>
           <UiNumberField :model-value="eff('research_depth')" :label="$t('research.sourcesPerQuestion')" :min="1" :max="12" @update:model-value="setOv('research_depth', $event)" />
         </div>
+
+        <div>
+          <div class="mb-1 flex items-center justify-between text-muted">
+            <span>{{ (eff('research_min_sources') ?? 8) }} · {{ (eff('research_max_sources') ?? 24) }}</span>
+            <OverrideReset :overridden="overridden('research_min_sources') || overridden('research_max_sources')" @use-global="reset('research_min_sources'); reset('research_max_sources')" />
+          </div>
+          <UiSlider
+            :model-value="[eff('research_min_sources') ?? 8, eff('research_max_sources') ?? 24]"
+            :label="$t('common.decrease')"
+            :second-label="$t('common.increase')"
+            :min="8"
+            :max="300"
+            :step="1"
+            @update:model-value="setOv('research_min_sources', $event[0]); setOv('research_max_sources', $event[1])"
+          />
+        </div>
       </TabsContent>
 
       <TabsContent value="data" class="space-y-3 outline-none">

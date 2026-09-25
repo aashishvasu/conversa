@@ -1,27 +1,39 @@
 """Deterministic search, fetch, and evidence extraction."""
 
 import asyncio
+import json
 import re
 
 import providers
 from providers import complete
 from tools import fetch as app_fetch
 from tools import search as app_search
+from tools.conversa_tool import ToolCall, execute_tool
 from tools.fetch import canonicalize
-from .parsing import object_from_text
+from tools.registry import resolve_research_tools
+from .parsing import Note, note_from_text, object_from_text
 from .prompts import PROMPTS
 
+SCAN_MULTIPLIER = 4
+TRIAGE_MAX_TOKENS = 300
 SEARCH_MAX_USES = 6
 FETCH_CONCURRENCY = 6
 NOTE_MAX_TOKENS = 1500
+NOTE_MAX_PAGES = 3
 NOTHING = "NOTHING RELEVANT"
+PAGE_HINT = '\n\nIf you need more of the document, reply with only {"fetch_offset": OFFSET} to read the next window.'
+FATAL_TEXT = ("unauthorized", "forbidden", "401", "403", "credit", "quota", "invalid model", "authentication", "api key")
+RETRYABLE_TEXT = ("timeout", "timed out", "rate", "429", "502", "503", "504", "connection", "temporarily")
+
+
+def _mentions_fatal(text):
+    return any(word in text for word in FATAL_TEXT)
 
 
 def _fatal_provider(error):
     if isinstance(error, app_fetch.FetchError):
         return False
-    text = str(error).lower()
-    return any(word in text for word in ("unauthorized", "forbidden", "401", "403", "credit", "quota", "invalid model", "authentication", "api key"))
+    return _mentions_fatal(str(error).lower())
 
 
 def _retryable(error):
@@ -30,9 +42,9 @@ def _retryable(error):
     if isinstance(error, app_fetch.FetchError):
         return error.status is None or error.status >= 500 or error.status == 429
     text = str(error).lower()
-    if any(word in text for word in ("unauthorized", "forbidden", "401", "403", "credit", "quota", "invalid model", "authentication", "api key")):
+    if _mentions_fatal(text):
         return False
-    return any(word in text for word in ("timeout", "timed out", "rate", "429", "502", "503", "504", "connection", "temporarily"))
+    return any(word in text for word in RETRYABLE_TEXT)
 
 
 async def _retry(call, retries=2):
@@ -109,11 +121,65 @@ def _hosted_finder(provider):
 async def note(question, page, model_id, spend=None, note_prompt=None):
     prompt = f"Research question: {question}\n\nSource: {page.get('title') or page['url']} ({page['url']})\n\n<document>\n{page['content']}\n</document>"
     text = await complete(model_id, note_prompt or PROMPTS["note"], prompt, max_tokens=NOTE_MAX_TOKENS, spend=spend)
-    return None if not text or NOTHING in text[:80] else text
+    if not text or NOTHING in text[:80]:
+        return None
+    parsed = note_from_text(text)
+    return parsed if parsed and parsed.relevant else None
 
 
-async def _page(url, question):
-    return await app_fetch.fetch(url, topic=question)
+async def _page(url, question, offset=0):
+    return await app_fetch.fetch(url, topic=question, offset=offset)
+
+
+async def _page_window(url, question, offset):
+    """Read one further window of a page through the note stage's fetch_url tool."""
+    tool = next((candidate for candidate in resolve_research_tools("note") if candidate.name == "fetch_url"), None)
+    if tool is None:
+        return None
+    call = ToolCall(id=f"page-{offset}", name=tool.name, arguments={"url": url, "topic": question, "offset": offset})
+    result = await execute_tool(tool, call)
+    return None if result.error else json.loads(result.content)
+
+
+def _dedupe_claims(claims):
+    seen, unique = set(), []
+    for claim in claims:
+        key = (claim.text, claim.stance)
+        if key not in seen:
+            seen.add(key)
+            unique.append(claim)
+    return unique
+
+
+async def _note_windows(question, url, page, note_model, spend, note_prompt):
+    """Note one source, following the note model's requests for later windows of the same page."""
+    gists, claims = [], []
+    loop, page_deadline = asyncio.get_running_loop(), None
+    for page_index in range(NOTE_MAX_PAGES):
+        next_offset = page.get("nextOffset")
+        hint = PAGE_HINT.replace("OFFSET", str(next_offset)) if next_offset is not None else ""
+        note_obj = await _retry(lambda: note(question, page, note_model, spend=spend, note_prompt=note_prompt + hint))
+        if note_obj is None:
+            break
+        if note_obj.gist:
+            gists.append(note_obj.gist)
+        claims.extend(note_obj.claims)
+        if next_offset is None or note_obj.fetch_offset != next_offset or note_obj.fetch_offset == page.get("offset") or page_index + 1 == NOTE_MAX_PAGES:
+            break
+        page_deadline = page_deadline or loop.time() + app_fetch.FETCH_DEADLINE
+        remaining = page_deadline - loop.time()
+        if remaining <= 0:
+            break
+        try:
+            window = await asyncio.wait_for(_page_window(url, question, note_obj.fetch_offset), remaining)
+        except asyncio.TimeoutError:
+            break
+        if window is None:
+            break
+        page = window
+    if not gists and not claims:
+        return None
+    return Note(gist=" ".join(gists), claims=_dedupe_claims(claims))
 
 
 def _next_source_id(registry, evidence):
@@ -138,6 +204,61 @@ async def reformulate_query(question, brief, model, spend=None):
     return [question]
 
 
+def _triage_picks(payload, keep, count):
+    """Extract 1-based candidate indices from a triage response, or None when unusable."""
+    if isinstance(payload, dict):
+        payload = next((value for value in payload.values() if isinstance(value, list)), None)
+    if not isinstance(payload, list):
+        return None
+    picks = []
+    for value in payload:
+        try:
+            index = int(value)
+        except (TypeError, ValueError):
+            return None
+        if not 1 <= index <= count or index in picks:
+            continue
+        picks.append(index)
+    return picks or None
+
+
+async def _triage(sources, question, keep, spend):
+    """Rank the scan set on the utility model and return the top `keep` candidates.
+
+    Classification failure falls back to the search ranking rather than ending the task;
+    a fatal provider error still propagates.
+    """
+    if len(sources) <= keep:
+        return sources
+    lines = []
+    for index, source in enumerate(sources, 1):
+        parts = [str(index), source.get("title") or "", str(source["url"])]
+        if source.get("snippet"):
+            parts.append(source["snippet"])
+        lines.append(" | ".join(parts))
+    system = (
+        "You are a research triage assistant. Given a research question and numbered search-result "
+        "candidates, select the candidates most likely to contain relevant, substantive information. "
+        f"Return ONLY a JSON array of at most {keep} candidate numbers (1-based, most relevant first)."
+    )
+    prompt = f"Research question: {question}\n\nCandidates:\n" + "\n".join(lines)
+    try:
+        text = await complete(providers.DEFAULT_UTILITY_MODEL, system, prompt, max_tokens=TRIAGE_MAX_TOKENS, spend=spend)
+        picks = _triage_picks(object_from_text(text), keep, len(sources))
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        if _fatal_provider(error):
+            raise
+        picks = None
+    if not picks:
+        return sources[:keep]
+    chosen = [sources[index - 1] for index in picks[:keep]]
+    chosen_ids = {id(source) for source in chosen}
+    chosen.extend(source for source in sources if id(source) not in chosen_ids)
+    return chosen[:keep]
+
+
 async def _fetch_and_note(source_row, url, question, note_model, spend, note_prompt, semaphore):
     async with semaphore:
         try:
@@ -150,14 +271,14 @@ async def _fetch_and_note(source_row, url, question, note_model, spend, note_pro
 
             final_url = canonicalize(str(page.get("url") or url))
             try:
-                body = await _retry(lambda: note(question, page, note_model, spend=spend, note_prompt=note_prompt))
+                note_obj = await _note_windows(question, final_url, page, note_model, spend, note_prompt)
                 return {
                     "success": True,
                     "source_id": source_row["id"],
                     "url": url,
                     "final_url": final_url,
                     "page": page,
-                    "body": body,
+                    "note": note_obj,
                 }
             except Exception as error:
                 if _fatal_provider(error):
@@ -185,9 +306,10 @@ async def gather_task(task, brief, search_model, note_model, registry, evidence,
     sources = []
     search_error = None
     fatal_err = None
+    scan_limit = limit * SCAN_MULTIPLIER
     for q in reformulations:
         try:
-            hits = await search(q, search_model, limit=limit, search_prompt=search_prompt or PROMPTS["search"], spend=spend)
+            hits = await search(q, search_model, limit=scan_limit, search_prompt=search_prompt or PROMPTS["search"], spend=spend)
             if hits:
                 sources.extend(hits)
         except Exception as error:
@@ -201,11 +323,14 @@ async def gather_task(task, brief, search_model, note_model, registry, evidence,
     if not sources and search_error:
         if emit:
             emit("breaker", task_id=task["id"], branch="search", message=f"search failed: {search_error}")
-        return {"task_id": task["id"], "evidence": [], "leads": [], "gaps": [f"search failed for {question}: {search_error}"]}
+        return {"task_id": task["id"], "evidence": [], "gaps": [f"search failed for {question}: {search_error}"]}
 
-    sources = app_search.filter_hits(sources, limit)
+    sources = app_search.filter_hits(sources, scan_limit)
+    scanned = len(sources)
+    sources = await _triage(sources, question, limit, spend)
+    if emit and sources:
+        emit("triage", task_id=task["id"], scanned=scanned, selected=len(sources))
     rows = []
-    leads = [{"title": source.get("title"), "url": canonicalize(str(source["url"]))} for source in sources]
 
     # Pass 1: Serial deduplication and source id allocation
     reserved = []
@@ -241,7 +366,7 @@ async def gather_task(task, brief, search_model, note_model, registry, evidence,
         if res["success"]:
             final_url = res["final_url"]
             page = res["page"]
-            body = res["body"]
+            note_obj = res["note"]
             if final_url != url:
                 known = registry.get(final_url)
                 if known and known is not source_row:
@@ -254,15 +379,15 @@ async def gather_task(task, brief, search_model, note_model, registry, evidence,
                 source_row["url"] = final_url
                 registry[final_url] = source_row
                 seen_urls.add(final_url)
-            if body:
+            if note_obj and (note_obj.gist or note_obj.claims):
                 record = {
                     "id": f"E{len(evidence) + 1}",
                     "source_id": source_row["id"],
                     "task_id": task["id"],
                     "task_ids": list(source_row["task_ids"]),
                     "question": question,
-                    "excerpt": body,
-                    "note": body,
+                    "excerpt": note_obj.gist,
+                    "claims": [claim.model_dump() for claim in note_obj.claims],
                     "title": page.get("title") or source_row["title"],
                 }
                 evidence.append(record)
@@ -270,7 +395,7 @@ async def gather_task(task, brief, search_model, note_model, registry, evidence,
             else:
                 rows.append({"source_id": source_row["id"], "gap": "nothing relevant"})
             if emit:
-                emit("source", task_id=task["id"], source_id=source_row["id"], url=final_url, evidence_id=rows[-1].get("id") if body else None)
+                emit("source", task_id=task["id"], source_id=source_row["id"], url=final_url, evidence_id=rows[-1].get("id"))
         else:
             for key, value in list(registry.items()):
                 if value is source_row:
@@ -282,5 +407,5 @@ async def gather_task(task, brief, search_model, note_model, registry, evidence,
                 emit("breaker", task_id=task["id"], branch="fetch", url=url, message=err_str)
             rows.append({"url": url, "error": err_str, "source_id": source_row["id"]})
 
-    return {"task_id": task["id"], "evidence": rows, "leads": leads, "gaps": [] if rows else [f"no usable evidence for {question}"]}
+    return {"task_id": task["id"], "evidence": rows, "gaps": [] if rows else [f"no usable evidence for {question}"]}
 

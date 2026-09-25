@@ -91,6 +91,32 @@ export function activeRunOf(convoId) {
   return state.runs.find((r) => r.convoId === convoId && ['starting', 'waiting_for_clarification', 'running', 'recovering'].includes(r.status)) || null
 }
 
+export function researchProvenanceHeader(run, frame, completedAt = new Date()) {
+  const checkpoint = frame.checkpoint ?? run.checkpoint ?? {}
+  const payload = frame.payload ?? {}
+  const breakers = Array.isArray(checkpoint.breakers) ? checkpoint.breakers : []
+  const failedSources = new Set(breakers.filter((item) => item.branch === 'fetch' && item.url).map((item) => item.url)).size
+  const caps = breakers.filter((item) => item.branch === 'global' || item.cap).map((item) => [item.branch, item.message].filter(Boolean).join(': ')).filter(Boolean)
+  const gaps = [...new Set([...(Array.isArray(payload.gaps) ? payload.gaps : []), ...(Array.isArray(checkpoint.gaps) ? checkpoint.gaps : [])].filter(Boolean))]
+  const decisions = Array.isArray(payload.decisions) ? payload.decisions : Array.isArray(checkpoint.decisions) ? checkpoint.decisions : []
+  const spend = frame.spend ?? run.spend ?? {}
+  const sourcesGathered = Array.isArray(payload.sources) ? payload.sources.length : Array.isArray(payload.evidence) ? new Set(payload.evidence.map((item) => item.source_id).filter(Boolean)).size : 0
+  const wavesRun = Array.isArray(run.events) ? run.events.filter((item) => item.kind === 'wave').length : decisions.length
+  const lines = [
+    '## Research provenance',
+    '',
+    `- Completed: ${completedAt.toISOString()}`,
+    `- Sources gathered: ${sourcesGathered}; failed: ${failedSources}`,
+    `- Model calls: ${spend.calls ?? 0}; cost: $${Number(spend.usd ?? 0).toFixed(4)}`,
+    `- Waves run: ${wavesRun}`,
+    `- Caps fired: ${caps.length ? caps.join('; ') : 'none'}`,
+  ]
+  if (payload.summary) lines.push(`- Summary: ${payload.summary}`)
+  lines.push(`- Declared gaps: ${gaps.length ? gaps.join('; ') : 'none'}`)
+  if (decisions.length) lines.push(`- Decisions: ${decisions.map((item) => item.action || item.decision || JSON.stringify(item)).join('; ')}`)
+  return `${lines.join('\n')}\n\n---\n\n`
+}
+
 // Land a run's final stream frame: status, then the report into the doc store, then the spend fold.
 // The doc write precedes the caller's persist-and-forget, so a backend run is only ever forgotten after its report is the app's.
 export function finishRun(run, frame) {
@@ -106,7 +132,7 @@ export function finishRun(run, frame) {
   if (['done', 'partial'].includes(frame.status) && frame.payload && !run.reportDocId) {
     const doc = createDoc({
       name: `${frame.payload.name} report.md`,
-      text: frame.payload.report.text,
+      text: `${researchProvenanceHeader(run, frame)}${frame.payload.report.text}`,
       source: { kind: 'research', runId: run.id, convoId: run.convoId, messageId: run.resultMessageId },
     })
     run.reportDocId = doc.id

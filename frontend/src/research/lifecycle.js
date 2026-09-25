@@ -61,6 +61,10 @@ export function buildResearchStartBody(current) {
   const searchModel = (s.research_search_model || s.model || 'default').trim()
   const noteModel = (s.research_note_model || searchModel).trim()
   const reportModel = (s.research_report_model || searchModel).trim()
+  const rawMin = s.research_min_sources !== undefined && s.research_min_sources !== null ? Math.max(8, Math.min(Number(s.research_min_sources), 300)) : 8
+  const rawMax = s.research_max_sources !== undefined && s.research_max_sources !== null ? Math.max(8, Math.min(Number(s.research_max_sources), 300)) : 24
+  const minSources = Math.min(rawMin, rawMax)
+  const maxSources = Math.max(rawMin, rawMax)
 
   return {
     id: current.serverId || current.id,
@@ -70,7 +74,9 @@ export function buildResearchStartBody(current) {
     restart_failed: current.retryFailed === true,
     goal: objective,
     title: deliverable,
-    depth: s.research_depth ? Math.max(1, Math.min(Number(s.research_depth), 12)) : 5,
+    ...(s.research_depth ? { depth: Math.max(1, Math.min(Number(s.research_depth), 12)) } : {}),
+    min_sources: minSources,
+    max_sources: maxSources,
     models: {
       search: searchModel,
       note: noteModel,

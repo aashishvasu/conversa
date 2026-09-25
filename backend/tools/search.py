@@ -28,9 +28,29 @@ def is_blocked(url: str) -> bool:
     return any(host == domain or host.endswith("." + domain) for domain in BLOCKED_DOMAINS)
 
 
+SNIPPET_KEYS = ("snippet", "body", "description", "content", "text", "summary")
+
+
+def _snippet(result: dict[str, str | None]) -> str | None:
+    """Return the first non-empty snippet field the provider supplied, if any."""
+    for key in SNIPPET_KEYS:
+        if result.get(key):
+            return result[key]
+    return None
+
+
 def _hits(results: list[dict[str, str | None]] | None) -> list[dict[str, str | None]]:
     """Normalize a search API result list, dropping rows without a URL."""
-    return [{"title": result.get("title"), "url": result["url"]} for result in results or [] if result.get("url")]
+    out = []
+    for result in results or []:
+        if not result.get("url"):
+            continue
+        row: dict[str, str | None] = {"title": result.get("title"), "url": result["url"]}
+        snippet = _snippet(result)
+        if snippet:
+            row["snippet"] = snippet
+        out.append(row)
+    return out
 
 
 async def _search_exa(query: str, limit: int) -> list[dict[str, str | None]]:
@@ -76,7 +96,10 @@ def filter_hits(hits: list[dict[str, str | None]], limit: int) -> list[dict[str,
         if canonical in seen or is_blocked(canonical):
             continue
         seen.add(canonical)
-        out.append({"title": hit.get("title"), "url": canonical})
+        row = {"title": hit.get("title"), "url": canonical}
+        if hit.get("snippet"):
+            row["snippet"] = hit["snippet"]
+        out.append(row)
     return out[:limit]
 
 

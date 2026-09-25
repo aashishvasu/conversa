@@ -68,4 +68,25 @@ for malformed in ('not json', '{"action":"research","brief":null}', '{"action":"
         pass
     else:
         raise AssertionError(f"invalid preparation response accepted: {malformed}")
+
+# Checkpoint v1 to v2 migration asserts
+from research.state import CHECKPOINT_VERSION, empty_state, validate_checkpoint
+v1_checkpoint = {
+    "version": 1,
+    "revision": 3,
+    "brief": {"objective": "x", "deliverable": "d", "scope": ["scope 1", "scope 2"], "constraints": ["c"], "questions": [], "answers": {}},
+    "frontier": [{"id": "T1", "question": "q", "status": "pending", "attempts": 0}],
+    "sources": {},
+    "evidence": [],
+    "gaps": [],
+    "decisions": [],
+    "breakers": [],
+    "budgets": {"calls": 0, "sources": 0, "elapsed": 0.0, "no_progress": 0},
+    "operations": {"queries": {}, "fetch_failures": {}, "completed": {}, "reformulations": {}},
+}
+migrated = validate_checkpoint(v1_checkpoint)
+assert migrated["version"] == 2
+assert migrated["theory"] == {"hypothesis": "", "confidence": "low", "supporting": [], "contradicting": [], "revised_at_wave": 0}
+assert migrated["coverage"] == {"scope 1": [], "scope 2": []}
+
 print("api selfcheck OK")

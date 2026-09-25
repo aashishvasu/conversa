@@ -48,4 +48,7 @@ const utility = await readFile(new URL('../jobs/utility.js', import.meta.url), '
 assert.ok(/enabled_tools: \[\]/.test(utility), 'utility jobs send an empty tool list')
 assert.ok(!/allow_tools/.test(utility), 'the legacy allow_tools flag is gone from utility sends')
 
+assert.ok(SETTING_KEYS.includes('research_min_sources'), 'research_min_sources must be in SETTING_KEYS')
+assert.ok(SETTING_KEYS.includes('research_max_sources'), 'research_max_sources must be in SETTING_KEYS')
+
 console.log('settings selfcheck OK')

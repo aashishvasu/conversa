@@ -224,6 +224,20 @@ function resetDefaults() {
           <label class="mb-1 block text-muted">{{ $t('research.sourcesPerQuestion') }}</label>
           <UiNumberField :model-value="g.research_depth" :label="$t('research.sourcesPerQuestion')" :min="1" :max="12" @update:model-value="setGlobal('research_depth', $event)" />
         </div>
+
+        <div>
+          <label class="mb-1 block text-muted">{{ (g.research_min_sources ?? 8) }} · {{ (g.research_max_sources ?? 24) }}</label>
+          <UiSlider
+            :model-value="[g.research_min_sources ?? 8, g.research_max_sources ?? 24]"
+            :label="$t('common.decrease')"
+            :second-label="$t('common.increase')"
+            :min="8"
+            :max="300"
+            :step="1"
+            @update:model-value="setGlobal('research_min_sources', $event[0]); setGlobal('research_max_sources', $event[1])"
+            @value-commit="persistGlobal"
+          />
+        </div>
       </TabsContent>
 
       <TabsContent value="interface" class="space-y-3 outline-none">
