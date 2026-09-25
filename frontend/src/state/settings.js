@@ -9,6 +9,8 @@ export const RESEARCH_KEYS = [
   'research_note_model',
   'research_report_model',
   'research_depth',
+  'research_min_sources',
+  'research_max_sources',
 ]
 
 export const SETTING_KEYS = [

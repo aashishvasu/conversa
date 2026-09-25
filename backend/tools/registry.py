@@ -29,7 +29,7 @@ DEFAULT_WEB_TOOLS: list[str] = ["search_web", "fetch_url"]
 
 RESEARCH_STAGE_TOOLS: dict[str, list[str]] = {
     "search": ["search_web"],
-    "note": [],
+    "note": ["fetch_url"],
     "coordinator": [],
     "report": [],
     "verify": [],

@@ -99,6 +99,8 @@ def settings(_=Depends(require_auth)):
         "research_note_model": os.environ.get("DEFAULT_RESEARCH_NOTE_MODEL", DEFAULT_UTILITY_MODEL),
         "research_report_model": os.environ.get("DEFAULT_RESEARCH_REPORT_MODEL", DEFAULT_MODEL),
         "research_depth": runs.DEFAULT_RESEARCH_DEPTH,
+        "research_min_sources": runs.DEFAULT_MIN_SOURCES,
+        "research_max_sources": runs.DEFAULT_MAX_SOURCES,
         # Not a setting: server-side config problems for the UI to surface.
         # App.vue strips this before the rest is merged into globalSettings.
         "config_errors": CONFIG_ERRORS,

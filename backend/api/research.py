@@ -119,6 +119,8 @@ class ResearchRequest(BaseModel):
     models: dict[str, str]
     answers: dict[str, str]
     depth: int = runs.DEFAULT_RESEARCH_DEPTH
+    min_sources: int = runs.DEFAULT_MIN_SOURCES
+    max_sources: int = runs.DEFAULT_MAX_SOURCES
     prompts: dict[str, str] | None = None
     checkpoint: dict | None = None
     restart_failed: bool = False
@@ -150,7 +152,20 @@ async def research_start(req: ResearchRequest, _=Depends(require_auth)):
         checkpoint_data = validate_checkpoint(req.checkpoint) if req.checkpoint is not None else None
         brief = req.brief.model_dump() if req.brief else {"objective": req.goal, "deliverable": "A sourced research brief", "scope": ["The requested subject"], "constraints": ["Use current public sources"], "questions": []}
         brief["answers"] = req.answers
-        run, outcome = runs.start(brief, req.models, depth=max(1, min(req.depth, 12)), title=req.title, prompts=req.prompts, run_id=req.id, checkpoint_data=checkpoint_data, restart_failed=req.restart_failed)
+        min_sources = max(8, min(req.min_sources, 300))
+        max_sources = max(min_sources, min(req.max_sources, 300))
+        run, outcome = runs.start(
+            brief,
+            req.models,
+            depth=max(1, min(req.depth, 12)),
+            title=req.title,
+            prompts=req.prompts,
+            run_id=req.id,
+            checkpoint_data=checkpoint_data,
+            restart_failed=req.restart_failed,
+            min_sources=min_sources,
+            max_sources=max_sources,
+        )
     except runs.RunLimitError as error:
         raise HTTPException(429, {"code": "too_many_runs", "message": str(error)}) from error
     except ValueError as error:

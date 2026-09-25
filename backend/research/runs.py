@@ -22,11 +22,14 @@ FINISHED_TTL = int(os.environ.get("RESEARCH_RESULT_TTL", "3600"))
 MAX_ACTIVE_RUNS = int(os.environ.get("MAX_ACTIVE_RUNS", "2"))
 MAX_WAVES = int(os.environ.get("RESEARCH_MAX_WAVES", "8"))
 MAX_TASKS = int(os.environ.get("RESEARCH_MAX_TASKS", "18"))
-MAX_CALLS = int(os.environ.get("RESEARCH_MAX_CALLS", "48"))
-MAX_SOURCES = int(os.environ.get("RESEARCH_MAX_SOURCES", "24"))
-MAX_ELAPSED = float(os.environ.get("RESEARCH_MAX_SECONDS", "900"))
+DEFAULT_MAX_CALLS = int(os.environ.get("RESEARCH_MAX_CALLS", "48"))
+DEFAULT_MAX_SOURCES = int(os.environ.get("RESEARCH_MAX_SOURCES", "24"))
+DEFAULT_MIN_SOURCES = int(os.environ.get("RESEARCH_MIN_SOURCES", "8"))
+DEFAULT_MAX_SECONDS = float(os.environ.get("RESEARCH_MAX_SECONDS", "900"))
 MIN_EVIDENCE = int(os.environ.get("RESEARCH_MIN_EVIDENCE", "8"))
 DEFAULT_RESEARCH_DEPTH = int(os.environ.get("DEFAULT_RESEARCH_DEPTH", "5"))
+
+REPORT_RESERVE = 2
 
 
 class RunLimitError(Exception):
@@ -55,12 +58,20 @@ def _brief(value):
 
 
 class Run:
-    def __init__(self, brief, models, depth=DEFAULT_RESEARCH_DEPTH, title=None, prompts=None, run_id=None, checkpoint_data=None, restart_failed=False):
+    def __init__(self, brief, models, depth=DEFAULT_RESEARCH_DEPTH, title=None, prompts=None, run_id=None, checkpoint_data=None, restart_failed=False, min_sources=None, max_sources=None, max_calls=None, max_elapsed=None):
         self.id = run_id or uuid.uuid4().hex
         self.brief = _brief(brief)
         self.title = title or self.brief.get("objective", "Research")
         self.models = models
         self.depth = depth
+        raw_min = min_sources if min_sources is not None else DEFAULT_MIN_SOURCES
+        raw_max = max_sources if max_sources is not None else DEFAULT_MAX_SOURCES
+        self.min_sources = max(MIN_EVIDENCE, raw_min) if min_sources is not None else MIN_EVIDENCE
+        self.max_sources = max(self.min_sources, min(raw_max, 300))
+        # calls ~= sources*2 + tasks + waves + report sections (each wave has coordinator call, report has write + verify)
+        # default report sections/passes ~ 4
+        self.max_calls = max_calls if max_calls is not None else (self.max_sources * 2 + MAX_TASKS + MAX_WAVES + 4)
+        self.max_elapsed = max_elapsed if max_elapsed is not None else max(DEFAULT_MAX_SECONDS, self.max_sources * 15.0)
         self.prompts = {**PROMPTS, **(prompts or {})}
         self.status = "running"
         self.phase = "researching"
@@ -150,9 +161,12 @@ def _scope_coverage(run):
     inflates coverage.
     """
     coverage = {}
+    ledger = run.data.get("coverage", {})
     for item in run.brief.get("scope", []):
         tokens = _scope_tokens(item)
-        coverage[item] = len(run.evidence) if not tokens else sum(1 for ev in run.evidence if tokens & _scope_tokens(f"{ev.get('question', '')} {ev.get('title', '')}"))
+        token_count = len(run.evidence) if not tokens else sum(1 for ev in run.evidence if tokens & _scope_tokens(f"{ev.get('question', '')} {ev.get('title', '')}"))
+        ledger_count = len(ledger.get(item, []))
+        coverage[item] = max(token_count, ledger_count)
     return coverage
 
 
@@ -173,12 +187,13 @@ def _coverage_gate(run, decision):
     if decision["action"] != "finish" or run.data["budgets"].get("coverage_override"):
         return decision
     uncovered = _uncovered_scope(run)
-    if len(run.evidence) >= MIN_EVIDENCE and not uncovered:
+    floor = run.min_sources
+    if len(run.evidence) >= floor and not uncovered:
         return decision
     run.data["budgets"]["coverage_override"] = True
     run.emit("breaker", branch="coverage", message=f"finish rejected: {len(run.evidence)} evidence items, uncovered scope: {uncovered or 'none'}")
     target = ", ".join(uncovered) if uncovered else "the full scope"
-    return {**decision, "action": "continue", "gaps": [*decision["gaps"], f"coverage gate: gather more evidence for {target} (minimum {MIN_EVIDENCE} items)"]}
+    return {**decision, "action": "continue", "gaps": [*decision["gaps"], f"coverage gate: gather more evidence for {target} (minimum {floor} items)"]}
 
 
 def _coordinator_payload(run, results):
@@ -186,6 +201,7 @@ def _coordinator_payload(run, results):
     url_by_id = {row["id"]: url for url, row in run.sources.items()}
     return {
         "brief": run.brief,
+        "theory": run.data.get("theory"),
         "tasks": [{"id": task["id"], "question": task["question"], "status": task.get("status"), "reason": task.get("reason", "")} for task in run.frontier],
         "evidence": [{"id": item["id"], "task_id": item.get("task_id"), "domain": urlsplit(url_by_id.get(item.get("source_id"), "") or "").netloc, "question": item.get("question"), "gist": (item.get("excerpt") or item.get("note") or "")[:240]} for item in run.evidence],
         "new_evidence_ids": [item["id"] for result in results for item in result.get("evidence", []) if item.get("id")],
@@ -197,7 +213,83 @@ def _coordinator_payload(run, results):
     }
 
 
-def _apply_coord(run, decision):
+def _update_coverage_ledger(run, evidence_record):
+    """Maintain data['coverage'] as evidence lands, mapping each evidence id to the scope items it supports."""
+    evidence_id = evidence_record.get("id")
+    if not evidence_id:
+        return
+    ledger = run.data.setdefault("coverage", {})
+    ev_tokens = _scope_tokens(f"{evidence_record.get('question', '')} {evidence_record.get('title', '')}")
+    for item in run.brief.get("scope", []):
+        ids = ledger.setdefault(item, [])
+        tokens = _scope_tokens(item)
+        if not tokens or (tokens & ev_tokens):
+            if evidence_id not in ids:
+                ids.append(evidence_id)
+
+
+def _validate_theory(theory_val, current_theory, wave):
+    if not isinstance(theory_val, dict):
+        return current_theory or {
+            "hypothesis": "",
+            "confidence": "low",
+            "supporting": [],
+            "contradicting": [],
+            "revised_at_wave": wave,
+        }
+    confidence = theory_val.get("confidence")
+    if confidence not in {"low", "medium", "high"}:
+        confidence = current_theory.get("confidence", "low") if current_theory else "low"
+    supporting = [str(item) for item in theory_val.get("supporting", []) if isinstance(item, str)] if isinstance(theory_val.get("supporting"), list) else (current_theory.get("supporting", []) if current_theory else [])
+    contradicting = [str(item) for item in theory_val.get("contradicting", []) if isinstance(item, str)] if isinstance(theory_val.get("contradicting"), list) else (current_theory.get("contradicting", []) if current_theory else [])
+    hypothesis = str(theory_val.get("hypothesis", "")).strip()
+    return {
+        "hypothesis": hypothesis,
+        "confidence": confidence,
+        "supporting": supporting,
+        "contradicting": contradicting,
+        "revised_at_wave": wave,
+    }
+
+
+def _detect_contradiction(run, theory):
+    """Detect if theory reports contradicting evidence, or evidence has opposing stances on the same question.
+    Returns (has_contradiction, verification_question, reason) or (False, None, None).
+    """
+    if not isinstance(theory, dict):
+        return False, None, None
+    contradicting = [str(item) for item in theory.get("contradicting", []) if isinstance(item, str) and str(item).strip()]
+    ev_by_id = {str(item.get("id")): item for item in run.evidence if item.get("id")}
+    
+    # 1. Contradicting evidence IDs in theory
+    if contradicting:
+        ev_items = [ev_by_id[eid] for eid in contradicting if eid in ev_by_id]
+        if ev_items:
+            q = ev_items[0].get("question") or run.brief.get("objective", "the topic")
+            return True, f"Resolve contradiction: verify conflicting evidence on {q}", f"theory reports contradicting evidence: {', '.join(contradicting[:3])}"
+        return True, f"Resolve contradiction: verify conflicting evidence on {run.brief.get('objective', 'the topic')}", f"theory reports contradicting evidence: {', '.join(contradicting[:3])}"
+
+    # 2. Opposing stances on the same question among evidence claims
+    by_q = {}
+    for ev in run.evidence:
+        q_norm = " ".join(str(ev.get("question", "")).lower().split())
+        if not q_norm:
+            continue
+        claims = ev.get("claims", [])
+        if isinstance(claims, list):
+            stances = {c.get("stance") for c in claims if isinstance(c, dict) and c.get("stance") in {"supports", "contradicts"}}
+            if stances:
+                by_q.setdefault(q_norm, {"question": ev.get("question"), "stances": set()})["stances"].update(stances)
+
+    for q_data in by_q.values():
+        if {"supports", "contradicts"}.issubset(q_data["stances"]):
+            q = q_data["question"]
+            return True, f"Resolve contradiction: verify conflicting claims on {q}", f"evidence carries opposing stances on {q}"
+
+    return False, None, None
+
+
+def _apply_coord(run, decision, wave=0):
     by_id = {task["id"]: task for task in run.frontier}
     for task_id in decision["resolve"]:
         if task_id in by_id:
@@ -224,6 +316,27 @@ def _apply_coord(run, decision):
         by_id[task["id"]] = task
         questions.add(question.lower())
         run.emit("task_added", task=deepcopy(task))
+    if "theory" in decision:
+        run.data["theory"] = _validate_theory(decision["theory"], run.data.get("theory"), wave)
+
+    # Contradiction-forced redirection: at most one per wave, subject to MAX_TASKS
+    forced_task = None
+    has_contra, v_question, v_reason = _detect_contradiction(run, run.data.get("theory"))
+    if has_contra and len(run.frontier) < MAX_TASKS:
+        norm_v = " ".join(v_question.split())
+        if norm_v.lower() not in questions:
+            task = {"id": f"T{len(run.frontier) + 1}", "question": norm_v, "reason": v_reason, "status": "pending", "attempts": 0}
+            run.frontier.append(task)
+            by_id[task["id"]] = task
+            questions.add(norm_v.lower())
+            run.emit("task_added", task=deepcopy(task))
+            forced_task = {"task_id": task["id"], "question": norm_v, "reason": v_reason}
+            if decision.get("action") == "finish":
+                decision["action"] = "continue"
+
+    if forced_task:
+        decision["forced_redirection"] = forced_task
+
     if decision["action"] == "finish" and not decision["gaps"]:
         run.data["gaps"].clear()
     for gap in decision["gaps"]:
@@ -237,7 +350,7 @@ async def _write(run):
     run.phase = "writing"
     run.emit("phase", phase="writing")
     run.checkpoint()
-    draft = await write_report(run.brief, run.evidence, run.models["report"], run.spend)
+    draft = await write_report(run.brief, run.evidence, run.models["report"], run.spend, coverage=run.data.get("coverage"), gaps=run.data.get("gaps", []), run=run)
     run.phase = "verifying"
     run.emit("phase", phase="verifying")
     run.checkpoint()
@@ -269,12 +382,15 @@ async def _run(run):
         if not any(task.get("status") == "pending" for task in run.frontier):
             run.emit("breaker", branch="restart", message="restart found no pending tasks; finishing from the checkpoint")
         no_progress = run.data["budgets"].get("no_progress", 0)
+        max_elapsed = run.max_elapsed
+        max_calls = run.max_calls
+        max_sources = run.max_sources
         for wave in range(MAX_WAVES):
             elapsed = run.prior_elapsed + time.monotonic() - run.started_at
             budget = run.data["budgets"]
             budget["elapsed"] = elapsed
             run.update_calls()
-            if elapsed >= MAX_ELAPSED or budget["calls"] >= MAX_CALLS or len(run.sources) >= MAX_SOURCES:
+            if elapsed >= max_elapsed or budget["calls"] >= max_calls - REPORT_RESERVE or len(run.sources) >= max_sources:
                 run.emit("breaker", branch="global", message="research budget reached")
                 if "research stopped at a global breaker" not in run.data["gaps"]:
                     run.data["gaps"].append("research stopped at a global breaker")
@@ -333,6 +449,7 @@ async def _run(run):
                 run.data["operations"].setdefault("completed", {})[task["operation_id"]] = True
                 for record in result.get("evidence", []):
                     if record.get("id"):
+                        _update_coverage_ledger(run, record)
                         run.emit("evidence", task_id=task["id"], evidence=deepcopy(record))
                 for gap in result.get("gaps", []):
                     if gap and gap not in run.data["gaps"]:
@@ -348,7 +465,7 @@ async def _run(run):
             run.checkpoint()
             budget["elapsed"] = run.prior_elapsed + time.monotonic() - run.started_at
             run.update_calls()
-            if budget["elapsed"] >= MAX_ELAPSED or budget["calls"] >= MAX_CALLS or len(run.sources) >= MAX_SOURCES:
+            if budget["elapsed"] >= max_elapsed or budget["calls"] >= max_calls - REPORT_RESERVE or len(run.sources) >= max_sources:
                 run.emit("breaker", branch="global", message="research budget reached")
                 if "research stopped at a global breaker" not in run.data["gaps"]:
                     run.data["gaps"].append("research stopped at a global breaker")
@@ -366,7 +483,7 @@ async def _run(run):
                 run.data["gaps"].append(f"coordinator stopped gathering: {error}")
                 break
             decision = _coverage_gate(run, decision)
-            _apply_coord(run, decision)
+            _apply_coord(run, decision, wave=wave + 1)
             if decision["action"] == "finish":
                 break
         if not run.evidence:
@@ -401,7 +518,7 @@ async def _run(run):
         run.task = None
 
 
-def start(brief, models, depth=DEFAULT_RESEARCH_DEPTH, title=None, prompts=None, run_id=None, checkpoint_data=None, restart_failed=False):
+def start(brief, models, depth=DEFAULT_RESEARCH_DEPTH, title=None, prompts=None, run_id=None, checkpoint_data=None, restart_failed=False, min_sources=DEFAULT_MIN_SOURCES, max_sources=DEFAULT_MAX_SOURCES):
     """Start or reattach a run. Returns (run, outcome) where outcome is one of
     created, resumed_from_checkpoint, restarted, already_running, already_finished."""
     evict()
@@ -417,6 +534,10 @@ def start(brief, models, depth=DEFAULT_RESEARCH_DEPTH, title=None, prompts=None,
                     task["status"] = "done" if completed.get(task.get("operation_id")) else "pending"
             if restart_failed:
                 _reopen_failed_tasks(existing.data)
+            existing.min_sources = max(MIN_EVIDENCE, min_sources)
+            existing.max_sources = max(existing.min_sources, min(max_sources, 300))
+            existing.max_calls = existing.max_sources * 2 + MAX_TASKS + MAX_WAVES + 4
+            existing.max_elapsed = max(DEFAULT_MAX_SECONDS, existing.max_sources * 15.0)
             existing.status = "running"
             existing.phase = "researching"
             existing.error = None
@@ -430,7 +551,7 @@ def start(brief, models, depth=DEFAULT_RESEARCH_DEPTH, title=None, prompts=None,
         return existing, "already_finished"
     if sum(run.status == "running" for run in RUNS.values()) >= MAX_ACTIVE_RUNS:
         raise RunLimitError(f"at most {MAX_ACTIVE_RUNS} research runs at once")
-    run = Run(brief, models, depth, title, prompts, run_id, checkpoint_data, restart_failed)
+    run = Run(brief, models, depth, title, prompts, run_id, checkpoint_data, restart_failed, min_sources=min_sources, max_sources=max_sources)
     RUNS[run.id] = run
     if checkpoint_data is not None:
         run.emit("resumed", outcome="resumed_from_checkpoint")

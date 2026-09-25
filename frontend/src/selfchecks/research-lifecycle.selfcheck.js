@@ -2,7 +2,7 @@
 import assert from 'node:assert'
 import { readFile } from 'node:fs/promises'
 import { applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, resumeWithCurrentModels } from '../research/lifecycle.js'
-import { activeRunOf, finishRun, migrateRun, validRun } from '../state/runs.js'
+import { activeRunOf, finishRun, migrateRun, researchProvenanceHeader, validRun } from '../state/runs.js'
 import { state } from '../state/persistence.js'
 
 const run = {
@@ -16,7 +16,7 @@ assert.equal(applyStart(run, { id: 'client-run', resumed: false, status: 'runnin
 assert.deepEqual(run.events, [], 'a replacement backend run clears stale events')
 assert.equal(run.spend, null)
 
-const checkpointed = { serverId: 'run', checkpoint: 'old', prepared: { brief: { objective: 'objective', deliverable: 'report' } }, answers: {}, settings: { research_depth: 4, research_search_model: 's', research_note_model: 'n', research_report_model: 'r' } }
+const checkpointed = { serverId: 'run', checkpoint: 'old', prepared: { brief: { objective: 'objective', deliverable: 'report' } }, answers: {}, settings: { research_depth: 4, research_min_sources: 12, research_max_sources: 40, research_search_model: 's', research_note_model: 'n', research_report_model: 'r' } }
 applyStart(checkpointed, { id: 'run', resumed: true, status: 'running', phase: 'researching', checkpoint: 'new' })
 assert.equal(checkpointed.checkpoint, 'new', 'start adopts a returned checkpoint')
 applyStart(checkpointed, { id: 'run', resumed: true, status: 'running', phase: 'researching' })
@@ -25,6 +25,16 @@ const startBody = buildResearchStartBody(checkpointed)
 assert.equal(Object.hasOwn(startBody, 'settings'), false, 'research start does not send the redundant settings field')
 assert.equal(startBody.checkpoint, 'new', 'research start sends the retained checkpoint')
 assert.equal(startBody.restart_failed, false, 'ordinary starts do not reopen failed tasks')
+assert.equal(startBody.min_sources, 12, 'research start sends min_sources from settings')
+assert.equal(startBody.max_sources, 40, 'research start sends max_sources from settings')
+assert.equal(startBody.depth, 4, 'research start sends the configured depth')
+const withoutDepth = { ...checkpointed, settings: { ...checkpointed.settings } }
+delete withoutDepth.settings.research_depth
+assert.equal(Object.hasOwn(buildResearchStartBody(withoutDepth), 'depth'), false, 'missing depth lets the backend apply its default')
+const invertedSettings = { ...checkpointed, settings: { ...checkpointed.settings, research_min_sources: 50, research_max_sources: 10 } }
+const invertedBody = buildResearchStartBody(invertedSettings)
+assert.equal(invertedBody.min_sources, 10, 'min_sources is clamped <= max_sources')
+assert.equal(invertedBody.max_sources, 50, 'max_sources is clamped >= min_sources')
 resumeWithCurrentModels(checkpointed, {})
 assert.equal(buildResearchStartBody(checkpointed).restart_failed, true, 'explicit recovery reopens evidence-free failed tasks')
 
@@ -60,13 +70,37 @@ assert.ok(migrated.prepared.brief && migrated.prepared.brief.objective === 'lega
 assert.equal(validRun(old), true, 'old runs remain valid after migration')
 assert.equal(old.prepared.brief, undefined, 'run migration does not mutate the source object')
 
+const completedAt = new Date('2025-01-02T03:04:05.000Z')
+const provenanceRun = { events: [{ kind: 'wave' }, { kind: 'wave' }] }
+const provenanceFrame = {
+  checkpoint: {
+    breakers: [{ branch: 'fetch', url: 'https://failed.example' }, { branch: 'global', message: 'source cap reached' }],
+    gaps: ['checkpoint gap'],
+    decisions: [{ action: 'continue' }],
+  },
+  payload: { sources: [{ id: 'S1' }, { id: 'S2' }], summary: 'Coverage summary', gaps: ['report gap'], decisions: [{ action: 'finish' }], report: { text: 'report' } },
+  spend: { calls: 4 },
+}
+const provenance = researchProvenanceHeader(provenanceRun, provenanceFrame, completedAt)
+assert.match(provenance, /Completed: 2025-01-02T03:04:05\.000Z/)
+assert.match(provenance, /Sources gathered: 2; failed: 1/)
+assert.match(provenance, /Model calls: 4; cost: \$0\.0000/)
+assert.match(provenance, /Waves run: 2/)
+assert.match(provenance, /global: source cap reached/)
+assert.match(provenance, /Coverage summary/)
+assert.match(provenance, /report gap; checkpoint gap/)
+
 const partialConvo = { id: 'partial-convo', messages: [{ id: 'result' }], docIds: [] }
 state.conversations.push(partialConvo)
-const partial = { id: 'partial-run', convoId: partialConvo.id, resultMessageId: 'result', status: 'running', spendLedgered: false, spend: null }
-finishRun(partial, { status: 'partial', phase: 'verifying', payload: { name: 'partial', report: { text: 'report' }, summary: 'gaps' }, spend: { models: {} } })
+const partial = { id: 'partial-run', convoId: partialConvo.id, resultMessageId: 'result', status: 'running', spendLedgered: false, spend: null, events: [] }
+finishRun(partial, { status: 'partial', phase: 'verifying', checkpoint: provenanceFrame.checkpoint, payload: { ...provenanceFrame.payload, name: 'partial' }, spend: { models: {} } })
 assert.equal(partial.status, 'partial', 'partial results finalize')
 assert.ok(partial.reportDocId, 'partial reports are persisted as documents')
+const partialDoc = state.docs.find((doc) => doc.id === partial.reportDocId)
+assert.ok(partialDoc.text.startsWith('## Research provenance'), 'report documents start with provenance')
+assert.ok(partialDoc.text.endsWith('report'), 'provenance preserves the report body')
 state.conversations.pop()
+state.docs = state.docs.filter((doc) => doc.id !== partial.reportDocId)
 
 const chatPane = await readFile(new URL('../views/ChatPane.vue', import.meta.url), 'utf8')
 const researchBlock = await readFile(new URL('../components/ResearchBlock.vue', import.meta.url), 'utf8')
