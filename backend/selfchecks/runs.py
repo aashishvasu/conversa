@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from contextlib import suppress
 
 from research import gather as g
@@ -12,11 +13,17 @@ from research.state import empty_state, validate_checkpoint
 
 
 def brief():
-    return {"objective": "Investigate Project Orion", "deliverable": "A sourced brief", "scope": ["current public sources"], "constraints": ["cite evidence"], "questions": [], "answers": {"region": "US"}}
+    return {"objective": "Investigate Project Orion", "deliverable": "A sourced brief", "scope": ["Project Orion"], "constraints": ["cite evidence"], "questions": [], "answers": {"region": "US"}}
+
+
+# WHY: reformulate_query makes a live provider call, so stub g.complete to keep selfchecks hermetic and free.
+async def echo_reformulate(model, system, prompt, **kwargs):
+    question = prompt.split("Research Question: ", 1)[1].split("\n", 1)[0]
+    return f'["{question}"]'
 
 
 async def workflow_checks():
-    real = g.search, g._page, g.note, r.complete, report.complete
+    real = g.search, g._page, g.note, g.complete, r.complete, report.complete
     calls = []
 
     async def search(query, model, limit=8, search_prompt=None, spend=None):
@@ -46,12 +53,15 @@ async def workflow_checks():
             return '{"valid":true,"corrections":"","gaps":[]}'
         return ""
 
-    g.search, g._page, g.note, r.complete, report.complete = search, page, note, complete, complete
+    g.search, g._page, g.note, g.complete, r.complete, report.complete = search, page, note, echo_reformulate, complete, complete
+    old_min = r.MIN_EVIDENCE
+    r.MIN_EVIDENCE = 1
     try:
         run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=2)
         await r._run(run)
     finally:
-        g.search, g._page, g.note, r.complete, report.complete = real
+        r.MIN_EVIDENCE = old_min
+        g.search, g._page, g.note, g.complete, r.complete, report.complete = real
     assert run.status == "done", (run.status, run.error)
     checkpoint_events = [event for event in run.events if event["kind"] == "checkpoint"]
     assert checkpoint_events and all(isinstance(event["checkpoint"], dict) for event in checkpoint_events)
@@ -79,7 +89,7 @@ async def workflow_checks():
 
 
 async def breaker_and_resume_checks():
-    real = g.search, r.complete, report.complete
+    real = g.search, g.complete, r.complete, report.complete
     async def repeated(query, *args, **kwargs):
         return []
     decisions = 0
@@ -95,12 +105,12 @@ async def breaker_and_resume_checks():
         if system == report.VERIFY:
             return '{"valid":true,"corrections":"","gaps":[]}'
         return ""
-    g.search, r.complete, report.complete = repeated, complete, complete
+    g.search, g.complete, r.complete, report.complete = repeated, echo_reformulate, complete, complete
     try:
         run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
         await r._run(run)
     finally:
-        g.search, r.complete, report.complete = real
+        g.search, g.complete, r.complete, report.complete = real
     assert run.status == "error" and "no evidence" in run.error
     assert any(event["kind"] == "breaker" for event in run.events)
     assert run.data["breakers"], "breaker history must survive in checkpoints"
@@ -115,7 +125,7 @@ async def breaker_and_resume_checks():
         await r._run(partial)
     finally:
         r.MAX_CALLS = old_calls
-        r.complete, report.complete = real[1], real[2]
+        r.complete, report.complete = real[2], real[3]
     assert partial.status == "partial" and partial.payload["gaps"], partial.state()
 
     checkpoint = empty_state(brief(), {"id": "T1", "question": "Investigate Project Orion"})
@@ -163,5 +173,42 @@ try:
     assert stale_run.id not in r.RUNS, "stale finished runs must be evicted past TTL"
 finally:
     r.FINISHED_TTL = old_ttl
+
+# Coverage gate: premature finish converts to continue once, then passes.
+gate_run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
+gate_run.evidence.append({"id": "E1", "source_id": "S1", "question": "unrelated topic", "title": "x", "excerpt": "y" * 500})
+finish = {"action": "finish", "resolve": [], "prune": [], "add": [], "merge": [], "gaps": []}
+gated = r._coverage_gate(gate_run, finish)
+assert gated["action"] == "continue" and gated["gaps"] and gate_run.data["budgets"]["coverage_override"]
+assert any(event["kind"] == "breaker" and event.get("branch") == "coverage" for event in gate_run.events)
+assert r._coverage_gate(gate_run, finish)["action"] == "finish", "one override per run"
+covered_run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
+old_min = r.MIN_EVIDENCE
+r.MIN_EVIDENCE = 1
+try:
+    covered_run.evidence.extend({"id": f"E{i}", "source_id": "S1", "question": "Investigate Project Orion", "title": "t", "excerpt": "e"} for i in range(1, 3))
+    assert r._coverage_gate(covered_run, finish)["action"] == "finish"
+finally:
+    r.MIN_EVIDENCE = old_min
+
+# Coordinator payload: gists only, no raw evidence rows.
+payload = r._coordinator_payload(gate_run, [{"evidence": [{"id": "E1"}], "gaps": ["worker gap"]}])
+assert "new_results" not in payload and payload["new_evidence_ids"] == ["E1"] and payload["worker_gaps"] == ["worker gap"]
+assert len(payload["evidence"][0]["gist"]) == 240
+assert isinstance(payload["exhausted_queries"], list) and isinstance(payload["scope_coverage"], dict)
+
+# Outcome strings for terminal and active runs.
+models = {"search": "m", "note": "m", "report": "m"}
+finished_run = Run(brief(), models, depth=1)
+finished_run.status = "done"
+finished_run.finished_at = time.time()
+r.RUNS[finished_run.id] = finished_run
+assert r.start(brief(), models, run_id=finished_run.id)[1] == "already_finished"
+busy_run = Run(brief(), models, depth=1)
+busy_run.status = "running"
+r.RUNS[busy_run.id] = busy_run
+assert r.start(brief(), models, run_id=busy_run.id)[1] == "already_running"
+r.forget(finished_run.id)
+r.forget(busy_run.id)
 
 print("runs selfcheck OK")

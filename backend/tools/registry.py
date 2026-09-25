@@ -27,6 +27,20 @@ TOOL_REGISTRY: dict[str, ConversaTool] = {
 
 DEFAULT_WEB_TOOLS: list[str] = ["search_web", "fetch_url"]
 
+RESEARCH_STAGE_TOOLS: dict[str, list[str]] = {
+    "search": ["search_web"],
+    "note": [],
+    "coordinator": [],
+    "report": [],
+    "verify": [],
+}
+
+
+def resolve_research_tools(stage: str) -> list[ConversaTool]:
+    """Resolve tools statically for a research stage without reading request settings."""
+    names = RESEARCH_STAGE_TOOLS.get(stage, [])
+    return [TOOL_REGISTRY[name] for name in names if name in TOOL_REGISTRY]
+
 
 def resolve_enabled_tools(enabled_tools: list[str] | None, allow_tools: bool = False) -> list[ConversaTool]:
     """Resolve and validate request tools once at request start.

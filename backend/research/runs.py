@@ -3,9 +3,11 @@
 import asyncio
 import json
 import os
+import re
 import time
 import uuid
 from copy import deepcopy
+from urllib.parse import urlsplit
 
 from providers import Spend, complete
 from tools.fetch import canonicalize
@@ -22,7 +24,9 @@ MAX_WAVES = int(os.environ.get("RESEARCH_MAX_WAVES", "8"))
 MAX_TASKS = int(os.environ.get("RESEARCH_MAX_TASKS", "18"))
 MAX_CALLS = int(os.environ.get("RESEARCH_MAX_CALLS", "48"))
 MAX_SOURCES = int(os.environ.get("RESEARCH_MAX_SOURCES", "24"))
-MAX_ELAPSED = float(os.environ.get("RESEARCH_MAX_SECONDS", "300"))
+MAX_ELAPSED = float(os.environ.get("RESEARCH_MAX_SECONDS", "900"))
+MIN_EVIDENCE = int(os.environ.get("RESEARCH_MIN_EVIDENCE", "8"))
+DEFAULT_RESEARCH_DEPTH = int(os.environ.get("DEFAULT_RESEARCH_DEPTH", "5"))
 
 
 class RunLimitError(Exception):
@@ -51,7 +55,7 @@ def _brief(value):
 
 
 class Run:
-    def __init__(self, brief, models, depth=6, title=None, prompts=None, run_id=None, checkpoint_data=None, restart_failed=False):
+    def __init__(self, brief, models, depth=DEFAULT_RESEARCH_DEPTH, title=None, prompts=None, run_id=None, checkpoint_data=None, restart_failed=False):
         self.id = run_id or uuid.uuid4().hex
         self.brief = _brief(brief)
         self.title = title or self.brief.get("objective", "Research")
@@ -72,6 +76,7 @@ class Run:
         self.data = validate_checkpoint(checkpoint_data) if resumed_from_checkpoint else empty_state(self.brief, broad)
         self.data["brief"] = self.brief
         self.prior_calls = self.data["budgets"].get("calls", 0) if resumed_from_checkpoint else 0
+        self.prior_elapsed = float(self.data["budgets"].get("elapsed", 0.0)) if resumed_from_checkpoint else 0.0
         if resumed_from_checkpoint:
             self.data["budgets"]["fallback_calls"] = 0
         completed = self.data["operations"].setdefault("completed", {})
@@ -115,8 +120,8 @@ def _worker_context(run):
     return json.dumps({"mission": run.brief, "known_findings": findings, "gaps": run.data["gaps"], "seen_urls": sorted(run.seen_urls)}, ensure_ascii=False)
 
 
-async def _coordinator(run, new_results):
-    prompt = json.dumps({"brief": run.brief, "tasks": run.frontier, "evidence": run.evidence, "gaps": run.data["gaps"], "new_results": new_results}, ensure_ascii=False)
+async def _coordinator(run, results):
+    prompt = json.dumps(_coordinator_payload(run, results), ensure_ascii=False)
     system = run.prompts.get("coordinator", COORDINATOR)
     response = await complete(run.models["report"], system, prompt, max_tokens=3000, spend=run.spend)
     try:
@@ -134,8 +139,62 @@ async def _coordinator(run, new_results):
     return value
 
 
-def _task(run, task_id):
-    return next((task for task in run.frontier if task["id"] == task_id), None)
+def _scope_tokens(text):
+    return {token for token in re.findall(r"[a-z0-9]+", str(text).lower()) if len(token) > 3}
+
+
+def _scope_coverage(run):
+    """Count evidence per brief scope item.
+
+    Matches question and title only; note bodies carry page noise that
+    inflates coverage.
+    """
+    coverage = {}
+    for item in run.brief.get("scope", []):
+        tokens = _scope_tokens(item)
+        coverage[item] = len(run.evidence) if not tokens else sum(1 for ev in run.evidence if tokens & _scope_tokens(f"{ev.get('question', '')} {ev.get('title', '')}"))
+    return coverage
+
+
+def _uncovered_scope(run):
+    gap_text = " ".join(run.data["gaps"]).lower()
+    uncovered = []
+    for item, count in _scope_coverage(run).items():
+        if count:
+            continue
+        if any(token in gap_text for token in _scope_tokens(item)):
+            continue
+        uncovered.append(item)
+    return uncovered
+
+
+def _coverage_gate(run, decision):
+    """Reject a premature finish once per run; the second finish passes."""
+    if decision["action"] != "finish" or run.data["budgets"].get("coverage_override"):
+        return decision
+    uncovered = _uncovered_scope(run)
+    if len(run.evidence) >= MIN_EVIDENCE and not uncovered:
+        return decision
+    run.data["budgets"]["coverage_override"] = True
+    run.emit("breaker", branch="coverage", message=f"finish rejected: {len(run.evidence)} evidence items, uncovered scope: {uncovered or 'none'}")
+    target = ", ".join(uncovered) if uncovered else "the full scope"
+    return {**decision, "action": "continue", "gaps": [*decision["gaps"], f"coverage gate: gather more evidence for {target} (minimum {MIN_EVIDENCE} items)"]}
+
+
+def _coordinator_payload(run, results):
+    """Project evidence to gists so the coordinator input stays bounded."""
+    url_by_id = {row["id"]: url for url, row in run.sources.items()}
+    return {
+        "brief": run.brief,
+        "tasks": [{"id": task["id"], "question": task["question"], "status": task.get("status"), "reason": task.get("reason", "")} for task in run.frontier],
+        "evidence": [{"id": item["id"], "task_id": item.get("task_id"), "domain": urlsplit(url_by_id.get(item.get("source_id"), "") or "").netloc, "question": item.get("question"), "gist": (item.get("excerpt") or item.get("note") or "")[:240]} for item in run.evidence],
+        "new_evidence_ids": [item["id"] for result in results for item in result.get("evidence", []) if item.get("id")],
+        "worker_gaps": sorted({gap for result in results for gap in result.get("gaps", []) if gap}),
+        "gaps": run.data["gaps"],
+        "exhausted_queries": sorted(query for query, count in run.data["operations"].get("queries", {}).items() if count >= 2),
+        "budgets": {key: run.data["budgets"].get(key) for key in ("calls", "sources", "elapsed", "no_progress")},
+        "scope_coverage": _scope_coverage(run),
+    }
 
 
 def _apply_coord(run, decision):
@@ -207,9 +266,11 @@ async def _run(run):
             return
         run.phase = "researching"
         run.emit("phase", phase="researching")
+        if not any(task.get("status") == "pending" for task in run.frontier):
+            run.emit("breaker", branch="restart", message="restart found no pending tasks; finishing from the checkpoint")
         no_progress = run.data["budgets"].get("no_progress", 0)
         for wave in range(MAX_WAVES):
-            elapsed = time.monotonic() - run.started_at
+            elapsed = run.prior_elapsed + time.monotonic() - run.started_at
             budget = run.data["budgets"]
             budget["elapsed"] = elapsed
             run.update_calls()
@@ -255,7 +316,7 @@ async def _run(run):
             before = len(run.evidence)
             worker_context = _worker_context(run)
             search_prompt = f"{run.prompts.get('search', '')}\nShared worker context:\n{worker_context}"
-            note_prompt = f"{run.prompts.get('note', '')}\nShared worker context:\n{worker_context}"
+            note_prompt = run.prompts.get("note", "")
             def worker_event(kind, **data):
                 if kind == "breaker" and data.get("branch") == "fetch" and data.get("url"):
                     failures = run.data["operations"].setdefault("fetch_failures", {})
@@ -265,7 +326,7 @@ async def _run(run):
                     if failures[url] >= 2:
                         data["message"] = "fetch failure ceiling reached: " + data.get("message", "")
                 run.emit(kind, **data)
-            results = await asyncio.gather(*(gather_task(task, run.brief, run.models["search"], run.models.get("note", run.models["report"]), run.sources, run.evidence, run.seen_urls, run.depth, run.spend, worker_event, search_prompt, note_prompt) for task in selected))
+            results = await asyncio.gather(*(gather_task(task, run.brief, run.models["search"], run.models.get("note", run.models["report"]), run.sources, run.evidence, run.seen_urls, run.depth, run.spend, worker_event, search_prompt, note_prompt, operations=run.data["operations"]) for task in selected))
             for task, result in zip(selected, results):
                 task["status"] = "done" if any(record.get("id") for record in result.get("evidence", [])) else "pruned"
                 run.emit("task_resolved" if task["status"] == "done" else "task_pruned", task=deepcopy(task))
@@ -273,6 +334,9 @@ async def _run(run):
                 for record in result.get("evidence", []):
                     if record.get("id"):
                         run.emit("evidence", task_id=task["id"], evidence=deepcopy(record))
+                for gap in result.get("gaps", []):
+                    if gap and gap not in run.data["gaps"]:
+                        run.data["gaps"].append(gap)
             run.data["budgets"]["sources"] = len(run.sources)
             progressed = len(run.evidence) > before
             if not progressed:
@@ -282,8 +346,10 @@ async def _run(run):
                 no_progress = 0
                 run.data["budgets"]["no_progress"] = 0
             run.checkpoint()
-            if budget["calls"] >= MAX_CALLS:
-                run.emit("breaker", branch="global", message="provider call budget reached")
+            budget["elapsed"] = run.prior_elapsed + time.monotonic() - run.started_at
+            run.update_calls()
+            if budget["elapsed"] >= MAX_ELAPSED or budget["calls"] >= MAX_CALLS or len(run.sources) >= MAX_SOURCES:
+                run.emit("breaker", branch="global", message="research budget reached")
                 if "research stopped at a global breaker" not in run.data["gaps"]:
                     run.data["gaps"].append("research stopped at a global breaker")
                 break
@@ -299,6 +365,7 @@ async def _run(run):
                 run.emit("breaker", branch="coordinator", message=str(error))
                 run.data["gaps"].append(f"coordinator stopped gathering: {error}")
                 break
+            decision = _coverage_gate(run, decision)
             _apply_coord(run, decision)
             if decision["action"] == "finish":
                 break
@@ -334,7 +401,9 @@ async def _run(run):
         run.task = None
 
 
-def start(brief, models, depth=6, title=None, prompts=None, run_id=None, checkpoint_data=None, restart_failed=False):
+def start(brief, models, depth=DEFAULT_RESEARCH_DEPTH, title=None, prompts=None, run_id=None, checkpoint_data=None, restart_failed=False):
+    """Start or reattach a run. Returns (run, outcome) where outcome is one of
+    created, resumed_from_checkpoint, restarted, already_running, already_finished."""
     evict()
     if run_id and (existing := RUNS.get(run_id)):
         if existing.status == "error" and existing.task is None:
@@ -353,14 +422,20 @@ def start(brief, models, depth=6, title=None, prompts=None, run_id=None, checkpo
             existing.error = None
             existing.started_at = time.monotonic()
             existing.finished_at = None
+            existing.emit("resumed", outcome="restarted")
             existing.task = asyncio.create_task(_run(existing))
-        return existing, True
+            return existing, "restarted"
+        if existing.status == "running":
+            return existing, "already_running"
+        return existing, "already_finished"
     if sum(run.status == "running" for run in RUNS.values()) >= MAX_ACTIVE_RUNS:
         raise RunLimitError(f"at most {MAX_ACTIVE_RUNS} research runs at once")
     run = Run(brief, models, depth, title, prompts, run_id, checkpoint_data, restart_failed)
     RUNS[run.id] = run
+    if checkpoint_data is not None:
+        run.emit("resumed", outcome="resumed_from_checkpoint")
     run.task = asyncio.create_task(_run(run))
-    return run, checkpoint_data is not None
+    return run, "resumed_from_checkpoint" if checkpoint_data is not None else "created"
 
 
 def ack(run_id):

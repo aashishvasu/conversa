@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from api.auth import require_auth
 from api.sse import sse_stream
+from research import runs
 from providers import (
     CONFIG_ERRORS, DEFAULT_EFFORT, DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_TEMPERATURE,
     DEFAULT_UTILITY_MODEL, EFFORT_VALUES, MODELS, resolve_model, stream_chat,
@@ -97,7 +98,7 @@ def settings(_=Depends(require_auth)):
         "research_search_model": os.environ.get("DEFAULT_RESEARCH_SEARCH_MODEL", DEFAULT_MODEL),
         "research_note_model": os.environ.get("DEFAULT_RESEARCH_NOTE_MODEL", DEFAULT_UTILITY_MODEL),
         "research_report_model": os.environ.get("DEFAULT_RESEARCH_REPORT_MODEL", DEFAULT_MODEL),
-        "research_depth": int(os.environ.get("DEFAULT_RESEARCH_DEPTH", "5")),
+        "research_depth": runs.DEFAULT_RESEARCH_DEPTH,
         # Not a setting: server-side config problems for the UI to surface.
         # App.vue strips this before the rest is merged into globalSettings.
         "config_errors": CONFIG_ERRORS,

@@ -13,7 +13,7 @@ from .conversa_tool import (
     execute_tool,
 )
 from .random_tool import RANDOM_TOOL
-from .registry import DEFAULT_WEB_TOOLS, TOOL_REGISTRY, ToolConfigError, resolve_enabled_tools
+from .registry import DEFAULT_WEB_TOOLS, RESEARCH_STAGE_TOOLS, TOOL_REGISTRY, ToolConfigError, resolve_enabled_tools, resolve_research_tools
 from .temporal import DATETIME_TOOL
 
 __all__ = [
@@ -22,6 +22,7 @@ __all__ = [
     "DATETIME_TOOL",
     "DEFAULT_WEB_TOOLS",
     "RANDOM_TOOL",
+    "RESEARCH_STAGE_TOOLS",
     "TOOL_REGISTRY",
     "ToolArguments",
     "ToolCall",
@@ -33,4 +34,5 @@ __all__ = [
     "ToolUnavailable",
     "execute_tool",
     "resolve_enabled_tools",
+    "resolve_research_tools",
 ]

@@ -51,6 +51,12 @@ async def _resilience_checks():
     real_search, real_page, real_note = g.search, g._page, g.note
     real_app_search, real_hosted_finder = app_search.search, g._hosted_finder
 
+    async def echo_reformulate(model, system, prompt, **kwargs):
+        question = prompt.split("Research Question: ", 1)[1].split("\n", 1)[0]
+        return f'["{question}"]'
+
+    g.complete = echo_reformulate
+
     async def paid_out_search(query, limit):
         raise RuntimeError("402 Payment Required")
 
@@ -131,5 +137,32 @@ async def _resilience_checks():
 
 
 asyncio.run(_resilience_checks())
+
+# WHY: reformulate_query makes a live provider call, so stub g.complete to keep selfchecks hermetic and free.
+async def _reformulation_checks():
+    real_search, real_complete = g.search, g.complete
+
+    queries = []
+
+    async def rec_search(query, *args, **kwargs):
+        queries.append(query)
+        return []
+
+    async def variants(model, system, prompt, **kwargs):
+        return '["variant one", "variant two", "variant one"]'
+
+    g.search, g.complete = rec_search, variants
+    try:
+        ops = {}
+        out = await g.gather_task({"id": "T1", "question": "q"}, {}, "m", "m", {}, [], set(), operations=ops)
+        queries.clear()
+        await g.gather_task({"id": "T2", "question": "q"}, {}, "m", "m", {}, [], set(), operations=ops)
+    finally:
+        g.search, g.complete = real_search, real_complete
+    assert queries == ["variant one", "variant two"], queries
+    assert ops["reformulations"]["q"] == ["variant one", "variant two"], ops
+    assert out["gaps"] == ["no usable evidence for q"], out
+
+asyncio.run(_reformulation_checks())
 
 print("gather selfcheck OK")

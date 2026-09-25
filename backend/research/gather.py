@@ -8,6 +8,7 @@ from providers import complete
 from tools import fetch as app_fetch
 from tools import search as app_search
 from tools.fetch import canonicalize
+from .parsing import object_from_text
 from .prompts import PROMPTS
 
 SEARCH_MAX_USES = 6
@@ -17,11 +18,17 @@ NOTHING = "NOTHING RELEVANT"
 
 
 def _fatal_provider(error):
+    if isinstance(error, app_fetch.FetchError):
+        return False
     text = str(error).lower()
     return any(word in text for word in ("unauthorized", "forbidden", "401", "403", "credit", "quota", "invalid model", "authentication", "api key"))
 
 
 def _retryable(error):
+    if isinstance(error, app_fetch.FetchPolicyError):
+        return False
+    if isinstance(error, app_fetch.FetchError):
+        return error.status is None or error.status >= 500 or error.status == 429
     text = str(error).lower()
     if any(word in text for word in ("unauthorized", "forbidden", "401", "403", "credit", "quota", "invalid model", "authentication", "api key")):
         return False
@@ -116,19 +123,92 @@ def _next_source_id(registry, evidence):
     return f"S{max(numbers, default=0) + 1}"
 
 
-async def gather_task(task, brief, search_model, note_model, registry, evidence, seen_urls, limit=6, spend=None, emit=None, search_prompt=None, note_prompt=None):
+async def reformulate_query(question, brief, model, spend=None):
+    system = "You are a research query reformulation specialist. Given a research question and overall brief objective/scope, generate a JSON array containing 2 to 3 distinct, targeted, search-engine optimized query variations to find relevant information. Return ONLY a JSON array of strings. Do not include markdown code block formatting or any other text."
+    prompt = f"Research Question: {question}\nOverall Brief Objective: {brief.get('objective')}\nScope: {brief.get('scope')}"
+    try:
+        response = await complete(model, system, prompt, max_tokens=300, spend=spend)
+        variants = object_from_text(response)
+        if isinstance(variants, list) and all(isinstance(v, str) for v in variants):
+            queries = list(dict.fromkeys(v.strip() for v in variants if v.strip()))
+            if queries:
+                return queries[:3]
+    except Exception:
+        pass
+    return [question]
+
+
+async def _fetch_and_note(source_row, url, question, note_model, spend, note_prompt, semaphore):
+    async with semaphore:
+        try:
+            try:
+                page = await _retry(lambda: _page(url, question))
+            except app_fetch.FetchPolicyError as error:
+                return {"success": False, "source_id": source_row["id"], "url": url, "error": error, "type": "fetch"}
+            except app_fetch.FetchError as error:
+                return {"success": False, "source_id": source_row["id"], "url": url, "error": error, "type": "fetch"}
+
+            final_url = canonicalize(str(page.get("url") or url))
+            try:
+                body = await _retry(lambda: note(question, page, note_model, spend=spend, note_prompt=note_prompt))
+                return {
+                    "success": True,
+                    "source_id": source_row["id"],
+                    "url": url,
+                    "final_url": final_url,
+                    "page": page,
+                    "body": body,
+                }
+            except Exception as error:
+                if _fatal_provider(error):
+                    raise
+                return {"success": False, "source_id": source_row["id"], "url": url, "final_url": final_url, "error": error, "type": "note", "title": page.get("title") or source_row["title"]}
+        except Exception as error:
+            if _fatal_provider(error):
+                raise
+            return {"success": False, "source_id": source_row["id"], "url": url, "error": error, "type": "general"}
+
+
+async def gather_task(task, brief, search_model, note_model, registry, evidence, seen_urls, limit=6, spend=None, emit=None, search_prompt=None, note_prompt=None, operations=None):
     """Run one frontier task and append source-backed evidence to the run registries."""
     question = task["question"]
-    try:
-        sources = await search(question, search_model, limit=limit, search_prompt=search_prompt or PROMPTS["search"], spend=spend)
-    except Exception as error:
-        if _fatal_provider(error):
-            raise
+    reformulations = []
+    if operations is not None:
+        reformulations_dict = operations.setdefault("reformulations", {})
+        if question in reformulations_dict:
+            reformulations = reformulations_dict[question]
+    if not reformulations:
+        reformulations = await reformulate_query(question, brief, search_model, spend=spend)
+        if operations is not None:
+            operations.setdefault("reformulations", {})[question] = reformulations
+
+    sources = []
+    search_error = None
+    fatal_err = None
+    for q in reformulations:
+        try:
+            hits = await search(q, search_model, limit=limit, search_prompt=search_prompt or PROMPTS["search"], spend=spend)
+            if hits:
+                sources.extend(hits)
+        except Exception as error:
+            if _fatal_provider(error):
+                fatal_err = error
+                break
+            search_error = error
+
+    if fatal_err:
+        raise fatal_err
+    if not sources and search_error:
         if emit:
-            emit("breaker", task_id=task["id"], branch="search", message=f"search failed: {error}")
-        return {"task_id": task["id"], "evidence": [], "leads": [], "gaps": [f"search failed for {question}: {error}"]}
+            emit("breaker", task_id=task["id"], branch="search", message=f"search failed: {search_error}")
+        return {"task_id": task["id"], "evidence": [], "leads": [], "gaps": [f"search failed for {question}: {search_error}"]}
+
+    sources = app_search.filter_hits(sources, limit)
     rows = []
     leads = [{"title": source.get("title"), "url": canonicalize(str(source["url"]))} for source in sources]
+
+    # Pass 1: Serial deduplication and source id allocation
+    reserved = []
     for source in sources:
         url = canonicalize(str(source["url"]))
         if url in registry:
@@ -145,9 +225,23 @@ async def gather_task(task, brief, search_model, note_model, registry, evidence,
         seen_urls.add(url)
         source_row = {"id": _next_source_id(registry, evidence), "url": url, "title": source.get("title") or url, "task_ids": [task["id"]]}
         registry[url] = source_row
-        try:
-            page = await _retry(lambda: _page(url, question))
-            final_url = canonicalize(str(page.get("url") or url))
+        reserved.append((source_row, url))
+
+    # Pass 2: Concurrent fetch and note under semaphore
+    semaphore = asyncio.Semaphore(FETCH_CONCURRENCY)
+    tasks = [_fetch_and_note(source_row, url, question, note_model, spend, note_prompt or PROMPTS["note"], semaphore) for source_row, url in reserved]
+    res_list = await asyncio.gather(*tasks)
+
+    # Pass 3: Serial updates and evidence appending
+    for source_row, url in reserved:
+        res = next((r for r in res_list if r["source_id"] == source_row["id"]), None)
+        if not res:
+            continue
+
+        if res["success"]:
+            final_url = res["final_url"]
+            page = res["page"]
+            body = res["body"]
             if final_url != url:
                 known = registry.get(final_url)
                 if known and known is not source_row:
@@ -160,24 +254,33 @@ async def gather_task(task, brief, search_model, note_model, registry, evidence,
                 source_row["url"] = final_url
                 registry[final_url] = source_row
                 seen_urls.add(final_url)
-            body = await _retry(lambda: note(question, page, note_model, spend=spend, note_prompt=note_prompt or PROMPTS["note"]))
             if body:
-                record = {"id": f"E{len(evidence) + 1}", "source_id": source_row["id"], "task_id": task["id"], "task_ids": list(source_row["task_ids"]), "question": question, "excerpt": body, "note": body, "title": page.get("title") or source_row["title"]}
+                record = {
+                    "id": f"E{len(evidence) + 1}",
+                    "source_id": source_row["id"],
+                    "task_id": task["id"],
+                    "task_ids": list(source_row["task_ids"]),
+                    "question": question,
+                    "excerpt": body,
+                    "note": body,
+                    "title": page.get("title") or source_row["title"],
+                }
                 evidence.append(record)
                 rows.append(record)
             else:
                 rows.append({"source_id": source_row["id"], "gap": "nothing relevant"})
             if emit:
-                emit("source", task_id=task["id"], source_id=source_row["id"], url=final_url, evidence_id=rows[-1].get("id"))
-        except Exception as error:
+                emit("source", task_id=task["id"], source_id=source_row["id"], url=final_url, evidence_id=rows[-1].get("id") if body else None)
+        else:
             for key, value in list(registry.items()):
                 if value is source_row:
                     registry.pop(key, None)
-            if _fatal_provider(error):
-                raise
+            error = res["error"]
+            err_str = str(error)
             if emit:
-                emit("source_failed", task_id=task["id"], source_id=source_row["id"], url=url, message=str(error))
-                emit("breaker", task_id=task["id"], branch="fetch", url=url, message=str(error))
-            rows.append({"url": url, "error": str(error), "source_id": source_row["id"]})
+                emit("source_failed", task_id=task["id"], source_id=source_row["id"], url=url, message=err_str)
+                emit("breaker", task_id=task["id"], branch="fetch", url=url, message=err_str)
+            rows.append({"url": url, "error": err_str, "source_id": source_row["id"]})
+
     return {"task_id": task["id"], "evidence": rows, "leads": leads, "gaps": [] if rows else [f"no usable evidence for {question}"]}
 
