@@ -18,7 +18,7 @@ def empty_state(brief, task):
         "decisions": [],
         "breakers": [],
         "budgets": {"calls": 0, "sources": 0, "elapsed": 0.0, "no_progress": 0},
-        "operations": {"queries": {}, "fetch_failures": {}, "completed": {}},
+        "operations": {"queries": {}, "fetch_failures": {}, "completed": {}, "reformulations": {}},
     }
 
 
@@ -53,7 +53,8 @@ def validate_checkpoint(value):
     _list(value["frontier"], "frontier")
     if not isinstance(value["sources"], dict) or not isinstance(value["budgets"], dict) or not isinstance(value["operations"], dict):
         raise ValueError("checkpoint registries must be objects")
-    if any(not isinstance(value["operations"].get(name, {}), dict) for name in ("queries", "fetch_failures", "completed")):
+    value["operations"].setdefault("reformulations", {})
+    if any(not isinstance(value["operations"].get(name, {}), dict) for name in ("queries", "fetch_failures", "completed", "reformulations")):
         raise ValueError("checkpoint operations must be objects")
     _list(value["evidence"], "evidence")
     _list(value["gaps"], "gaps")

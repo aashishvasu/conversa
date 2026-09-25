@@ -70,7 +70,7 @@ export function buildResearchStartBody(current) {
     restart_failed: current.retryFailed === true,
     goal: objective,
     title: deliverable,
-    depth: s.research_depth ? Math.max(1, Math.min(Number(s.research_depth), 12)) : 6,
+    depth: s.research_depth ? Math.max(1, Math.min(Number(s.research_depth), 12)) : 5,
     models: {
       search: searchModel,
       note: noteModel,

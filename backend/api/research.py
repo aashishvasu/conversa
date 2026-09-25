@@ -118,7 +118,7 @@ class ResearchRequest(BaseModel):
     title: str | None = None
     models: dict[str, str]
     answers: dict[str, str]
-    depth: int = 6
+    depth: int = runs.DEFAULT_RESEARCH_DEPTH
     prompts: dict[str, str] | None = None
     checkpoint: dict | None = None
     restart_failed: bool = False
@@ -150,12 +150,12 @@ async def research_start(req: ResearchRequest, _=Depends(require_auth)):
         checkpoint_data = validate_checkpoint(req.checkpoint) if req.checkpoint is not None else None
         brief = req.brief.model_dump() if req.brief else {"objective": req.goal, "deliverable": "A sourced research brief", "scope": ["The requested subject"], "constraints": ["Use current public sources"], "questions": []}
         brief["answers"] = req.answers
-        run, resumed = runs.start(brief, req.models, depth=max(1, min(req.depth, 12)), title=req.title, prompts=req.prompts, run_id=req.id, checkpoint_data=checkpoint_data, restart_failed=req.restart_failed)
+        run, outcome = runs.start(brief, req.models, depth=max(1, min(req.depth, 12)), title=req.title, prompts=req.prompts, run_id=req.id, checkpoint_data=checkpoint_data, restart_failed=req.restart_failed)
     except runs.RunLimitError as error:
         raise HTTPException(429, {"code": "too_many_runs", "message": str(error)}) from error
     except ValueError as error:
         raise HTTPException(400, {"code": "invalid_checkpoint", "message": str(error)}) from error
-    return {"id": run.id, "resumed": resumed, "status": run.status, "phase": run.phase, "revision": run.data.get("revision", 0), "checkpoint": run.data, "payload": run.payload}
+    return {"id": run.id, "outcome": outcome, "resumed": outcome != "created", "status": run.status, "phase": run.phase, "revision": run.data.get("revision", 0), "checkpoint": run.data, "payload": run.payload}
 
 
 @router.get("/api/research/{run_id}")
