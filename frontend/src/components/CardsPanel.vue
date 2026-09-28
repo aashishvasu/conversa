@@ -51,7 +51,7 @@ const groups = computed(() => {
   return [...entries.filter(([k]) => k), ...entries.filter(([k]) => !k)]
 })
 
-// WHY: one flat keyed list lets folder edits move a disclosure without losing its open or focus state.
+// One flat keyed list lets folder edits move a disclosure without losing its open or focus state.
 const rows = computed(() => {
   const out = []
   for (const [path, cards] of groups.value) {
@@ -168,8 +168,9 @@ async function removeCard(id) {
         </template>
         <template #actions>
           <ToggleGroupRoot type="single" :model-value="overrideOf(c.id) || ''" class="flex" @update:model-value="setOverride(c.id, $event)">
-            <UiTooltip :content="$t('cards.alwaysConversation')"><ToggleGroupItem value="include" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-success data-[state=on]:text-success focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.alwaysConversation')"><CircleCheck :size="14" /></ToggleGroupItem></UiTooltip>
-            <UiTooltip :content="$t('cards.excludeConversation')"><ToggleGroupItem value="skip" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-warning data-[state=on]:text-warning focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.excludeConversation')"><Ban :size="14" /></ToggleGroupItem></UiTooltip>
+            <!-- The wrapping UiTooltip's trigger overwrites the toggle's data-state with the tooltip's closed/open -->
+            <UiTooltip :content="$t('cards.alwaysConversation')"><ToggleGroupItem value="include" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-success aria-pressed:text-success focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.alwaysConversation')"><CircleCheck :size="14" /></ToggleGroupItem></UiTooltip>
+            <UiTooltip :content="$t('cards.excludeConversation')"><ToggleGroupItem value="skip" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-warning aria-pressed:text-warning focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.excludeConversation')"><Ban :size="14" /></ToggleGroupItem></UiTooltip>
           </ToggleGroupRoot>
         </template>
         <div class="whitespace-pre-wrap text-muted">{{ c.content }}</div>
@@ -193,8 +194,8 @@ async function removeCard(id) {
         </template>
         <template #actions>
           <ToggleGroupRoot type="single" :model-value="row.card.force || ''" class="flex" @update:model-value="setForce(row.card, $event)">
-            <UiTooltip :content="$t('cards.always')"><ToggleGroupItem value="include" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-success data-[state=on]:text-success focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.always')"><CircleCheck :size="14" /></ToggleGroupItem></UiTooltip>
-            <UiTooltip :content="$t('cards.exclude')"><ToggleGroupItem value="skip" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-warning data-[state=on]:text-warning focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.exclude')"><Ban :size="14" /></ToggleGroupItem></UiTooltip>
+            <UiTooltip :content="$t('cards.always')"><ToggleGroupItem value="include" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-success aria-pressed:text-success focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.always')"><CircleCheck :size="14" /></ToggleGroupItem></UiTooltip>
+            <UiTooltip :content="$t('cards.exclude')"><ToggleGroupItem value="skip" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-warning aria-pressed:text-warning focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.exclude')"><Ban :size="14" /></ToggleGroupItem></UiTooltip>
           </ToggleGroupRoot>
           <UiIconButton :label="$t('cards.delete')" variant="danger" @click="removeCard(row.card.id)"><X :size="14" /></UiIconButton>
         </template>
