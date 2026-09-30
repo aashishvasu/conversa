@@ -1,6 +1,12 @@
 // Research preparation uses the normal request context before an assistant placeholder exists.
-// Keep this separate from the transport so tests can prove the preparer sees the same assembled request.
+// The preparer routes the request instead of answering it.
 import { buildPayload } from './payload.js'
+
+// Preparation sends the turns without their tool evidence.
+// payload.js gates the artifact trust instruction on the same field, so stripping removes both.
+function withoutArtifacts(convo) {
+  return { ...convo, messages: (convo.messages || []).map((message) => (message.artifacts ? { ...message, artifacts: undefined } : message)) }
+}
 
 function pendingPreparation(convo) {
   // Only the latest assistant reply can leave a clarification pending; old exchanges stay history.
@@ -18,8 +24,9 @@ function continuation(preparation) {
 }
 
 export function buildResearchInput(convo, settings, workspace = null, docs = [], images = []) {
-  const payload = buildPayload(convo, settings, workspace, docs, images)
-  const pending = pendingPreparation(convo)
+  const scoped = withoutArtifacts(convo)
+  const payload = buildPayload(scoped, settings, workspace, docs, images)
+  const pending = pendingPreparation(scoped)
   if (!pending) return { system: payload.system, messages: payload.messages }
   const context = continuation(pending)
   const system = Array.isArray(payload.system)
