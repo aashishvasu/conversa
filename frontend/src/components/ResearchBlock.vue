@@ -114,7 +114,7 @@ onMounted(() => {
 <template>
   <div v-if="run" class="max-w-2xl rounded-lg border border-edge bg-surface px-4 py-3 text-sm">
     <div class="flex items-center gap-2">
-      <Telescope :size="14" class="shrink-0" :class="active || isPreparing ? 'text-accent' : 'text-muted'" />
+      <Telescope :size="14" class="shrink-0" :class="active || isPreparing ? 'text-link' : 'text-muted'" />
       <span class="min-w-0 flex-1 truncate text-xs uppercase tracking-wide text-muted">
         {{ isPreparing ? $t('research.preparingRequest') : isRecovering ? $t('research.reconnecting') : active ? (run.phase || $t('research.statusStarting')) : $t(`research.status.${run.status}`) }}
         <template v-if="spend.calls">· <SpendBadge :spend="spend" /></template>

@@ -70,7 +70,7 @@ function promote() {
         <div class="text-[10px] uppercase tracking-wide opacity-60">{{ s.type }}</div>
         <div v-if="s.type === 'results'" class="flex flex-col gap-0.5">
           <template v-for="(l, j) in s.links" :key="j">
-            <a v-if="isSafeUrl(l.url)" :href="l.url" target="_blank" rel="noopener" class="truncate text-accent hover:underline">{{ l.title || l.url }}</a>
+            <a v-if="isSafeUrl(l.url)" :href="l.url" target="_blank" rel="noopener" class="truncate text-link hover:underline">{{ l.title || l.url }}</a>
             <span v-else class="truncate">{{ l.title || l.url }}</span>
           </template>
         </div>
@@ -80,7 +80,7 @@ function promote() {
   </CollapsibleRoot>
   <div class="group">
     <UiTooltip v-if="windowStart" :content="$t('message.sendBoundary')">
-      <div class="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-wide text-accent">
+      <div class="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-wide text-link">
         <div class="h-px flex-1 bg-accent/40"></div>
         {{ $t('message.sentFromHere') }}
         <div class="h-px flex-1 bg-accent/40"></div>
@@ -113,7 +113,7 @@ function promote() {
         <div class="relative min-w-[11rem] max-w-full rounded-lg px-4 py-2" :class="bubbleClass(message.role)">
           <div class="mb-1 flex items-center gap-1 opacity-60">
             <component :is="ROLE_ICON[message.role]" :size="13" />
-            <Pin v-if="message.pinned" :size="12" class="fill-current text-accent" />
+            <Pin v-if="message.pinned" :size="12" class="fill-current text-link" />
           </div>
           <div v-if="images.length" class="mb-2 flex gap-2 overflow-x-auto">
             <img v-for="image in images" :key="image.id" :src="`data:${image.media_type};base64,${image.data}`" class="h-20 w-20 rounded object-cover" />
