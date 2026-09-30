@@ -135,7 +135,8 @@ def join_model(provider: str, model: str) -> str:
 # Fallback USD/million tokens for a model with no entry in its provider's `prices`, so an unpriced
 # model never reads as cheaper than it is.
 UNKNOWN_PRICE = (5, 25)
-# Both Anthropic and OpenAI price a cache write at 1.25x the input rate and a cache read at 0.1x.
+# A cache write is 1.25x the input rate everywhere; a cache read is 0.1x input unless the provider
+# publishes a lower per-model multiplier.
 CACHE_WRITE_MULTIPLIER = 1.25
 CACHE_READ_MULTIPLIER = 0.1
 # Anthropic's web_search tool, per 1,000 uses. No other dialect reports a hosted-search use count.
@@ -152,11 +153,13 @@ def cost(
     search_requests: int = 0,
 ) -> tuple[float, bool]:
     """USD estimate for one generation, and whether the model has a published rate."""
-    prices = PROVIDERS.get(provider, {}).get("prices", {})
+    entry = PROVIDERS.get(provider, {})
+    prices = entry.get("prices", {})
     rate_in, rate_out = prices.get(model, UNKNOWN_PRICE)
+    read_multiplier = entry.get("cache_read_multipliers", {}).get(model, CACHE_READ_MULTIPLIER)
     usd = (input_tokens * rate_in + output_tokens * rate_out) / 1_000_000
     usd += cache_write * rate_in * CACHE_WRITE_MULTIPLIER / 1_000_000
-    usd += cache_read * rate_in * CACHE_READ_MULTIPLIER / 1_000_000
+    usd += cache_read * rate_in * read_multiplier / 1_000_000
     usd += search_requests * HOSTED_SEARCH_FEE_PER_1000 / 1000
     return usd, model in prices
 

@@ -18,7 +18,7 @@ defineProps({
         type="button"
         :aria-label="label"
         class="inline-flex size-8 items-center justify-center rounded-md text-muted outline-none transition-colors hover:bg-surface2 hover:text-base focus-visible:ring-2 focus-visible:ring-focus data-[orientation=horizontal]:shrink-0"
-        :class="[danger && 'hover:bg-danger/10 hover:text-danger', active && 'bg-accent/10 text-accent']"
+        :class="[danger && 'hover:bg-danger/10 hover:text-danger', active && 'bg-accent/10 text-link']"
       >
         <slot />
       </ToolbarButton>

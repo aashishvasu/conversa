@@ -12,6 +12,7 @@
   --c-accent: #4f46e5;
   --c-accent-hover: #4338ca;
   --c-on-accent: #ffffff;
+  --c-link: #4338ca;
   --c-focus: #6366f1;
   --c-success: #15803d;
   --c-warning: #a16207;
@@ -28,6 +29,7 @@
   --c-muted: #a1a1aa;
   --c-accent: #4f46e5;
   --c-accent-hover: #4338ca;
+  --c-link: #a5b4fc;
   --c-focus: #818cf8;
   --c-success: #4ade80;
   --c-warning: #facc15;
@@ -44,6 +46,7 @@
   --color-accent: var(--c-accent);
   --color-accent-hover: var(--c-accent-hover);
   --color-on-accent: var(--c-on-accent);
+  --color-link: var(--c-link);
   --color-focus: var(--c-focus);
   --color-success: var(--c-success);
   --color-warning: var(--c-warning);
@@ -107,7 +110,9 @@ input, textarea, select { color: inherit; }
 .dark .hljs-attribute, .dark .hljs-variable, .dark .hljs-template-variable, .dark .hljs-type, .dark .hljs-class .hljs-title { color: #ffa657; }
 .dark .hljs-deletion { color: #ffa198; }
 .md ul, .md ol { margin: 0.5rem 0; padding-left: 1.5rem; list-style: revert; }
-.md a { color: #6366f1; text-decoration: underline; }
+/* Inside an accent-filled bubble the text is on-accent, so links inherit it rather than using --c-link. */
+.md a { color: var(--c-link); text-decoration: underline; }
+.bg-accent .md a { color: currentColor; }
 .md h1, .md h2, .md h3 { font-weight: 600; margin: 0.75rem 0 0.5rem; }
 .md blockquote { border-left: 3px solid var(--c-edge); padding-left: 0.75rem; color: var(--c-muted); margin: 0.5rem 0; }
 /* display:block so a wide table scrolls inside its column instead of widening the page. */

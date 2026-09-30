@@ -73,13 +73,13 @@ for name, entry in PROVIDERS.items():
 assert PROVIDERS["compatible"]["models"] == ""
 assert PROVIDERS["compatible"]["base_url_env"] == "OPENAI_COMPATIBLE_BASE_URL"
 deepseek_models = {model["id"] for model in parse_models(PROVIDERS["deepseek"]["models"])}
-assert deepseek_models == {"deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-flash", "deepseek/deepseek-flash"}, deepseek_models
+assert deepseek_models == {"deepseek/deepseek-v4-pro", "deepseek/deepseek-flash"}, deepseek_models
 assert cost("deepseek", "deepseek-flash", 1_000_000, 0) == (0.3, True)
 # DeepSeek's Responses API ignores web_search and other built-in tools, so the entry must not claim one.
 assert not PROVIDERS["deepseek"].get("search_tool"), PROVIDERS["deepseek"]
 
 assert takes_reasoning("openai", "gpt-5.6-sol") and not takes_reasoning("openai", "gpt-4o")
-assert takes_reasoning("deepseek", "deepseek-v4-flash") and takes_reasoning("deepseek", "deepseek-flash")
+assert takes_reasoning("deepseek", "deepseek-v4-pro") and takes_reasoning("deepseek", "deepseek-flash")
 
 blocks = anthropic_system(["stable", "volatile"])
 assert blocks == [
@@ -95,9 +95,9 @@ chat = chat_completions_kwargs(
 assert chat["messages"][0] == {"role": "system", "content": "stable\n\nvolatile"}, chat
 assert chat["messages"][1]["content"] == "hi" and chat["temperature"] == 0.3, chat
 assert "temperature" not in chat_completions_kwargs("some-model", [], None, 2048)
-responses = responses_kwargs("deepseek", "deepseek-v4-flash", [{"role": "user", "content": "hi"}], None, 20, "", 0.5)
+responses = responses_kwargs("deepseek", "deepseek-v4-pro", [{"role": "user", "content": "hi"}], None, 20, "", 0.5)
 assert responses["reasoning"] == {"effort": "none"} and "temperature" not in responses, responses
-responses = responses_kwargs("deepseek", "deepseek-v4-flash", [], None, 20, "low", 0.5)
+responses = responses_kwargs("deepseek", "deepseek-v4-pro", [], None, 20, "low", 0.5)
 assert responses["reasoning"] == {"effort": "low", "summary": "auto"}, responses
 assert responses["max_output_tokens"] == 32000, responses
 assert join_system(["stable", ""]) == "stable" and join_system("plain") == "plain"
@@ -109,7 +109,7 @@ assert openai_messages(vision, False)[0]["content"] == [{"type": "image_url", "i
 prepared_anthropic = complete_messages_kwargs("anthropic", "claude-opus-4-8", vision, ["stable", "volatile"], 1024, "")
 assert prepared_anthropic["system"] == anthropic_system(["stable", "volatile"]), prepared_anthropic
 assert prepared_anthropic["messages"] == vision, prepared_anthropic
-prepared_responses = complete_messages_kwargs("deepseek", "deepseek-v4-flash", vision, ["stable", "volatile"], 1024, "")
+prepared_responses = complete_messages_kwargs("deepseek", "deepseek-v4-pro", vision, ["stable", "volatile"], 1024, "")
 assert prepared_responses["input"] == openai_messages(vision, True), prepared_responses
 assert prepared_responses["instructions"] == "stable\n\nvolatile", prepared_responses
 assert prepared_responses["reasoning"] == {"effort": "none"}, prepared_responses
@@ -157,6 +157,12 @@ usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, cache_write=1_000_000)
 assert usd == 2.5, usd  # 2 * 1.25
 usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, cache_read=1_000_000)
 assert usd == 0.2, usd  # 2 * 0.1
+usd, _ = cost("anthropic", "claude-opus-5-5", 0, 0, cache_read=1_000_000)
+assert usd == 0.2, usd  # 4 * 0.05
+usd, _ = cost("anthropic", "claude-fable-5-1", 0, 0, cache_read=1_000_000)
+assert usd == 0.25, usd  # 10 * 0.025
+usd, _ = cost("openai", "gpt-6-astra", 0, 0, cache_read=1_000_000)
+assert usd == 1.0, usd  # 10 * 0.1, no per-model override
 usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, search_requests=1000)
 assert usd == 10.0, usd
 usd, priced = cost("anthropic", "unknown-model-xyz", 1_000_000, 1_000_000)

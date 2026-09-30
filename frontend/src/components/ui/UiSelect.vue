@@ -61,7 +61,7 @@ const tooltip = computed(() => {
             :key="option.value"
             :value="valueOf(option.value)"
             :disabled="option.disabled"
-            class="relative flex cursor-default select-none items-center rounded px-8 py-1.5 outline-none data-[disabled]:opacity-50 data-[highlighted]:bg-surface2 data-[state=checked]:text-accent"
+            class="relative flex cursor-default select-none items-center rounded px-8 py-1.5 outline-none data-[disabled]:opacity-50 data-[highlighted]:bg-surface2 data-[state=checked]:text-link"
           >
             <SelectItemIndicator class="absolute left-2 inline-flex items-center"><Check :size="14" /></SelectItemIndicator>
             <SelectItemText>{{ option.label }}</SelectItemText>
