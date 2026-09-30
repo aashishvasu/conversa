@@ -61,16 +61,27 @@ async def fetch_url(arguments: FetchUrlArguments) -> ToolOutput:
     except fetch.FetchError as error:
         raise ToolFailed(f"app URL fetch failed: {error}") from error
     result = FetchUrlOutput.model_validate(page)
-    return ToolOutput(
-        result,
-        {"url": result.url, "title": result.title, "kind": result.kind},
-        # WHY: persists the window (bounded by fetch.py budgets) so later turns can cite it without refetching; the trace keeps no body by design.
-        {"input": {"url": arguments.url, "topic": arguments.topic, "raw": arguments.raw, "offset": arguments.offset}, "output": result.model_dump(mode="json")},
-    )
+    # WHY: the artifact is provenance for later turns; the fetching turn got the full body as `value`, so only a bounded excerpt rides along.
+    artifact = {
+        "input": {"url": arguments.url, "topic": arguments.topic, "raw": arguments.raw, "offset": arguments.offset},
+        "output": {
+            "url": result.url,
+            "title": result.title,
+            "kind": result.kind,
+            "offset": result.offset,
+            "totalChars": result.totalChars,
+            "nextOffset": result.nextOffset,
+            "windowChars": len(result.content),
+            "excerpt": result.content[:ARTIFACT_EXCERPT_CHARS],
+        },
+    }
+    return ToolOutput(result, {"url": result.url, "title": result.title, "kind": result.kind}, artifact)
 
 
-# Matches FETCH_CACHE_TTL_SECONDS: provenance counts as current for as long as the cached page would serve.
-ARTIFACT_FRESH_SECONDS = 1800
+# Provenance counts as current for exactly as long as the cached page would serve.
+ARTIFACT_FRESH_SECONDS = int(fetch.FETCH_CACHE_TTL_SECONDS)
+# Artifact policy, not fetch policy: fetch.py budgets govern what the model reads this turn; this governs what later turns carry.
+ARTIFACT_EXCERPT_CHARS = 3000
 
 
 WEB_TOOLS = [

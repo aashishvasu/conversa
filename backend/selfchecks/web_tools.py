@@ -3,7 +3,7 @@
 import asyncio
 import json
 
-from tools import fetch, search
+from tools import fetch, search, web
 from tools.conversa_tool import ToolCall, execute_tool
 from tools.web import WEB_TOOLS
 
@@ -20,7 +20,7 @@ async def checks():
 
     async def fake_fetch(url, topic, raw, offset):
         assert url == "https://example.com/release" and topic == "release date" and raw is False and offset == 0
-        return {"url": url, "title": "Release", "kind": "article", "content": "PRIVATE PAGE BODY", "offset": 0, "totalChars": 17, "nextOffset": None}
+        return {"url": url, "title": "Release", "kind": "article", "content": "PRIVATE PAGE BODY" * 500, "offset": 0, "totalChars": 8500, "nextOffset": None}
 
     search.search, fetch.fetch = fake_search, fake_fetch
     try:
@@ -31,12 +31,15 @@ async def checks():
 
     assert json.loads(found.content)["results"][0]["title"] == "Release", found
     assert found.trace == {"query": "current release", "results": [{"title": "Release", "url": "https://example.com/release"}]}, found
-    assert json.loads(page.content)["content"] == "PRIVATE PAGE BODY", page
+    assert json.loads(page.content)["content"] == "PRIVATE PAGE BODY" * 500, page
     assert page.trace == {"url": "https://example.com/release", "title": "Release", "kind": "article"}, page
     assert "PRIVATE PAGE BODY" not in str(page.trace), page
-    # The durable artifact is the client-safe provenance record: query, hits, and the fetched body itself.
+    # The durable artifact is the client-safe provenance record: query and hits, or an excerpted page with window metadata.
     assert found.artifact == {"input": {"query": "current release", "limit": 2}, "output": {"results": [{"title": "Release", "url": "https://example.com/release"}]}}, found
-    assert page.artifact == {"input": {"url": "https://example.com/release", "topic": "release date", "raw": False, "offset": 0}, "output": {"url": "https://example.com/release", "title": "Release", "kind": "article", "content": "PRIVATE PAGE BODY", "offset": 0, "totalChars": 17, "nextOffset": None}}, page
+    assert page.artifact == {"input": {"url": "https://example.com/release", "topic": "release date", "raw": False, "offset": 0}, "output": {"url": "https://example.com/release", "title": "Release", "kind": "article", "offset": 0, "totalChars": 8500, "nextOffset": None, "windowChars": 8500, "excerpt": ("PRIVATE PAGE BODY" * 500)[:web.ARTIFACT_EXCERPT_CHARS]}}, page
+    # The invariant: the model sees the full window as the tool result, later turns only see provenance with a bounded excerpt.
+    assert len(page.artifact["output"]["excerpt"]) == web.ARTIFACT_EXCERPT_CHARS, page.artifact
+    assert len(json.loads(page.content)["content"]) > web.ARTIFACT_EXCERPT_CHARS, page
     assert tools["search_web"].artifact_fresh_for == 1800 and tools["fetch_url"].artifact_fresh_for == 1800
 
     seen = []

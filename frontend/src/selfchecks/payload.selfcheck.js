@@ -194,7 +194,7 @@ const contextDependent = {
 }
 const normalContext = buildPayload(contextDependent, wSettings)
 const preparationContext = buildResearchInput(contextDependent, wSettings)
-assert.deepEqual(preparationContext, { system: normalContext.system, messages: normalContext.messages }, 'preparation receives buildPayload-equivalent context')
+assert.deepEqual(preparationContext, { system: normalContext.system, messages: normalContext.messages }, 'preparation receives buildPayload-equivalent context when there is no tool evidence')
 assert.ok(preparationContext.messages.some((message) => message.content.includes('Project Orion')), 'the topic survives for a standalone prepared goal')
 
 // A short clarification answer can evict its request from the normal window, but preparation still receives its goal.
@@ -235,6 +235,12 @@ assert.ok(sent.content.includes('[Tool evidence recorded with this assistant res
 assert.ok(sent.content.includes('"query":"release notes"') && sent.content.includes('https://example.com/r'), 'input and output are serialized')
 assert.ok(!sent.content.includes('Stale:'), 'a fresh artifact is not marked stale')
 assert.ok(ap.system.includes('untrusted data'), 'the trust instruction is sent whenever evidence is in context')
+// Preparation routes rather than answers, so it sees the same turns without their tool evidence.
+const prepared = buildResearchInput(artConvo, aSettings)
+const preparedAssistant = prepared.messages.find((m) => m.role === 'assistant')
+assert.ok(preparedAssistant.content.startsWith('Answer with sources.'), 'preparation keeps the assistant text')
+assert.ok(!preparedAssistant.content.includes('[Tool evidence recorded with this assistant response]'), 'preparation drops the evidence block')
+assert.ok(!prepared.system.includes('untrusted data'), 'preparation drops the artifact instruction with it')
 // no artifacts anywhere: no instruction, no block
 assert.ok(!buildPayload(convo, aSettings).system.includes('untrusted data'), 'no evidence means no instruction')
 // use_cache: the instruction must sit in the volatile half or it invalidates the cached prefix
@@ -245,6 +251,11 @@ assert.ok(!ac.system[0].includes('untrusted data') && ac.system[1].includes('unt
 const staleConvo = { scanAssistant: false, cards: [], messages: [{ id: 'u', role: 'user', content: 'q' }, { id: 'a', role: 'assistant', content: 'old', artifacts: [{ tool: 'fetch_url', recordedAt: 1000, freshUntil: 2000, input: { url: 'https://old.example' }, output: { content: 'OLD BODY' } }] }] }
 const staleMsg = buildPayload(staleConvo, aSettings).messages.find((m) => m.role === 'assistant')
 assert.ok(staleMsg.content.includes('Stale:') && staleMsg.content.includes('OLD BODY'), 'stale evidence is marked, not dropped')
+// a partial fetch artifact is marked so the model knows to refetch rather than trust the excerpt
+const partialConvo = { scanAssistant: false, cards: [], messages: [{ id: 'u', role: 'user', content: 'q' }, { id: 'a', role: 'assistant', content: 'read a page', artifacts: [{ tool: 'fetch_url', recordedAt: freshAt, freshUntil: freshAt + 1800000, input: { url: 'https://long.example' }, output: { url: 'https://long.example', title: 'Long', kind: 'article', offset: 0, totalChars: 50000, nextOffset: null, windowChars: 40000, excerpt: 'FIRST PART' } }] }] }
+const partialMsg = buildPayload(partialConvo, aSettings).messages.find((m) => m.role === 'assistant')
+assert.ok(partialMsg.content.includes('Excerpt: only the first 10 of 40000 chars read'), 'a partial excerpt is marked')
+assert.ok(partialMsg.content.includes('FIRST PART'), 'the excerpt itself still rides along')
 // recalled dropped turns keep their evidence
 const recallArt = { ...recallConvo, messages: [...recallConvo.messages] }
 recallArt.messages[1].artifacts = [{ tool: 'fetch_url', recordedAt: freshAt, freshUntil: freshAt + 1800000, input: { url: 'https://dragon.example' }, output: { content: 'DRAGON_PAGE' } }]

@@ -170,7 +170,8 @@ def hosted_artifacts(dialect: str, response: object) -> list[dict]:
                 if field(block, "name") == "web_search":
                     artifacts.append({"tool": "search_web", "input": {"query": (field(block, "input") or {}).get("query")}, "output": {"results": []}})
                 elif field(block, "name") == "web_fetch":
-                    artifacts.append({"tool": "fetch_url", "input": {"url": (field(block, "input") or {}).get("url")}, "output": {}})
+                    # WHY: output repeats the url so the frame carries provenance; hosted bodies stay out (base64 PDFs).
+                    artifacts.append({"tool": "fetch_url", "input": {"url": (field(block, "input") or {}).get("url")}, "output": {"url": (field(block, "input") or {}).get("url")}})
             elif field(block, "type") == "web_search_tool_result" and artifacts and artifacts[-1]["tool"] == "search_web":
                 links = [{"title": field(result, "title"), "url": field(result, "url")} for result in field(block, "content") or [] if field(result, "type") == "web_search_result"]
                 artifacts[-1]["output"]["results"] = links
@@ -180,7 +181,7 @@ def hosted_artifacts(dialect: str, response: object) -> list[dict]:
                 continue
             action = field(item, "action")
             if field(action, "type") == "open_page":
-                artifacts.append({"tool": "fetch_url", "input": {"url": field(action, "url")}, "output": {}})
+                artifacts.append({"tool": "fetch_url", "input": {"url": field(action, "url")}, "output": {"url": field(action, "url")}})
             elif field(action, "query"):
                 artifacts.append({"tool": "search_web", "input": {"query": field(action, "query")}, "output": {"results": []}})
         # Citations are the search results the report actually leaned on; attach each to the nearest earlier search.

@@ -363,7 +363,7 @@ def check_hosted_artifacts() -> None:
     assert fetch_frame["artifact"]["tool"] == "fetch_url" and fetch_frame["artifact"]["input"] == {"url": "https://example.com/page"}, fetch_frame
     # Fetch results stay query/URL only: hosted bodies can be base64 PDFs and never belong in durable client state.
     fetch_frames = hosted_artifacts("anthropic", Obj(content=[message.content[2], Obj(type="web_fetch_tool_result", tool_use_id="h2", content="T1BPIDA9PDF")]))
-    assert len(fetch_frames) == 1 and fetch_frames[0]["artifact"]["output"] == {}, fetch_frames
+    assert len(fetch_frames) == 1 and fetch_frames[0]["artifact"]["output"] == {"url": "https://example.com/page"}, fetch_frames
     assert "T1BPIDA9PDF" not in str(fetch_frames), fetch_frames
 
     response = Obj(output=[
