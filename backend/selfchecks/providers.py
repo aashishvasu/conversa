@@ -134,6 +134,8 @@ assert response_frame(Obj(type="response.output_item.done", item={
 assert response_frame(Obj(type="response.output_text.annotation.added", annotation={
     "type": "url_citation", "title": "Kettles", "url": "https://example.com/kettle"
 })) == {"results": [{"title": "Kettles", "url": "https://example.com/kettle"}]}
+assert response_frame(Obj(type="response.incomplete", response={"incomplete_details": {"reason": "max_output_tokens"}})) == {"error": "incomplete response: max_output_tokens"}
+assert response_frame(Obj(type="response.failed", response={"error": {"message": "Invalid schema"}})) == {"error": "failed response: Invalid schema"}
 
 frames = chat_completion_frames(Obj(choices=[Obj(delta={"reasoning_content": "hmm", "content": "answer"})]))
 assert frames == [{"think": "hmm"}, {"text": "answer"}], frames
@@ -195,8 +197,11 @@ assert anthropic_usage(Obj(
     server_tool_use=None,
 ))["search_requests"] == 0
 
-# responses_usage: only the response.completed event carries usage; every other event is None.
+# responses_usage: terminal events carry usage, including a truncated one that already billed tokens.
 assert responses_usage(Obj(type="response.output_text.delta", delta="x")) is None
+assert responses_usage(Obj(type="response.incomplete", response={"usage": {"input_tokens": 8, "output_tokens": 0}})) == {
+    "input": 8, "output": 0, "cache_read": 0, "cache_write": 0, "search_requests": 0
+}
 usage = responses_usage(Obj(type="response.completed", response={"usage": {
     "input_tokens": 8, "output_tokens": 4,
     "input_tokens_details": {"cached_tokens": 6, "cache_write_tokens": 1},
