@@ -34,8 +34,9 @@ assert end_out_of_range.error == "invalid_arguments", end_out_of_range
 count_below_one = run("r-20", {"action": "integers", "start": 1, "end": 6, "count": 0})
 assert count_below_one.error == "invalid_arguments", count_below_one
 
-seed_out_of_bounds = run("r-21", {"action": "integers", "start": 1, "end": 6, "seed": 2**63})
-assert seed_out_of_bounds.error == "invalid_arguments", seed_out_of_bounds
+# A seed is deliberately unbounded: random.Random takes any int, and OpenAI rejects a schema minimum of -2**63.
+big_seed = run("r-21", {"action": "integers", "start": 1, "end": 6, "seed": 2**63})
+assert big_seed.error is None and json.loads(big_seed.content)["seeded"] is True, big_seed
 
 items_too_long = run("r-22", {"action": "shuffle", "items": [0] * 1001})
 assert items_too_long.error == "invalid_arguments", items_too_long

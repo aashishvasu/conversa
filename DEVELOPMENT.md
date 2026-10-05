@@ -63,7 +63,7 @@ Model ids use `provider/model`, for example `openai/gpt-5.6-sol`. Bare ids resol
 |---|---|---|
 | Thinking | `{type: adaptive, display: summarized}` | `{type: enabled, budget_tokens: N}` |
 | Effort | `output_config.effort` | `LEGACY_EFFORT_BUDGETS` |
-| Temperature | omitted | sent while thinking is off |
+| Temperature | omitted | sent in `extra_body` while thinking is off, since `messages.stream()` has no `temperature` parameter |
 | Token floor | `32000` | `budget + DEFAULT_MAX_TOKENS` |
 
 Responses events map to conversa frames as follows:
@@ -74,6 +74,9 @@ Responses events map to conversa frames as follows:
 | `think` | `response.reasoning_summary_text.delta` or `response.reasoning_text.delta` |
 | `search`, `fetch` | completed `web_search_call` output items |
 | `results` | `url_citation` annotations |
+| `error` | `response.incomplete` with its reason, `response.failed` with its message, or a stream `error` event |
+
+Usage is read from all three terminal events, so tokens billed before a truncation still reach Spend. A truncated response yields no `_response`, so its partial output items never start a tool round.
 
 `cost()` in `registry.py` is the pricing function. It reads the provider's per-model input and output rates, prices Anthropic cache writes at 1.25 times input and cache reads at 0.1 times input (except where the provider publishes a lower per-model read multiplier: 0.05 on Opus 5.5, 0.025 on Fable 5.1 and Mythos 5.1), and adds $10 per 1,000 Anthropic hosted searches. Unknown prices use `UNKNOWN_PRICE` and set `unpriced: true`. The `compatible` provider is always unpriced.
 

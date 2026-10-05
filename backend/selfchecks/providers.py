@@ -49,7 +49,10 @@ legacy = apply_thinking(request("claude-haiku-4-5"), "medium", 4096)
 assert legacy["thinking"] == {"type": "enabled", "budget_tokens": 10000}, legacy
 assert legacy["max_tokens"] > legacy["thinking"]["budget_tokens"], legacy
 assert "output_config" not in legacy and "temperature" not in legacy, legacy
-assert apply_thinking(request("claude-haiku-4-5", 0.3), "", 4096)["temperature"] == 0.3
+# stream() in SDK 1.3.0 takes no temperature parameter, so a legacy model's temperature rides in extra_body
+legacy_cold = apply_thinking(request("claude-haiku-4-5", 0.3), "", 4096)
+assert legacy_cold["extra_body"] == {"temperature": 0.3} and "temperature" not in legacy_cold, legacy_cold
+assert "extra_body" not in apply_thinking(request("claude-haiku-4-5", 0.3), "medium", 4096)
 assert "output_config" in apply_thinking(request("claude-future-9"), "low", 4096)
 assert set(EFFORT_VALUES) == set(LEGACY_EFFORT_BUDGETS), EFFORT_VALUES
 
@@ -131,6 +134,8 @@ assert response_frame(Obj(type="response.output_item.done", item={
 assert response_frame(Obj(type="response.output_text.annotation.added", annotation={
     "type": "url_citation", "title": "Kettles", "url": "https://example.com/kettle"
 })) == {"results": [{"title": "Kettles", "url": "https://example.com/kettle"}]}
+assert response_frame(Obj(type="response.incomplete", response={"incomplete_details": {"reason": "max_output_tokens"}})) == {"error": "incomplete response: max_output_tokens"}
+assert response_frame(Obj(type="response.failed", response={"error": {"message": "Invalid schema"}})) == {"error": "failed response: Invalid schema"}
 
 frames = chat_completion_frames(Obj(choices=[Obj(delta={"reasoning_content": "hmm", "content": "answer"})]))
 assert frames == [{"think": "hmm"}, {"text": "answer"}], frames
@@ -192,8 +197,11 @@ assert anthropic_usage(Obj(
     server_tool_use=None,
 ))["search_requests"] == 0
 
-# responses_usage: only the response.completed event carries usage; every other event is None.
+# responses_usage: terminal events carry usage, including a truncated one that already billed tokens.
 assert responses_usage(Obj(type="response.output_text.delta", delta="x")) is None
+assert responses_usage(Obj(type="response.incomplete", response={"usage": {"input_tokens": 8, "output_tokens": 0}})) == {
+    "input": 8, "output": 0, "cache_read": 0, "cache_write": 0, "search_requests": 0
+}
 usage = responses_usage(Obj(type="response.completed", response={"usage": {
     "input_tokens": 8, "output_tokens": 4,
     "input_tokens_details": {"cached_tokens": 6, "cache_write_tokens": 1},

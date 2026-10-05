@@ -22,20 +22,23 @@ from .tool_use import (
 
 
 REASONING_OUTPUT_FLOOR = 32000
+# Terminal Responses events. Incomplete and failed still carry usage for tokens already billed.
+RESPONSE_END_EVENTS = ("response.completed", "response.incomplete", "response.failed")
 
 
 def apply_thinking(kwargs: dict, effort: str, max_tokens: int) -> dict:
     """Attach Anthropic thinking config to a request kwargs dict."""
     legacy = kwargs["model"] in LEGACY_MODELS
-    if not legacy:
-        kwargs.pop("temperature", None)
+    # WHY: AsyncMessages.stream() in SDK 1.3.0 has no temperature parameter. Legacy models still take
+    # it on the wire, so it rides in extra_body; thinking rejects it, so it is dropped there.
+    if (temperature := kwargs.pop("temperature", None)) is not None and legacy and not effort:
+        kwargs["extra_body"] = {**(kwargs.get("extra_body") or {}), "temperature": temperature}
     if not effort:
         return kwargs
     if legacy:
         budget = LEGACY_EFFORT_BUDGETS[effort]
         kwargs["max_tokens"] = max(max_tokens, budget + DEFAULT_MAX_TOKENS)
         kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
-        kwargs.pop("temperature", None)
     else:
         kwargs["thinking"] = {"type": "adaptive", "display": "summarized"}
         kwargs["output_config"] = {"effort": effort}
@@ -117,6 +120,12 @@ def response_frame(event: object) -> dict | None:
         if field(annotation, "type") == "url_citation":
             link = {"title": field(annotation, "title"), "url": field(annotation, "url")}
             return {"results": [link]}
+    if event_type == "response.incomplete":
+        details = field(field(event, "response"), "incomplete_details")
+        return {"error": f"incomplete response: {field(details, 'reason') or 'unspecified'}"}
+    if event_type == "response.failed":
+        error = field(field(event, "response"), "error")
+        return {"error": f"failed response: {field(error, 'message') or error or 'unspecified'}"}
     if event_type == "error":
         return {"error": str(field(event, "message") or event)}
     return None
@@ -128,7 +137,7 @@ def responses_usage_from(usage: object) -> dict:
 
 
 def responses_usage(event: object) -> dict | None:
-    if field(event, "type") != "response.completed":
+    if field(event, "type") not in RESPONSE_END_EVENTS:
         return None
     usage = field(field(event, "response"), "usage")
     return responses_usage_from(usage) if usage else None
@@ -270,7 +279,9 @@ async def _responses_stream(
         if frame := response_frame(event):
             yield frame
         if usage := responses_usage(event):
-            response = field(event, "response")
+            # Only a completed response has the output items a tool round continues from.
+            if field(event, "type") == "response.completed":
+                response = field(event, "response")
             yield {"_usage": usage}
     parsed_calls = responses_tool_calls(response) if response else []
     yield {"_response": response, "_tool_calls": _prefer_streamed_arguments(parsed_calls, deltas.parsed()) if parsed_calls else deltas.parsed()}
