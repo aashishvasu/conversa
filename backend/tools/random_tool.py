@@ -20,7 +20,7 @@ class RandomArguments(ToolArguments):
     count: int = Field(default=1, ge=1, le=MAX_COUNT)
     items: list[str | int | float] | None = Field(default=None, min_length=1, max_length=MAX_ITEMS)
     replacement: bool = False
-    seed: int | None = Field(default=None, ge=-(2**63), le=2**63 - 1)
+    seed: int | None = None
 
     @model_validator(mode="after")
     def validate_action_fields(self) -> "RandomArguments":

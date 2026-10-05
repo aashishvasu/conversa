@@ -63,7 +63,7 @@ Model ids use `provider/model`, for example `openai/gpt-5.6-sol`. Bare ids resol
 |---|---|---|
 | Thinking | `{type: adaptive, display: summarized}` | `{type: enabled, budget_tokens: N}` |
 | Effort | `output_config.effort` | `LEGACY_EFFORT_BUDGETS` |
-| Temperature | omitted | sent while thinking is off |
+| Temperature | omitted | sent in `extra_body` while thinking is off, since `messages.stream()` has no `temperature` parameter |
 | Token floor | `32000` | `budget + DEFAULT_MAX_TOKENS` |
 
 Responses events map to conversa frames as follows:

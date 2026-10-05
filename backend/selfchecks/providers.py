@@ -49,7 +49,10 @@ legacy = apply_thinking(request("claude-haiku-4-5"), "medium", 4096)
 assert legacy["thinking"] == {"type": "enabled", "budget_tokens": 10000}, legacy
 assert legacy["max_tokens"] > legacy["thinking"]["budget_tokens"], legacy
 assert "output_config" not in legacy and "temperature" not in legacy, legacy
-assert apply_thinking(request("claude-haiku-4-5", 0.3), "", 4096)["temperature"] == 0.3
+# stream() in SDK 1.3.0 takes no temperature parameter, so a legacy model's temperature rides in extra_body
+legacy_cold = apply_thinking(request("claude-haiku-4-5", 0.3), "", 4096)
+assert legacy_cold["extra_body"] == {"temperature": 0.3} and "temperature" not in legacy_cold, legacy_cold
+assert "extra_body" not in apply_thinking(request("claude-haiku-4-5", 0.3), "medium", 4096)
 assert "output_config" in apply_thinking(request("claude-future-9"), "low", 4096)
 assert set(EFFORT_VALUES) == set(LEGACY_EFFORT_BUDGETS), EFFORT_VALUES
 

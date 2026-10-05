@@ -27,15 +27,16 @@ REASONING_OUTPUT_FLOOR = 32000
 def apply_thinking(kwargs: dict, effort: str, max_tokens: int) -> dict:
     """Attach Anthropic thinking config to a request kwargs dict."""
     legacy = kwargs["model"] in LEGACY_MODELS
-    if not legacy:
-        kwargs.pop("temperature", None)
+    # WHY: AsyncMessages.stream() in SDK 1.3.0 has no temperature parameter. Legacy models still take
+    # it on the wire, so it rides in extra_body; thinking rejects it, so it is dropped there.
+    if (temperature := kwargs.pop("temperature", None)) is not None and legacy and not effort:
+        kwargs["extra_body"] = {**(kwargs.get("extra_body") or {}), "temperature": temperature}
     if not effort:
         return kwargs
     if legacy:
         budget = LEGACY_EFFORT_BUDGETS[effort]
         kwargs["max_tokens"] = max(max_tokens, budget + DEFAULT_MAX_TOKENS)
         kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
-        kwargs.pop("temperature", None)
     else:
         kwargs["thinking"] = {"type": "adaptive", "display": "summarized"}
         kwargs["output_config"] = {"effort": effort}
