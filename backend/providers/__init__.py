@@ -1,5 +1,6 @@
-"""Provider facade: registry data and the three dialect drivers."""
+"""Provider facade: registry data, dialect drivers, and chat orchestration."""
 
+from .chat import stream_chat
 from .dialects import (
     anthropic_frame,
     anthropic_system,
@@ -16,7 +17,6 @@ from .dialects import (
     response_frame,
     responses_kwargs,
     responses_usage,
-    stream_chat,
     takes_reasoning,
 )
 from .tool_use import (
@@ -28,17 +28,14 @@ from .tool_use import (
     tool_schema,
 )
 from .registry import (
-    ALL_MODELS,
     API_MAX_RETRIES,
     CLIENTS,
     CONFIG_ERRORS,
-    CONFIGURED,
     DEFAULT_EFFORT,
     DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL,
     DEFAULT_TEMPERATURE,
     DEFAULT_UTILITY_MODEL,
-    DIALECTS,
     EFFORT_VALUES,
     MODELS,
     PROVIDERS,

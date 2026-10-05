@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { createDoc, docsOf, removeDocRef } from '../state/store.js'
 import { confirmDelete } from '../utils/confirm.js'
-import { tr } from '../i18n.js'
+import { tr } from '../i18n/index.js'
 import CardsPanel from './CardsPanel.vue'
 import DocRow from './DocRow.vue'
 

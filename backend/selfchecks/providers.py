@@ -3,7 +3,6 @@
 from types import SimpleNamespace as Obj
 
 from providers import (
-    DIALECTS,
     EFFORT_VALUES,
     PROVIDERS,
     Spend,
@@ -29,6 +28,9 @@ from providers import (
     takes_reasoning,
 )
 from providers.anthropic import LEGACY_EFFORT_BUDGETS
+from providers.dialects import _anthropic_request_tools, responses_request_tools
+from tools import DATETIME_TOOL, TOOL_REGISTRY
+from providers.registry import DIALECTS
 
 
 def request(model: str, temperature: float = 1.0) -> dict:
@@ -47,7 +49,10 @@ legacy = apply_thinking(request("claude-haiku-4-5"), "medium", 4096)
 assert legacy["thinking"] == {"type": "enabled", "budget_tokens": 10000}, legacy
 assert legacy["max_tokens"] > legacy["thinking"]["budget_tokens"], legacy
 assert "output_config" not in legacy and "temperature" not in legacy, legacy
-assert apply_thinking(request("claude-haiku-4-5", 0.3), "", 4096)["temperature"] == 0.3
+# stream() in SDK 1.3.0 takes no temperature parameter, so a legacy model's temperature rides in extra_body
+legacy_cold = apply_thinking(request("claude-haiku-4-5", 0.3), "", 4096)
+assert legacy_cold["extra_body"] == {"temperature": 0.3} and "temperature" not in legacy_cold, legacy_cold
+assert "extra_body" not in apply_thinking(request("claude-haiku-4-5", 0.3), "medium", 4096)
 assert "output_config" in apply_thinking(request("claude-future-9"), "low", 4096)
 assert set(EFFORT_VALUES) == set(LEGACY_EFFORT_BUDGETS), EFFORT_VALUES
 
@@ -70,9 +75,14 @@ for name, entry in PROVIDERS.items():
         assert model["provider"] == name, (name, model)
 assert PROVIDERS["compatible"]["models"] == ""
 assert PROVIDERS["compatible"]["base_url_env"] == "OPENAI_COMPATIBLE_BASE_URL"
+deepseek_models = {model["id"] for model in parse_models(PROVIDERS["deepseek"]["models"])}
+assert deepseek_models == {"deepseek/deepseek-v4-pro", "deepseek/deepseek-flash"}, deepseek_models
+assert cost("deepseek", "deepseek-flash", 1_000_000, 0) == (0.3, True)
+# DeepSeek's Responses API ignores web_search and other built-in tools, so the entry must not claim one.
+assert not PROVIDERS["deepseek"].get("search_tool"), PROVIDERS["deepseek"]
 
 assert takes_reasoning("openai", "gpt-5.6-sol") and not takes_reasoning("openai", "gpt-4o")
-assert takes_reasoning("deepseek", "deepseek-v4-flash")
+assert takes_reasoning("deepseek", "deepseek-v4-pro") and takes_reasoning("deepseek", "deepseek-flash")
 
 blocks = anthropic_system(["stable", "volatile"])
 assert blocks == [
@@ -88,9 +98,9 @@ chat = chat_completions_kwargs(
 assert chat["messages"][0] == {"role": "system", "content": "stable\n\nvolatile"}, chat
 assert chat["messages"][1]["content"] == "hi" and chat["temperature"] == 0.3, chat
 assert "temperature" not in chat_completions_kwargs("some-model", [], None, 2048)
-responses = responses_kwargs("deepseek", "deepseek-v4-flash", [{"role": "user", "content": "hi"}], None, 20, "", 0.5)
+responses = responses_kwargs("deepseek", "deepseek-v4-pro", [{"role": "user", "content": "hi"}], None, 20, "", 0.5)
 assert responses["reasoning"] == {"effort": "none"} and "temperature" not in responses, responses
-responses = responses_kwargs("deepseek", "deepseek-v4-flash", [], None, 20, "low", 0.5)
+responses = responses_kwargs("deepseek", "deepseek-v4-pro", [], None, 20, "low", 0.5)
 assert responses["reasoning"] == {"effort": "low", "summary": "auto"}, responses
 assert responses["max_output_tokens"] == 32000, responses
 assert join_system(["stable", ""]) == "stable" and join_system("plain") == "plain"
@@ -102,7 +112,7 @@ assert openai_messages(vision, False)[0]["content"] == [{"type": "image_url", "i
 prepared_anthropic = complete_messages_kwargs("anthropic", "claude-opus-4-8", vision, ["stable", "volatile"], 1024, "")
 assert prepared_anthropic["system"] == anthropic_system(["stable", "volatile"]), prepared_anthropic
 assert prepared_anthropic["messages"] == vision, prepared_anthropic
-prepared_responses = complete_messages_kwargs("deepseek", "deepseek-v4-flash", vision, ["stable", "volatile"], 1024, "")
+prepared_responses = complete_messages_kwargs("deepseek", "deepseek-v4-pro", vision, ["stable", "volatile"], 1024, "")
 assert prepared_responses["input"] == openai_messages(vision, True), prepared_responses
 assert prepared_responses["instructions"] == "stable\n\nvolatile", prepared_responses
 assert prepared_responses["reasoning"] == {"effort": "none"}, prepared_responses
@@ -124,6 +134,8 @@ assert response_frame(Obj(type="response.output_item.done", item={
 assert response_frame(Obj(type="response.output_text.annotation.added", annotation={
     "type": "url_citation", "title": "Kettles", "url": "https://example.com/kettle"
 })) == {"results": [{"title": "Kettles", "url": "https://example.com/kettle"}]}
+assert response_frame(Obj(type="response.incomplete", response={"incomplete_details": {"reason": "max_output_tokens"}})) == {"error": "incomplete response: max_output_tokens"}
+assert response_frame(Obj(type="response.failed", response={"error": {"message": "Invalid schema"}})) == {"error": "failed response: Invalid schema"}
 
 frames = chat_completion_frames(Obj(choices=[Obj(delta={"reasoning_content": "hmm", "content": "answer"})]))
 assert frames == [{"think": "hmm"}, {"text": "answer"}], frames
@@ -150,6 +162,12 @@ usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, cache_write=1_000_000)
 assert usd == 2.5, usd  # 2 * 1.25
 usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, cache_read=1_000_000)
 assert usd == 0.2, usd  # 2 * 0.1
+usd, _ = cost("anthropic", "claude-opus-5-5", 0, 0, cache_read=1_000_000)
+assert usd == 0.2, usd  # 4 * 0.05
+usd, _ = cost("anthropic", "claude-fable-5-1", 0, 0, cache_read=1_000_000)
+assert usd == 0.25, usd  # 10 * 0.025
+usd, _ = cost("openai", "gpt-6-astra", 0, 0, cache_read=1_000_000)
+assert usd == 1.0, usd  # 10 * 0.1, no per-model override
 usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, search_requests=1000)
 assert usd == 10.0, usd
 usd, priced = cost("anthropic", "unknown-model-xyz", 1_000_000, 1_000_000)
@@ -179,8 +197,11 @@ assert anthropic_usage(Obj(
     server_tool_use=None,
 ))["search_requests"] == 0
 
-# responses_usage: only the response.completed event carries usage; every other event is None.
+# responses_usage: terminal events carry usage, including a truncated one that already billed tokens.
 assert responses_usage(Obj(type="response.output_text.delta", delta="x")) is None
+assert responses_usage(Obj(type="response.incomplete", response={"usage": {"input_tokens": 8, "output_tokens": 0}})) == {
+    "input": 8, "output": 0, "cache_read": 0, "cache_write": 0, "search_requests": 0
+}
 usage = responses_usage(Obj(type="response.completed", response={"usage": {
     "input_tokens": 8, "output_tokens": 4,
     "input_tokens_details": {"cached_tokens": 6, "cache_write_tokens": 1},
@@ -194,5 +215,28 @@ usage = chat_completion_usage(Obj(choices=[], usage={
     "prompt_tokens_details": {"cached_tokens": 6, "cache_write_tokens": 1},
 }))
 assert usage == {"input": 8, "output": 4, "cache_read": 6, "cache_write": 1, "search_requests": 0}, usage
+
+# Provider tool schema filtering and colliding capabilities prevention
+anthropic_tools_filtered = _anthropic_request_tools(PROVIDERS["anthropic"], [DATETIME_TOOL], hosted_search=True, hosted_fetch=False)
+assert [t["name"] for t in anthropic_tools_filtered] == ["datetime", "web_search"], anthropic_tools_filtered
+assert not any(t.get("name") == "web_fetch" for t in anthropic_tools_filtered), anthropic_tools_filtered
+assert not any(t.get("name") == "calculator" for t in anthropic_tools_filtered), "disabled tools are omitted"
+
+# Colliding capability: app search_web prevents hosted web_search
+search_tool = TOOL_REGISTRY["search_web"]
+colliding_anthropic = _anthropic_request_tools(PROVIDERS["anthropic"], [search_tool], hosted_search=True)
+assert [t["name"] for t in colliding_anthropic] == ["search_web"], colliding_anthropic
+
+responses_tools_filtered = responses_request_tools(PROVIDERS["openai"], [DATETIME_TOOL], hosted_search=True)
+assert len(responses_tools_filtered) == 2, responses_tools_filtered
+assert any(t.get("name") == "datetime" for t in responses_tools_filtered)
+assert any(t.get("type") == PROVIDERS["openai"]["search_tool"] for t in responses_tools_filtered)
+
+colliding_responses = responses_request_tools(PROVIDERS["openai"], [search_tool], hosted_search=True)
+assert len(colliding_responses) == 1 and colliding_responses[0].get("name") == "search_web"
+
+# Chat completions kwargs stays tool-free
+chat_kwargs = chat_completions_kwargs("some-model", [], None, 1000)
+assert "tools" not in chat_kwargs
 
 print("providers selfcheck OK")

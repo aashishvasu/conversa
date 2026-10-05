@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { tr } from '../i18n.js'
+import { tr } from '../i18n/index.js'
 
 // /api/login exchanges the password for the stored bearer token. A 401 clears it and returns to login.
 
@@ -25,13 +25,18 @@ const ERROR_KEYS = { no_such_run: 'errors.noSuchRun', unknown_effort: 'errors.un
 async function responseError(res) {
   try {
     const detail = (await res.json()).detail
-    if (detail && typeof detail === 'object') {
-      if (ERROR_KEYS[detail.code]) return tr(ERROR_KEYS[detail.code], detail)
-      if (typeof detail.message === 'string') return detail.message
+    if (Array.isArray(detail)) {
+      const msg = detail.map((d) => `${d.loc?.filter((x) => x !== 'body').join('.') || 'field'}: ${d.msg}`).join(', ')
+      return new Error(msg || tr('errors.server', { status: res.status }))
     }
-    if (typeof detail === 'string') return detail
+    if (detail && typeof detail === 'object') {
+      const error = new Error(ERROR_KEYS[detail.code] ? tr(ERROR_KEYS[detail.code], detail) : typeof detail.message === 'string' ? detail.message : tr('errors.server', { status: res.status }))
+      if (detail.code) error.code = detail.code
+      return error
+    }
+    if (typeof detail === 'string') return new Error(detail)
   } catch { /* use the status fallback */ }
-  return tr('errors.server', { status: res.status })
+  return new Error(tr('errors.server', { status: res.status }))
 }
 
 async function check(res) {
@@ -39,7 +44,7 @@ async function check(res) {
     logout()
     throw new Error(tr('errors.sessionExpired'))
   }
-  if (!res.ok) throw new Error(await responseError(res))
+  if (!res.ok) throw await responseError(res)
   maybeRefresh()
   return res
 }
@@ -78,7 +83,7 @@ export async function login(password) {
     body: JSON.stringify({ password }),
   })
   if (res.status === 401) throw new Error(tr('errors.wrongPassword'))
-  if (!res.ok) throw new Error(await responseError(res))
+  if (!res.ok) throw await responseError(res)
   const { token } = await res.json()
   localStorage.setItem(TOKEN_KEY, token)
 }
@@ -93,8 +98,9 @@ export async function fetchModels() {
 
 // Streams assistant text.
 // Calls onText(chunk) per token; onTrace(type, value) for non-visible activity; onUsage(usage) once per turn.
+// onArtifact(artifact) fires for durable tool provenance records, independent of trace visibility.
 // Resolves when done.
-export async function streamChat(payload, onText, signal, onTrace, onUsage) {
+export async function streamChat(payload, onText, signal, onTrace, onUsage, onArtifact) {
   const res = await check(
     await fetch('/api/chat', {
       method: 'POST',
@@ -112,6 +118,7 @@ export async function streamChat(payload, onText, signal, onTrace, onUsage) {
     else if (data.fetch && onTrace) onTrace('fetch', data.fetch)
     else if (data.results && onTrace) onTrace('results', data.results)
     else if (data.tool && onTrace) onTrace('tool', data.tool)
+    else if (data.artifact && onArtifact) onArtifact(data.artifact)
     else if (data.usage && onUsage) onUsage(data.usage)
   })
 }
@@ -136,12 +143,12 @@ async function readSSE(res, onEvent) {
 }
 
 // --- Transient transfers ---------------------------------------------------------------
-// An export payload is held on the server under a phrase for a short TTL, then
-// retrieved by pasting the phrase on another device. Phrases never appear in URLs.
+// An export payload is held on the server under a phrase for a short TTL, then retrieved by pasting the phrase on another device.
+// Phrases never appear in URLs.
 
 export async function createTransfer(scope, data) {
   const res = await fetch('/api/transfers', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ scope, data }) })
-  if (res.status === 413 || res.status === 507) throw new Error(await responseError(res))
+  if (res.status === 413 || res.status === 507) throw await responseError(res)
   return (await check(res)).json()
 }
 
@@ -154,16 +161,30 @@ export async function retrieveTransfer(phrase) {
 // Reconnect with the last seq seen and the events missed in between are replayed.
 
 // Prepare from the ordinary assembled system/messages context before a research placeholder exists.
-export async function prepareResearch(body) {
-  const res = await fetch('/api/research/prepare', { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) })
-  if (res.status === 400 || res.status === 502) throw new Error(await responseError(res))
+export async function prepareResearch(body, signal) {
+  const res = await fetch('/api/research/prepare', { method: 'POST', headers: authHeaders(), body: JSON.stringify(body), signal })
+  if (res.status === 400 || res.status === 502) throw await responseError(res)
   return (await check(res)).json()
 }
 
 export async function startResearch(body) {
   const res = await fetch('/api/research', { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) })
-  if (res.status === 400) throw new Error(await responseError(res))
+  if (res.status === 400) throw await responseError(res)
   return (await check(res)).json()
+}
+
+export async function fetchResearchState(id, after = 0) {
+  const res = await fetch(`/api/research/${id}?after=${after}`, { headers: authHeaders(false) })
+  return (await check(res)).json()
+}
+
+export async function ackResearch(id) {
+  try {
+    const res = await fetch(`/api/research/${id}/ack`, { method: 'POST', headers: authHeaders(false) })
+    return (await check(res)).json()
+  } catch {
+    return null
+  }
 }
 
 // Done with this run.
@@ -173,7 +194,6 @@ export async function discardResearch(id) {
   return (await check(await fetch(`/api/research/${id}`, { method: 'DELETE', headers: authHeaders(false) }))).json()
 }
 
-// Tails a run until it ends. onEvent gets every event; the last one is kind 'final' and carries the payload.
 export async function streamResearch(id, after, onEvent, signal) {
   const res = await fetch(`/api/research/${id}/stream?after=${after || 0}`, { headers: authHeaders(false), signal })
   if (res.status === 404) {

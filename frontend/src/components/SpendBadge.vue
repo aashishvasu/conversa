@@ -4,8 +4,7 @@ import UiTooltip from './ui/UiTooltip.vue'
 // One rendering of a spend summary, shared by the chat footer and Usage rows.
 defineProps({ spend: { type: Object, required: true } })
 
-function formatNumber(num)
-{
+function formatNumber(num) {
   const units = ['', 'k', 'M', 'B', 'T']
   const tier = Math.min(
     Math.floor(Math.log10(Math.abs(num)) / 3),

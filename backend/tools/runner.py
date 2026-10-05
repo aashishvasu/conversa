@@ -2,14 +2,16 @@
 
 import asyncio
 import json
+import os
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from .conversa_tool import ConversaTool, ToolCall, ToolResult, execute_tool
 
 
-DEFAULT_MAX_ROUNDS = 4
-DEFAULT_MAX_CALLS = 16
+DEFAULT_MAX_ROUNDS = max(1, int(os.environ.get("DEFAULT_TOOL_MAX_ROUNDS", "4")))
+DEFAULT_MAX_CALLS = max(1, int(os.environ.get("DEFAULT_TOOL_MAX_CALLS", "16")))
 _REDACTED_KEYS = {"arguments", "authorization", "content", "data", "input", "key", "output", "password", "result", "secret", "token", "value"}
 
 
@@ -18,7 +20,7 @@ def error_result(call: ToolCall, code: str, message: str) -> ToolResult:
         call.id,
         call.name,
         json.dumps({"error": {"code": code, "message": message}}, separators=(",", ":")),
-        {"status": "error", "code": code},
+        {"status": "error", "code": code, "message": message},
         code,
     )
 
@@ -46,6 +48,14 @@ def tool_frame(result: ToolResult, status: str) -> dict:
     return {"tool": {"id": result.call_id, "name": result.name, "status": status, "trace": redact_trace(result.trace, result.content)}}
 
 
+def artifact_frame(result: ToolResult, fresh_for: int | None) -> dict | None:
+    """Durable client-side provenance for a successful artifact-history call; errors keep no evidence."""
+    if result.error is not None or result.artifact is None:
+        return None
+    recorded_at = int(time.time() * 1000)
+    return {"artifact": {**result.artifact, "tool": result.name, "recordedAt": recorded_at, "freshUntil": recorded_at + fresh_for * 1000 if fresh_for else None}}
+
+
 @dataclass(slots=True)
 class ToolRunner:
     """Run a request's app tools within fixed round and call budgets."""
@@ -65,12 +75,15 @@ class ToolRunner:
     def can_run_round(self) -> bool:
         return self.rounds < self.max_rounds
 
+    def disable_tool(self, name: str) -> None:
+        self._tools.pop(name, None)
+
     async def run(self, calls: list[ToolCall]) -> tuple[list[ToolResult], list[dict]]:
         """Execute calls concurrently, retaining provider order in results and frames."""
         self.rounds += 1
-        pending: list[ToolCall] = []
-        results: list[ToolResult | None] = []
-        running: list[dict] = []
+        pending = []
+        results = []
+        running = []
         for call in calls:
             if self.calls >= self.max_calls:
                 results.append(error_result(call, "tool_call_limit", "tool call limit reached"))
@@ -83,6 +96,8 @@ class ToolRunner:
         iterator = iter(completed)
         ordered = [result if result is not None else next(iterator) for result in results]
         frames = [*running, *(tool_frame(result, "error" if result.error else "completed") for result in ordered)]
+        fresh_for = {name: tool.artifact_fresh_for for name, tool in self._tools.items()}
+        frames.extend(frame for result in ordered if (frame := artifact_frame(result, fresh_for.get(result.name))) is not None)
         return ordered, frames
 
     async def _execute(self, call: ToolCall) -> ToolResult:

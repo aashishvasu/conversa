@@ -194,7 +194,7 @@ const contextDependent = {
 }
 const normalContext = buildPayload(contextDependent, wSettings)
 const preparationContext = buildResearchInput(contextDependent, wSettings)
-assert.deepEqual(preparationContext, { system: normalContext.system, messages: normalContext.messages }, 'preparation receives buildPayload-equivalent context')
+assert.deepEqual(preparationContext, { system: normalContext.system, messages: normalContext.messages }, 'preparation receives buildPayload-equivalent context when there is no tool evidence')
 assert.ok(preparationContext.messages.some((message) => message.content.includes('Project Orion')), 'the topic survives for a standalone prepared goal')
 
 // A short clarification answer can evict its request from the normal window, but preparation still receives its goal.
@@ -211,5 +211,57 @@ const clarified = {
 const oneTurn = buildResearchInput(clarified, { ...wSettings, num_messages_to_send: 1 })
 assert.deepEqual(oneTurn.messages.map((message) => message.content), ['HIPAA.'], 'the normal window remains one turn')
 assert.ok(oneTurn.system.includes('Project Orion database options') && oneTurn.system.includes('Which regulations apply?'), 'pending preparation survives window trimming')
+
+// --- Tool evidence artifacts --------------------------------------------------------
+// Artifacts ride with the assistant text, stale ones are marked, and the trust instruction stays in the volatile half.
+const freshAt = Date.now()
+const artConvo = {
+  scanAssistant: false, cards: [],
+  messages: [
+    { id: 'sys', role: 'system', content: 'sys' },
+    { id: 'u1', role: 'user', content: 'cite sources' },
+    { id: 'a1', role: 'assistant', content: 'Answer with sources.', artifacts: [{
+      tool: 'search_web', recordedAt: freshAt, freshUntil: freshAt + 1800000,
+      input: { query: 'release notes' }, output: { results: [{ title: 'Release', url: 'https://example.com/r' }] },
+    }] },
+    { id: 'u2', role: 'user', content: 'what about the other one' },
+  ],
+}
+const aSettings = { model: 'm', max_tokens: 10, num_messages_to_send: 3, send_system_prompt: true }
+const ap = buildPayload(artConvo, aSettings)
+const sent = ap.messages.find((m) => m.role === 'assistant')
+assert.ok(sent.content.startsWith('Answer with sources.'), 'the answer text still leads')
+assert.ok(sent.content.includes('[Tool evidence recorded with this assistant response]'), 'the evidence block trails the answer')
+assert.ok(sent.content.includes('"query":"release notes"') && sent.content.includes('https://example.com/r'), 'input and output are serialized')
+assert.ok(!sent.content.includes('Stale:'), 'a fresh artifact is not marked stale')
+assert.ok(ap.system.includes('untrusted data'), 'the trust instruction is sent whenever evidence is in context')
+// Preparation routes rather than answers, so it sees the same turns without their tool evidence.
+const prepared = buildResearchInput(artConvo, aSettings)
+const preparedAssistant = prepared.messages.find((m) => m.role === 'assistant')
+assert.ok(preparedAssistant.content.startsWith('Answer with sources.'), 'preparation keeps the assistant text')
+assert.ok(!preparedAssistant.content.includes('[Tool evidence recorded with this assistant response]'), 'preparation drops the evidence block')
+assert.ok(!prepared.system.includes('untrusted data'), 'preparation drops the artifact instruction with it')
+// no artifacts anywhere: no instruction, no block
+assert.ok(!buildPayload(convo, aSettings).system.includes('untrusted data'), 'no evidence means no instruction')
+// use_cache: the instruction must sit in the volatile half or it invalidates the cached prefix
+const ac = buildPayload(artConvo, { ...aSettings, use_cache: true, use_memory: true })
+assert.ok(Array.isArray(ac.system), 'cache splits the system')
+assert.ok(!ac.system[0].includes('untrusted data') && ac.system[1].includes('untrusted data'), 'the artifact instruction stays volatile')
+// a stale artifact is marked so the model knows to refetch
+const staleConvo = { scanAssistant: false, cards: [], messages: [{ id: 'u', role: 'user', content: 'q' }, { id: 'a', role: 'assistant', content: 'old', artifacts: [{ tool: 'fetch_url', recordedAt: 1000, freshUntil: 2000, input: { url: 'https://old.example' }, output: { content: 'OLD BODY' } }] }] }
+const staleMsg = buildPayload(staleConvo, aSettings).messages.find((m) => m.role === 'assistant')
+assert.ok(staleMsg.content.includes('Stale:') && staleMsg.content.includes('OLD BODY'), 'stale evidence is marked, not dropped')
+// a partial fetch artifact is marked so the model knows to refetch rather than trust the excerpt
+const partialConvo = { scanAssistant: false, cards: [], messages: [{ id: 'u', role: 'user', content: 'q' }, { id: 'a', role: 'assistant', content: 'read a page', artifacts: [{ tool: 'fetch_url', recordedAt: freshAt, freshUntil: freshAt + 1800000, input: { url: 'https://long.example' }, output: { url: 'https://long.example', title: 'Long', kind: 'article', offset: 0, totalChars: 50000, nextOffset: null, windowChars: 40000, excerpt: 'FIRST PART' } }] }] }
+const partialMsg = buildPayload(partialConvo, aSettings).messages.find((m) => m.role === 'assistant')
+assert.ok(partialMsg.content.includes('Excerpt: only the first 10 of 40000 chars read'), 'a partial excerpt is marked')
+assert.ok(partialMsg.content.includes('FIRST PART'), 'the excerpt itself still rides along')
+// recalled dropped turns keep their evidence
+const recallArt = { ...recallConvo, messages: [...recallConvo.messages] }
+recallArt.messages[1].artifacts = [{ tool: 'fetch_url', recordedAt: freshAt, freshUntil: freshAt + 1800000, input: { url: 'https://dragon.example' }, output: { content: 'DRAGON_PAGE' } }]
+const rapp = buildPayload(recallArt, rSettings)
+assert.ok(rapp.system.includes('DRAGON_PAGE'), 'a recalled turn brings its evidence along')
+// a contentless turn without artifacts is still dropped entirely
+assert.deepEqual(hp.messages.map((m) => m.content), ['ask', 'follow-up'], 'empty turns are still dropped')
 
 console.log('payload selfcheck OK')

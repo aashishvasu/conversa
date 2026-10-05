@@ -1,8 +1,8 @@
 <script setup>
 import { computed } from 'vue'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
-import { tr } from '../i18n.js'
-import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
+import { tr } from '../i18n/index.js'
+import { effectiveSettings, EFFORT_LEVELS, RESEARCH_MODEL_FIELDS } from '../state/settings.js'
 import {
   createFromTemplate,
   deleteConversation,
@@ -74,7 +74,7 @@ async function remove() {
     <TabsRoot default-value="chat" class="space-y-3">
       <TabsList class="flex gap-0.5 overflow-x-auto border-b border-edge py-2">
         <TabsTrigger
-          v-for="tab in ['chat', 'context', 'research', 'data']"
+          v-for="tab in ['chat', 'context', 'tools', 'research', 'data']"
           :key="tab"
           :value="tab"
           class="shrink-0 rounded-md px-3 py-1.5 text-sm text-muted outline-none transition-colors hover:bg-surface2 focus-visible:ring-2 focus-visible:ring-focus data-[state=active]:bg-accent/10 data-[state=active]:text-base"
@@ -191,17 +191,65 @@ async function remove() {
         </UiDisclosure>
       </TabsContent>
 
+      <TabsContent value="tools" class="space-y-3 outline-none">
+        <UiSwitch :model-value="eff('tools_enabled')" :label="$t('settings.toolsEnabled')" :help="$t('settings.toolsHelp')" @update:model-value="setOv('tools_enabled', $event)">
+          <template #action>
+            <OverrideReset :overridden="overridden('tools_enabled')" @use-global="reset('tools_enabled')" />
+          </template>
+        </UiSwitch>
+        <UiSwitch :model-value="eff('tool_web_search')" :label="$t('settings.toolWebSearch')" :help="$t('settings.toolWebSearchHelp')" :disabled="!eff('tools_enabled')" @update:model-value="setOv('tool_web_search', $event)">
+          <template #action>
+            <OverrideReset :overridden="overridden('tool_web_search')" @use-global="reset('tool_web_search')" />
+          </template>
+        </UiSwitch>
+        <UiSwitch :model-value="eff('tool_fetch_url')" :label="$t('settings.toolFetchUrl')" :help="$t('settings.toolFetchUrlHelp')" :disabled="!eff('tools_enabled')" @update:model-value="setOv('tool_fetch_url', $event)">
+          <template #action>
+            <OverrideReset :overridden="overridden('tool_fetch_url')" @use-global="reset('tool_fetch_url')" />
+          </template>
+        </UiSwitch>
+        <UiSwitch :model-value="eff('tool_datetime')" :label="$t('settings.toolDatetime')" :disabled="!eff('tools_enabled')" @update:model-value="setOv('tool_datetime', $event)">
+          <template #action>
+            <OverrideReset :overridden="overridden('tool_datetime')" @use-global="reset('tool_datetime')" />
+          </template>
+        </UiSwitch>
+        <UiSwitch :model-value="eff('tool_calculator')" :label="$t('settings.toolCalculator')" :disabled="!eff('tools_enabled')" @update:model-value="setOv('tool_calculator', $event)">
+          <template #action>
+            <OverrideReset :overridden="overridden('tool_calculator')" @use-global="reset('tool_calculator')" />
+          </template>
+        </UiSwitch>
+        <UiSwitch :model-value="eff('tool_random')" :label="$t('settings.toolRandom')" :disabled="!eff('tools_enabled')" @update:model-value="setOv('tool_random', $event)">
+          <template #action>
+            <OverrideReset :overridden="overridden('tool_random')" @use-global="reset('tool_random')" />
+          </template>
+        </UiSwitch>
+        <div v-if="eff('tools_enabled')" class="border-t border-edge pt-3">
+          <span class="mb-1 block text-muted">{{ $t('settings.toolLimits') }}</span>
+          <div class="flex gap-2">
+            <div class="flex-1">
+              <div class="mb-1 flex items-center justify-between text-muted">
+                <span>{{ $t('settings.toolMaxRounds') }}</span>
+                <OverrideReset :overridden="overridden('tool_max_rounds')" @use-global="reset('tool_max_rounds')" />
+              </div>
+              <UiNumberField :model-value="eff('tool_max_rounds')" :label="$t('settings.toolMaxRounds')" :min="1" @update:model-value="setOv('tool_max_rounds', $event)" />
+            </div>
+            <div class="flex-1">
+              <div class="mb-1 flex items-center justify-between text-muted">
+                <span>{{ $t('settings.toolMaxCalls') }}</span>
+                <OverrideReset :overridden="overridden('tool_max_calls')" @use-global="reset('tool_max_calls')" />
+              </div>
+              <UiNumberField :model-value="eff('tool_max_calls')" :label="$t('settings.toolMaxCalls')" :min="1" @update:model-value="setOv('tool_max_calls', $event)" />
+            </div>
+          </div>
+        </div>
+      </TabsContent>
+
       <TabsContent value="research" class="space-y-3 outline-none">
-        <div v-for="field in [
-          { key: 'research_search_model', label: $t('research.searchModel') },
-          { key: 'research_note_model', label: $t('research.notesModel') },
-          { key: 'research_report_model', label: $t('research.reportModel') },
-        ]" :key="field.key">
+        <div v-for="field in RESEARCH_MODEL_FIELDS" :key="field.key">
           <div class="mb-1 flex items-center justify-between text-muted">
-            <span>{{ field.label }}</span>
+            <span>{{ $t(field.labelKey) }}</span>
             <OverrideReset :overridden="overridden(field.key)" @use-global="reset(field.key)" />
           </div>
-          <ModelSelect :model-value="eff(field.key)" :label="field.label" @update:model-value="setOv(field.key, $event)" />
+          <ModelSelect :model-value="eff(field.key)" :label="$t(field.labelKey)" @update:model-value="setOv(field.key, $event)" />
         </div>
 
         <div>
@@ -210,6 +258,22 @@ async function remove() {
             <OverrideReset :overridden="overridden('research_depth')" @use-global="reset('research_depth')" />
           </div>
           <UiNumberField :model-value="eff('research_depth')" :label="$t('research.sourcesPerQuestion')" :min="1" :max="12" @update:model-value="setOv('research_depth', $event)" />
+        </div>
+
+        <div>
+          <div class="mb-1 flex items-center justify-between text-muted">
+            <span>{{ (eff('research_min_sources') ?? 8) }} · {{ (eff('research_max_sources') ?? 24) }}</span>
+            <OverrideReset :overridden="overridden('research_min_sources') || overridden('research_max_sources')" @use-global="reset('research_min_sources'); reset('research_max_sources')" />
+          </div>
+          <UiSlider
+            :model-value="[eff('research_min_sources') ?? 8, eff('research_max_sources') ?? 24]"
+            :label="$t('common.decrease')"
+            :second-label="$t('common.increase')"
+            :min="8"
+            :max="300"
+            :step="1"
+            @update:model-value="setOv('research_min_sources', $event[0]); setOv('research_max_sources', $event[1])"
+          />
         </div>
       </TabsContent>
 

@@ -1,11 +1,10 @@
 <script setup>
-import { BookmarkPlus, Boxes, CopyPlus, Download, LogOut, MessageSquarePlus, Moon, Plus, Send, SlidersHorizontal, Sun, X } from '@lucide/vue'
+import { Boxes, CopyPlus, LogOut, MessageSquarePlus, Moon, Plus, SlidersHorizontal, Sun, X } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { DrawerContent, DrawerOverlay, DrawerPortal, DrawerRoot, DrawerTitle } from 'reka-ui'
 import { logout } from '../api/client.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { notify } from '../utils/notify.js'
-import { formatShort } from '../utils/format.js'
 import {
   activePane,
   conversations,
@@ -25,7 +24,8 @@ import {
   workspaces,
 } from '../state/store.js'
 import { isDark, restoreTheme } from '../utils/theme.js'
-import { tr } from '../i18n.js'
+import { tr } from '../i18n/index.js'
+import ConversationRow from '../components/ConversationRow.vue'
 import GlobalSettings from '../components/GlobalSettings.vue'
 import Modal from '../components/Modal.vue'
 import RowActionsMenu from '../components/RowActionsMenu.vue'
@@ -120,7 +120,6 @@ function newWorkspaceConversation(w) {
 async function remove(id, message) {
   if (await confirmDelete(message)) deleteConversation(id)
 }
-const lastTs = (c) => c.messages.at(-1)?.createdAt
 </script>
 
 <template>
@@ -162,28 +161,17 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         {{ $t('sidebar.conversations') }}
         <UiIconButton class="!size-7" :label="$t('sidebar.newConversation')" @click="newConversation"><Plus :size="14" /></UiIconButton>
       </p>
-      <div
+      <ConversationRow
         v-for="c in unassigned"
         :key="c.id"
-        class="group relative rounded hover:bg-surface2"
-        :class="c.id === currentId && 'bg-surface2'"
-      >
-        <button class="w-full rounded-md px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="pick(c.id)">
-          <div class="truncate pr-8 text-sm">{{ c.title }}</div>
-          <div class="mt-0.5 flex justify-between text-[10px] text-muted">
-            <span>{{ $t('sidebar.messageCount', c.messages.length, { count: c.messages.length }) }}</span>
-            <span>{{ formatShort(lastTs(c)) }}</span>
-          </div>
-        </button>
-        <div class="absolute right-1 top-1.5">
-          <RowActionsMenu :actions="[
-            { label: tr('sidebar.transferConversation'), icon: Send, onSelect: () => openTransfer(c) },
-            { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => downloadExport(c.id) },
-            { label: tr('settings.saveTemplate'), icon: BookmarkPlus, onSelect: () => saveTemplate(c) },
-            { label: tr('common.delete'), icon: X, danger: true, onSelect: () => remove(c.id, tr('confirm.deleteConversation')) },
-          ]" />
-        </div>
-      </div>
+        :convo="c"
+        :active="c.id === currentId"
+        @select="pick(c.id)"
+        @transfer="openTransfer(c)"
+        @export="downloadExport(c.id)"
+        @save-template="saveTemplate(c)"
+        @delete="remove(c.id, tr('confirm.deleteConversation'))"
+      />
       </div>
     </UiScrollArea>
 
@@ -194,28 +182,17 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
         {{ $t('sidebar.research') }}
         <UiIconButton class="!size-7" :label="$t('sidebar.newResearch')" @click="newResearchConversation"><Plus :size="14" /></UiIconButton>
       </p>
-      <div
+      <ConversationRow
         v-for="c in researchConvos"
         :key="c.id"
-        class="group relative rounded hover:bg-surface2"
-        :class="c.id === currentId && 'bg-surface2'"
-      >
-        <button class="w-full rounded-md px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="pickInPlace(c.id)">
-          <div class="truncate pr-8 text-sm">{{ c.title }}</div>
-          <div class="mt-0.5 flex justify-between text-[10px] text-muted">
-            <span>{{ $t('sidebar.messageCount', c.messages.length, { count: c.messages.length }) }}</span>
-            <span>{{ formatShort(lastTs(c)) }}</span>
-          </div>
-        </button>
-        <div class="absolute right-1 top-1.5">
-          <RowActionsMenu :actions="[
-            { label: tr('sidebar.transferConversation'), icon: Send, onSelect: () => openTransfer(c) },
-            { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => downloadExport(c.id) },
-            { label: tr('settings.saveTemplate'), icon: BookmarkPlus, onSelect: () => saveTemplate(c) },
-            { label: tr('common.delete'), icon: X, danger: true, onSelect: () => remove(c.id, tr('confirm.deleteConversation')) },
-          ]" />
-        </div>
-      </div>
+        :convo="c"
+        :active="c.id === currentId"
+        @select="pickInPlace(c.id)"
+        @transfer="openTransfer(c)"
+        @export="downloadExport(c.id)"
+        @save-template="saveTemplate(c)"
+        @delete="remove(c.id, tr('confirm.deleteConversation'))"
+      />
       <p v-if="!researchConvos.length" class="px-1 text-xs italic text-muted">{{ $t('sidebar.noResearch') }}</p>
       </div>
     </UiScrollArea>
@@ -242,28 +219,18 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
             ]" />
           </div>
         </div>
-        <div
+        <ConversationRow
           v-for="c in membersOf(w)"
           :key="c.id"
-          class="group relative ml-2 rounded hover:bg-surface2"
-          :class="c.id === currentId && 'bg-surface2'"
-        >
-          <button class="w-full rounded-md px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="pickInPlace(c.id)">
-            <div class="truncate pr-8 text-sm">{{ c.title }}</div>
-            <div class="mt-0.5 flex justify-between text-[10px] text-muted">
-              <span>{{ $t('sidebar.messageCount', c.messages.length, { count: c.messages.length }) }}</span>
-              <span>{{ formatShort(lastTs(c)) }}</span>
-            </div>
-          </button>
-          <div class="absolute right-1 top-1.5">
-            <RowActionsMenu :actions="[
-              { label: tr('sidebar.transferConversation'), icon: Send, onSelect: () => openTransfer(c) },
-              { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => downloadExport(c.id) },
-              { label: tr('settings.saveTemplate'), icon: BookmarkPlus, onSelect: () => saveTemplate(c) },
-              { label: tr('common.delete'), icon: X, danger: true, onSelect: () => remove(c.id, tr('confirm.deleteConversation')) },
-            ]" />
-          </div>
-        </div>
+          :convo="c"
+          :active="c.id === currentId"
+          indent
+          @select="pickInPlace(c.id)"
+          @transfer="openTransfer(c)"
+          @export="downloadExport(c.id)"
+          @save-template="saveTemplate(c)"
+          @delete="remove(c.id, tr('confirm.deleteConversation'))"
+        />
       </template>
       <p v-if="!workspaces.length" class="px-1 text-xs italic text-muted">{{ $t('sidebar.noWorkspaces') }}</p>
       </div>

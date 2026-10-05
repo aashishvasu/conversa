@@ -1,12 +1,12 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger, TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
-import { EFFORT_LEVELS } from '../state/settings.js'
+import { EFFORT_LEVELS, RESEARCH_MODEL_FIELDS } from '../state/settings.js'
 import { downloadExport, globalSettings, importData, modelSupportsCache, models, persistGlobal, resetGlobalSettings, restoreData, snapshotInfo } from '../state/store.js'
 import { convertImport } from '../state/importers.js'
 import { enterToSend, fontScale, locale, restorePrefs, showThinkingAndSearch } from '../utils/prefs.js'
 import { needRefresh, applyUpdate } from '../utils/pwa.js'
-import { locales, setLocale, tr } from '../i18n.js'
+import { locales, setLocale, tr } from '../i18n/index.js'
 import { restoreTheme } from '../utils/theme.js'
 import { confirmDelete } from '../utils/confirm.js'
 import ModelSelect from './ModelSelect.vue'
@@ -117,7 +117,7 @@ function resetDefaults() {
     <TabsRoot default-value="chat" class="space-y-3">
       <TabsList class="flex gap-0.5 overflow-x-auto border-b border-edge py-2">
         <TabsTrigger
-          v-for="tab in ['chat', 'context', 'research', 'interface', 'data']"
+          v-for="tab in ['chat', 'context', 'tools', 'research', 'interface', 'data']"
           :key="tab"
           :value="tab"
           class="shrink-0 rounded-md px-3 py-1.5 text-sm text-muted outline-none transition-colors hover:bg-surface2 focus-visible:ring-2 focus-visible:ring-focus data-[state=active]:bg-accent/10 data-[state=active]:text-base"
@@ -192,19 +192,51 @@ function resetDefaults() {
         </UiDisclosure>
       </TabsContent>
 
+      <TabsContent value="tools" class="space-y-3 outline-none">
+        <UiSwitch v-model="g.tools_enabled" :label="$t('settings.toolsEnabled')" :help="$t('settings.toolsHelp')" @update:model-value="persistGlobal" />
+        <UiSwitch v-model="g.tool_web_search" :label="$t('settings.toolWebSearch')" :help="$t('settings.toolWebSearchHelp')" :disabled="!g.tools_enabled" @update:model-value="persistGlobal" />
+        <UiSwitch v-model="g.tool_fetch_url" :label="$t('settings.toolFetchUrl')" :help="$t('settings.toolFetchUrlHelp')" :disabled="!g.tools_enabled" @update:model-value="persistGlobal" />
+        <UiSwitch v-model="g.tool_datetime" :label="$t('settings.toolDatetime')" :disabled="!g.tools_enabled" @update:model-value="persistGlobal" />
+        <UiSwitch v-model="g.tool_calculator" :label="$t('settings.toolCalculator')" :disabled="!g.tools_enabled" @update:model-value="persistGlobal" />
+        <UiSwitch v-model="g.tool_random" :label="$t('settings.toolRandom')" :disabled="!g.tools_enabled" @update:model-value="persistGlobal" />
+        <div v-if="g.tools_enabled" class="border-t border-edge pt-3">
+          <span class="mb-1 block text-muted">{{ $t('settings.toolLimits') }}</span>
+          <div class="flex gap-2">
+            <div class="flex-1">
+              <label class="mb-1 block text-muted">{{ $t('settings.toolMaxRounds') }}</label>
+              <UiNumberField :model-value="g.tool_max_rounds" :label="$t('settings.toolMaxRounds')" :min="1" @update:model-value="setGlobal('tool_max_rounds', $event)" />
+            </div>
+            <div class="flex-1">
+              <label class="mb-1 block text-muted">{{ $t('settings.toolMaxCalls') }}</label>
+              <UiNumberField :model-value="g.tool_max_calls" :label="$t('settings.toolMaxCalls')" :min="1" @update:model-value="setGlobal('tool_max_calls', $event)" />
+            </div>
+          </div>
+        </div>
+      </TabsContent>
+
       <TabsContent value="research" class="space-y-3 outline-none">
-        <div v-for="field in [
-          { key: 'research_search_model', label: $t('research.searchModel') },
-          { key: 'research_note_model', label: $t('research.notesModel') },
-          { key: 'research_report_model', label: $t('research.reportModel') },
-        ]" :key="field.key">
-          <label class="mb-1 block text-muted">{{ field.label }}</label>
-          <ModelSelect :model-value="g[field.key]" :label="field.label" @update:model-value="setGlobal(field.key, $event)" />
+        <div v-for="field in RESEARCH_MODEL_FIELDS" :key="field.key">
+          <label class="mb-1 block text-muted">{{ $t(field.labelKey) }}</label>
+          <ModelSelect :model-value="g[field.key]" :label="$t(field.labelKey)" @update:model-value="setGlobal(field.key, $event)" />
         </div>
 
         <div>
           <label class="mb-1 block text-muted">{{ $t('research.sourcesPerQuestion') }}</label>
           <UiNumberField :model-value="g.research_depth" :label="$t('research.sourcesPerQuestion')" :min="1" :max="12" @update:model-value="setGlobal('research_depth', $event)" />
+        </div>
+
+        <div>
+          <label class="mb-1 block text-muted">{{ (g.research_min_sources ?? 8) }} · {{ (g.research_max_sources ?? 24) }}</label>
+          <UiSlider
+            :model-value="[g.research_min_sources ?? 8, g.research_max_sources ?? 24]"
+            :label="$t('common.decrease')"
+            :second-label="$t('common.increase')"
+            :min="8"
+            :max="300"
+            :step="1"
+            @update:model-value="setGlobal('research_min_sources', $event[0]); setGlobal('research_max_sources', $event[1])"
+            @value-commit="persistGlobal"
+          />
         </div>
       </TabsContent>
 

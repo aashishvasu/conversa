@@ -10,7 +10,7 @@ export default defineConfig({
     vue(),
     VueI18nPlugin({ include: './src/locales/**', module: 'petite-vue-i18n' }),
     tailwindcss(),
-    // WHY: vite-plugin-pwa emits the manifest and app-shell service worker; Vite has neither.
+    // vite-plugin-pwa emits the manifest and app-shell service worker; Vite has neither.
     VitePWA({
       registerType: 'prompt',
       manifestFilename: 'manifest.json',

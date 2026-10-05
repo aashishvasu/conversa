@@ -2,18 +2,15 @@
 
 from collections.abc import AsyncIterator
 
-from tools import ConversaTool, ToolCall
-from tools.runner import DEFAULT_MAX_CALLS, DEFAULT_MAX_ROUNDS, ToolRunner, error_result, tool_frame
+from tools import ConversaTool
 
 from .anthropic import LEGACY_EFFORT_BUDGETS, LEGACY_MODELS
-from .registry import CLIENTS, DEFAULT_MAX_TOKENS, PROVIDERS, cost, join_model, resolve_model
+from .registry import CLIENTS, DEFAULT_MAX_TOKENS, PROVIDERS, resolve_model
 from .tool_use import (
     _AnthropicToolDeltas,
     _ResponsesToolDeltas,
-    _anthropic_followup,
     _anthropic_request_tools,
     _prefer_streamed_arguments,
-    _responses_followup,
     anthropic_tool_calls,
     anthropic_tools,
     field,
@@ -25,20 +22,23 @@ from .tool_use import (
 
 
 REASONING_OUTPUT_FLOOR = 32000
+# Terminal Responses events. Incomplete and failed still carry usage for tokens already billed.
+RESPONSE_END_EVENTS = ("response.completed", "response.incomplete", "response.failed")
 
 
 def apply_thinking(kwargs: dict, effort: str, max_tokens: int) -> dict:
     """Attach Anthropic thinking config to a request kwargs dict."""
     legacy = kwargs["model"] in LEGACY_MODELS
-    if not legacy:
-        kwargs.pop("temperature", None)
+    # WHY: AsyncMessages.stream() in SDK 1.3.0 has no temperature parameter. Legacy models still take
+    # it on the wire, so it rides in extra_body; thinking rejects it, so it is dropped there.
+    if (temperature := kwargs.pop("temperature", None)) is not None and legacy and not effort:
+        kwargs["extra_body"] = {**(kwargs.get("extra_body") or {}), "temperature": temperature}
     if not effort:
         return kwargs
     if legacy:
         budget = LEGACY_EFFORT_BUDGETS[effort]
         kwargs["max_tokens"] = max(max_tokens, budget + DEFAULT_MAX_TOKENS)
         kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
-        kwargs.pop("temperature", None)
     else:
         kwargs["thinking"] = {"type": "adaptive", "display": "summarized"}
         kwargs["output_config"] = {"effort": effort}
@@ -120,6 +120,12 @@ def response_frame(event: object) -> dict | None:
         if field(annotation, "type") == "url_citation":
             link = {"title": field(annotation, "title"), "url": field(annotation, "url")}
             return {"results": [link]}
+    if event_type == "response.incomplete":
+        details = field(field(event, "response"), "incomplete_details")
+        return {"error": f"incomplete response: {field(details, 'reason') or 'unspecified'}"}
+    if event_type == "response.failed":
+        error = field(field(event, "response"), "error")
+        return {"error": f"failed response: {field(error, 'message') or error or 'unspecified'}"}
     if event_type == "error":
         return {"error": str(field(event, "message") or event)}
     return None
@@ -131,7 +137,7 @@ def responses_usage_from(usage: object) -> dict:
 
 
 def responses_usage(event: object) -> dict | None:
-    if field(event, "type") != "response.completed":
+    if field(event, "type") not in RESPONSE_END_EVENTS:
         return None
     usage = field(field(event, "response"), "usage")
     return responses_usage_from(usage) if usage else None
@@ -159,15 +165,26 @@ def chat_completion_usage(chunk: object) -> dict | None:
     return chat_completion_usage_from(usage) if usage else None
 
 
-async def _anthropic_stream(provider: str, model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, effort: str, temperature: float, app_tools: list[ConversaTool] | None = None, allow_hosted_tools: bool = True) -> AsyncIterator[dict]:
+async def _anthropic_stream(
+    provider: str,
+    model: str,
+    messages: list[dict],
+    system: str | list[str] | None,
+    max_tokens: int,
+    effort: str,
+    temperature: float,
+    app_tools: list[ConversaTool] | None = None,
+    hosted_search: bool = False,
+    hosted_fetch: bool = False,
+) -> AsyncIterator[dict]:
     entry = PROVIDERS[provider]
     kwargs = {"model": model, "max_tokens": max_tokens, "temperature": temperature, "messages": messages}
     apply_thinking(kwargs, effort, max_tokens)
     if system:
         kwargs["system"] = anthropic_system(system)
-    if tools := _anthropic_request_tools(entry, app_tools, allow_hosted_tools):
+    if tools := _anthropic_request_tools(entry, app_tools, hosted_search, hosted_fetch):
         kwargs["tools"] = tools
-        if not app_tools and entry.get("fetch_tool"):
+        if any(t.get("name") == "web_fetch" for t in tools) and entry.get("fetch_beta"):
             kwargs["extra_headers"] = {"anthropic-beta": entry["fetch_beta"]}
     deltas = _AnthropicToolDeltas()
     async with CLIENTS[provider].messages.stream(**kwargs) as stream:
@@ -201,7 +218,18 @@ def openai_messages(messages: list[dict], responses: bool) -> list[dict]:
     return out
 
 
-def responses_kwargs(provider: str, model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, effort: str, temperature: float, app_tools: list[ConversaTool] | None = None, allow_hosted_tools: bool = True, input_items: list[dict] | None = None) -> dict:
+def responses_kwargs(
+    provider: str,
+    model: str,
+    messages: list[dict],
+    system: str | list[str] | None,
+    max_tokens: int,
+    effort: str,
+    temperature: float,
+    app_tools: list[ConversaTool] | None = None,
+    hosted_search: bool = False,
+    input_items: list[dict] | None = None,
+) -> dict:
     kwargs = {"model": model, "input": input_items if input_items is not None else openai_messages(messages, True), "max_output_tokens": max_tokens, "stream": True}
     if system:
         kwargs["instructions"] = join_system(system)
@@ -213,13 +241,37 @@ def responses_kwargs(provider: str, model: str, messages: list[dict], system: st
             kwargs["reasoning"] = {"effort": "none"}
     else:
         kwargs["temperature"] = temperature
-    if tools := responses_request_tools(PROVIDERS[provider], app_tools, allow_hosted_tools):
+    if tools := responses_request_tools(PROVIDERS[provider], app_tools, hosted_search):
         kwargs["tools"] = tools
     return kwargs
 
 
-async def _responses_stream(provider: str, model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, effort: str, temperature: float, app_tools: list[ConversaTool] | None = None, allow_hosted_tools: bool = True, input_items: list[dict] | None = None) -> AsyncIterator[dict]:
-    stream = await CLIENTS[provider].responses.create(**responses_kwargs(provider, model, messages, system, max_tokens, effort, temperature, app_tools, allow_hosted_tools, input_items))
+async def _responses_stream(
+    provider: str,
+    model: str,
+    messages: list[dict],
+    system: str | list[str] | None,
+    max_tokens: int,
+    effort: str,
+    temperature: float,
+    app_tools: list[ConversaTool] | None = None,
+    hosted_search: bool = False,
+    input_items: list[dict] | None = None,
+) -> AsyncIterator[dict]:
+    stream = await CLIENTS[provider].responses.create(
+        **responses_kwargs(
+            provider,
+            model,
+            messages,
+            system,
+            max_tokens,
+            effort,
+            temperature,
+            app_tools=app_tools,
+            hosted_search=hosted_search,
+            input_items=input_items,
+        )
+    )
     deltas = _ResponsesToolDeltas()
     response = None
     async for event in stream:
@@ -227,13 +279,24 @@ async def _responses_stream(provider: str, model: str, messages: list[dict], sys
         if frame := response_frame(event):
             yield frame
         if usage := responses_usage(event):
-            response = field(event, "response")
+            # Only a completed response has the output items a tool round continues from.
+            if field(event, "type") == "response.completed":
+                response = field(event, "response")
             yield {"_usage": usage}
     parsed_calls = responses_tool_calls(response) if response else []
     yield {"_response": response, "_tool_calls": _prefer_streamed_arguments(parsed_calls, deltas.parsed()) if parsed_calls else deltas.parsed()}
 
 
-async def _chat_completions_stream(provider: str, model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, _effort: str, temperature: float, app_tools: list[ConversaTool] | None = None, allow_hosted_tools: bool = True) -> AsyncIterator[dict]:
+async def _chat_completions_stream(
+    provider: str,
+    model: str,
+    messages: list[dict],
+    system: str | list[str] | None,
+    max_tokens: int,
+    _effort: str,
+    temperature: float,
+    **_kwargs,
+) -> AsyncIterator[dict]:
     kwargs = chat_completions_kwargs(model, openai_messages(messages, False), system, max_tokens, temperature)
     kwargs["stream_options"] = {"include_usage": True}
     stream = await CLIENTS[provider].chat.completions.create(stream=True, **kwargs)
@@ -242,81 +305,6 @@ async def _chat_completions_stream(provider: str, model: str, messages: list[dic
             yield frame
         if usage := chat_completion_usage(chunk):
             yield {"_usage": usage}
-
-
-DIALECT_STREAMS = {"anthropic": _anthropic_stream, "responses": _responses_stream, "chat_completions": _chat_completions_stream}
-
-
-def _usage_frame(provider: str, model: str, usages: list[dict], generations: int) -> dict:
-    total = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "usd": 0.0, "unpriced": 0}
-    for usage in usages:
-        total["input"] += usage["input"]
-        total["output"] += usage["output"]
-        total["cache_read"] += usage["cache_read"]
-        total["cache_write"] += usage["cache_write"]
-        usd, priced = cost(provider, model, usage["input"], usage["output"], usage["cache_read"], usage["cache_write"], usage["search_requests"])
-        total["usd"] += usd
-        total["unpriced"] += not priced
-    return {"usage": {"model": join_model(provider, model), "calls": generations, "input": total["input"], "output": total["output"], "cache_read": total["cache_read"], "cache_write": total["cache_write"], "usd": round(total["usd"], 6), "unpriced": total["unpriced"]}}
-
-
-async def stream_chat(provider: str, model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, effort: str, temperature: float, tools: list[ConversaTool] | None = None, max_tool_rounds: int = DEFAULT_MAX_ROUNDS, max_tool_calls: int = DEFAULT_MAX_CALLS, allow_hosted_tools: bool = True) -> AsyncIterator[dict]:
-    """Stream a chat turn, executing app tools only for tool-capable dialects."""
-    dialect = PROVIDERS[provider]["dialect"]
-    app_tools = tools if dialect in ("anthropic", "responses") and tools else None
-    runner = ToolRunner(app_tools, max_tool_rounds, max_tool_calls) if app_tools else None
-    hosted_fallback_blocked = False
-    hosted_tools_enabled = allow_hosted_tools and not app_tools
-    working_messages = messages
-    input_items = openai_messages(messages, True) if dialect == "responses" else None
-    usages: list[dict] = []
-    generations = 0
-    try:
-        while True:
-            generations += 1
-            response = None
-            calls: list[ToolCall] = []
-            kwargs = {"app_tools": app_tools, "allow_hosted_tools": hosted_tools_enabled}
-            if dialect == "responses":
-                kwargs["input_items"] = input_items
-            async for frame in DIALECT_STREAMS[dialect](provider, model, working_messages, system, max_tokens, effort, temperature, **kwargs):
-                internal = False
-                if "_usage" in frame:
-                    usages.append(frame["_usage"])
-                    internal = True
-                if "_response" in frame:
-                    response = frame["_response"]
-                    calls = frame.get("_tool_calls", [])
-                    internal = True
-                if not internal:
-                    yield frame
-            if not calls:
-                break
-            if runner is None:
-                break
-            budget_exhausted = not runner.can_run_round()
-            if budget_exhausted:
-                results = [error_result(call, "tool_round_limit", "tool round limit reached") for call in calls]
-                frames = [tool_frame(result, "error") for result in results]
-            else:
-                results, frames = await runner.run(calls)
-            for frame in frames:
-                yield frame
-            if dialect == "anthropic":
-                working_messages = _anthropic_followup(working_messages, response, results)
-            else:
-                input_items = _responses_followup(input_items or [], response, results)
-            hosted_fallback_blocked |= any(result.error == "tool_rejected" for result in results)
-            unavailable = any(result.error == "tool_unavailable" for result in results)
-            if unavailable or budget_exhausted:
-                app_tools = None
-                runner = None
-                hosted_tools_enabled = allow_hosted_tools and unavailable and not hosted_fallback_blocked
-        if usages:
-            yield _usage_frame(provider, model, usages, generations)
-        yield {"done": True}
-    except Exception as error:
-        yield {"error": str(error)}
 
 
 def complete_messages_kwargs(provider: str, model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, effort: str) -> dict:

@@ -1,9 +1,10 @@
 import { utilityCall } from './utility.js'
+import { evidenceBlock } from '../prompt/artifacts.js'
 
 // Summarize a window of turns via the utility model.
 // Stateless: the window is re-read in full on every refresh, so message edits/deletes can never desync it.
 function summarize(msgs, model, convo) {
-  const transcript = msgs.map((m) => `${m.role}: ${m.imageIds?.length ? '[image attached] ' : ''}${m.content}`).join('\n\n')
+  const transcript = msgs.map((m) => `${m.role}: ${m.imageIds?.length ? '[image attached] ' : ''}${m.content}${evidenceBlock(m.artifacts)}`).join('\n\n')
   const system =
     'You summarize part of a conversation. Preserve key facts, decisions, names, ' +
     'and anything needed to continue coherently. Output only the summary, with no ' +

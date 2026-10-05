@@ -1,11 +1,11 @@
 import { watch } from 'vue'
 import { createI18n } from 'vue-i18n'
-import de from './locales/de.json' with { type: 'json' }
-import enGB from './locales/en-GB.json' with { type: 'json' }
-import es from './locales/es.json' with { type: 'json' }
-import fr from './locales/fr.json' with { type: 'json' }
-import it from './locales/it.json' with { type: 'json' }
-import { locale } from './utils/prefs.js'
+import de from '../locales/de.json' with { type: 'json' }
+import enGB from '../locales/en-GB.json' with { type: 'json' }
+import es from '../locales/es.json' with { type: 'json' }
+import fr from '../locales/fr.json' with { type: 'json' }
+import it from '../locales/it.json' with { type: 'json' }
+import { locale } from '../utils/prefs.js'
 
 export const locales = {
   de: 'Deutsch',

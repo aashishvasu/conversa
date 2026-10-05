@@ -61,7 +61,7 @@ const tooltip = computed(() => `${props.label}: ${labelOf(props.modelValue)}`)
               :key="model.id"
               :value="model.id"
               :text-value="model.label"
-              class="relative flex cursor-default select-none items-center rounded px-8 py-1.5 outline-none data-[highlighted]:bg-surface2 data-[state=checked]:text-accent"
+              class="relative flex cursor-default select-none items-center rounded px-8 py-1.5 outline-none data-[highlighted]:bg-surface2 data-[state=checked]:text-link"
             >
               <ComboboxItemIndicator class="absolute left-2 inline-flex items-center"><Check :size="14" /></ComboboxItemIndicator>
               <span class="truncate">{{ model.label }}</span>
