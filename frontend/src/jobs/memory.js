@@ -11,7 +11,7 @@ function summarize(msgs, model, convo) {
     'preamble and no commentary.'
   return utilityCall(convo, {
     model,
-    max_tokens: 1024,
+    max_tokens: 4096,
     temperature: 0.3,
     system,
     messages: [{ role: 'user', content: `Summarize this conversation excerpt:\n${transcript}` }],
