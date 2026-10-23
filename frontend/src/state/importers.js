@@ -15,7 +15,7 @@ function epoch(value, order) {
   return date.getFullYear() === Number(year) && date.getMonth() === month - 1 && date.getDate() === day ? date.getTime() : null
 }
 
-// WHY: NextChat stores locale dates without the locale. Prefer the order whose timestamps do not follow the session update.
+// NextChat stores locale dates without the locale. Prefer the order whose timestamps do not follow the session update.
 function dateOrder(sessions) {
   const score = (order) => sessions.reduce((total, session) => total + (Array.isArray(session?.messages) ? session.messages.reduce((count, message) => {
     const value = epoch(message?.date, order)

@@ -17,7 +17,6 @@ def brief():
     return {"objective": "Investigate Project Orion", "deliverable": "A sourced brief", "scope": ["Project Orion"], "constraints": ["cite evidence"], "questions": [], "answers": {"region": "US"}}
 
 
-# WHY: reformulate_query makes a live provider call, so stub g.complete to keep selfchecks hermetic and free.
 async def echo_reformulate(model, system, prompt, **kwargs):
     question = prompt.split("Research Question: ", 1)[1].split("\n", 1)[0]
     return f'["{question}"]'
