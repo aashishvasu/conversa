@@ -122,7 +122,10 @@ def response_frame(event: object) -> dict | None:
             return {"results": [link]}
     if event_type == "response.incomplete":
         details = field(field(event, "response"), "incomplete_details")
-        return {"error": f"incomplete response: {field(details, 'reason') or 'unspecified'}"}
+        reason = field(details, "reason") or "unspecified"
+        # WHY: output-cap truncation keeps the partial text, matching Anthropic's max_tokens stop;
+        # every other incomplete reason leaves no usable output and stays an error.
+        return None if reason == "max_output_tokens" else {"error": f"incomplete response: {reason}"}
     if event_type == "response.failed":
         error = field(field(event, "response"), "error")
         return {"error": f"failed response: {field(error, 'message') or error or 'unspecified'}"}
