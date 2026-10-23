@@ -29,8 +29,7 @@ RESPONSE_END_EVENTS = ("response.completed", "response.incomplete", "response.fa
 def apply_thinking(kwargs: dict, effort: str, max_tokens: int) -> dict:
     """Attach Anthropic thinking config to a request kwargs dict."""
     legacy = kwargs["model"] in LEGACY_MODELS
-    # WHY: AsyncMessages.stream() in SDK 1.3.0 has no temperature parameter. Legacy models still take
-    # it on the wire, so it rides in extra_body; thinking rejects it, so it is dropped there.
+    # AsyncMessages.stream() in SDK 1.3.0 has no temperature parameter. Legacy models still take it on the wire, so it rides in extra_body; thinking rejects it, so it is dropped there.
     if (temperature := kwargs.pop("temperature", None)) is not None and legacy and not effort:
         kwargs["extra_body"] = {**(kwargs.get("extra_body") or {}), "temperature": temperature}
     if not effort:
@@ -123,8 +122,7 @@ def response_frame(event: object) -> dict | None:
     if event_type == "response.incomplete":
         details = field(field(event, "response"), "incomplete_details")
         reason = field(details, "reason") or "unspecified"
-        # WHY: output-cap truncation keeps the partial text, matching Anthropic's max_tokens stop;
-        # every other incomplete reason leaves no usable output and stays an error.
+        # output-cap truncation keeps the partial text, matching Anthropic's max_tokens stop, every other incomplete reason leaves no usable output and stays an error.
         return None if reason == "max_output_tokens" else {"error": f"incomplete response: {reason}"}
     if event_type == "response.failed":
         error = field(field(event, "response"), "error")
