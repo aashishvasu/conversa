@@ -14,8 +14,8 @@ import UiIconButton from './ui/UiIconButton.vue'
 import UiSwitch from './ui/UiSwitch.vue'
 import UiTooltip from './ui/UiTooltip.vue'
 
-// Also reused by WorkspacePanel with a workspace as `convo`; workspaces have cards but no messages, settings, or workspaceId, so those reads are guarded below.
-const props = defineProps({ convo: Object })
+// Also reused by WorkspacePanel with a workspace as `convo`; a workspace holds cards and shared system prompts but no turns, settings, or workspaceId, so those reads are guarded below.
+const props = defineProps({ convo: Object, isWorkspace: Boolean })
 
 const ws = computed(() => workspaceOf(props.convo))
 
@@ -219,6 +219,6 @@ async function removeCard(id) {
     </UiDisclosure>
     <datalist id="folder-paths"><option v-for="p in paths" :key="p" :value="p" /></datalist>
 
-    <UiSwitch v-if="convo.messages" v-model="convo.scanAssistant" :label="$t('settings.scanAssistant')" />
+    <UiSwitch v-if="!isWorkspace" v-model="convo.scanAssistant" :label="$t('settings.scanAssistant')" />
   </div>
 </template>

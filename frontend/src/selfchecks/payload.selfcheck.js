@@ -140,9 +140,9 @@ const manyConvo = {
 }
 assert.equal(recallMessages(manyConvo, [manyConvo.messages.at(-1)]).length, 3)
 
-// workspace: prompt leads system, resolved docs sent whole, workspace cards precede convo cards
+// workspace: its prompts lead system, resolved docs sent whole, workspace cards precede convo cards
 const ws = {
-  id: 'w', name: 'W', systemPrompt: 'WS_PROMPT',
+  id: 'w', name: 'W', messages: [{ id: 'wp1', role: 'system', content: 'WS_PROMPT' }],
   cards: [{ id: 'wc', triggers: 'dragon', content: 'WS_CARD' }],
 }
 const wsDocs = [{ id: 'd', name: 'lore.md', text: 'DOC_TEXT' }]
@@ -150,6 +150,12 @@ const wSettings = { model: 'm', max_tokens: 10, num_messages_to_send: 5, send_sy
 const wp = buildPayload(convo, wSettings, ws, wsDocs)
 assert.ok(wp.system.includes('WS_PROMPT') && wp.system.includes('You are a bard.'))
 assert.ok(wp.system.indexOf('WS_PROMPT') < wp.system.indexOf('You are a bard.'), 'workspace prompt leads')
+// A workspace holds a list of prompts, assembled in order ahead of the conversation's own.
+const wsTwo = { ...ws, messages: [...ws.messages, { id: 'wp2', role: 'system', content: 'WS_SECOND' }, { id: 'wp3', role: 'user', content: 'NOT_A_PROMPT' }] }
+const wpTwo = buildPayload(convo, wSettings, wsTwo)
+assert.ok(wpTwo.system.indexOf('WS_PROMPT') < wpTwo.system.indexOf('WS_SECOND'), 'workspace prompts keep their list order')
+assert.ok(wpTwo.system.indexOf('WS_SECOND') < wpTwo.system.indexOf('You are a bard.'), 'every workspace prompt leads the conversation ones')
+assert.ok(!wpTwo.system.includes('NOT_A_PROMPT'), 'only system entries count as workspace prompts')
 // The doc block is part of the cached prefix: a format drift silently invalidates every stored prefix.
 assert.ok(wp.system.includes('Reference document "lore.md":\nDOC_TEXT'), 'docs are injected in the exact pre-doc-store byte format')
 assert.ok(wp.system.indexOf('WS_CARD') < wp.system.indexOf('DRAGON_LORE'), 'workspace cards precede convo cards')

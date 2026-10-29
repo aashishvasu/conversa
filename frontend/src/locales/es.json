@@ -328,8 +328,9 @@
     "estimated": "Estimación según las tarifas publicadas"
   },
   "workspace": {
-    "sharedPrompt": "Prompt de sistema compartido para el chat",
+    "sharedPrompt": "Prompts de sistema compartidos para el chat",
     "promptPlaceholder": "Se usa en las conversaciones de este espacio de trabajo",
+    "addPrompt": "+ Añadir prompt de sistema",
     "documents": "Documentos (texto o Markdown; se envían completos con cada petición de chat)",
     "addDocuments": "+ Añadir documentos",
     "sharedCards": "Tarjetas compartidas del chat"

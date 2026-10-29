@@ -328,8 +328,9 @@
     "estimated": "Estimated from published rates"
   },
   "workspace": {
-    "sharedPrompt": "Shared chat system prompt",
+    "sharedPrompt": "Shared chat system prompts",
     "promptPlaceholder": "Used by workspace conversations in chat mode",
+    "addPrompt": "+ Add system prompt",
     "documents": "Documents (plain text / Markdown, sent whole with every chat request)",
     "addDocuments": "+ Add documents",
     "sharedCards": "Shared chat cards"
