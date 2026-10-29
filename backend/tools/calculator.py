@@ -197,10 +197,10 @@ def evaluate_expression(expression: str) -> int | float:
 
 
 class CalculatorArguments(ToolArguments):
-    expression: str | None = Field(default=None, min_length=1, max_length=MAX_EXPRESSION_LENGTH)
-    value: float | int | None = Field(default=None, allow_inf_nan=False)
-    from_unit: str | None = Field(default=None, min_length=1, max_length=32)
-    to_unit: str | None = Field(default=None, min_length=1, max_length=32)
+    expression: str | None = Field(default=None, min_length=1, max_length=MAX_EXPRESSION_LENGTH, description="Math expression to evaluate, for example arithmetic, powers, percentages, constants, or supported functions. Use this instead of estimating arithmetic mentally.")
+    value: float | int | None = Field(default=None, allow_inf_nan=False, description="Numeric value to convert when doing a unit conversion.")
+    from_unit: str | None = Field(default=None, min_length=1, max_length=32, description="Source unit for conversion, for example km, lb, hours, MB, mph, m2, L, psi, kWh, or C.")
+    to_unit: str | None = Field(default=None, min_length=1, max_length=32, description="Target unit for conversion.")
 
     @model_validator(mode="after")
     def validate_mode(self) -> "CalculatorArguments":
@@ -219,18 +219,26 @@ class CalculatorArguments(ToolArguments):
         return self
 
 
-async def execute_calculator(arguments: CalculatorArguments) -> ToolOutput:
+async def execute_calculator(arguments: ToolArguments) -> ToolOutput:
+    assert isinstance(arguments, CalculatorArguments)
     if arguments.expression is not None:
         result = evaluate_expression(arguments.expression)
         return ToolOutput({"result": result, "expression": arguments.expression}, {"mode": "expression"})
 
+    assert arguments.value is not None
+    assert arguments.from_unit is not None
+    assert arguments.to_unit is not None
     conversion = convert_units(arguments.value, arguments.from_unit, arguments.to_unit)
     return ToolOutput(conversion, {"mode": "conversion", "category": conversion["category"]})
 
 
 CALCULATOR_TOOL = ConversaTool(
     name="calculator",
-    description="Evaluate math expressions (+, -, *, /, //, %, **, functions) or convert units across length, mass, duration, data size, speed, area, volume, pressure, energy, and temperature.",
+    description=(
+        "Use this for arithmetic, percentages, powers, formulas, numeric comparisons, or unit conversions where an exact computed result matters. "
+        "Do not estimate arithmetic mentally when this tool is available. "
+        "Pass either expression for math (+, -, *, /, //, %, **, constants, functions) or value/from_unit/to_unit for conversions across length, mass, duration, data size, speed, area, volume, pressure, energy, and temperature."
+    ),
     arguments=CalculatorArguments,
     execute=execute_calculator,
     artifact_fresh_for=None,

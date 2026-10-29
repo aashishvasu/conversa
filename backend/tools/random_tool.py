@@ -14,13 +14,13 @@ MAX_RANGE_BOUND = 1_000_000_000_000
 
 
 class RandomArguments(ToolArguments):
-    action: Literal["integers", "sample", "shuffle"]
-    start: int = Field(default=1, ge=-MAX_RANGE_BOUND, le=MAX_RANGE_BOUND)
-    end: int | None = Field(default=None, ge=-MAX_RANGE_BOUND, le=MAX_RANGE_BOUND)
-    count: int = Field(default=1, ge=1, le=MAX_COUNT)
-    items: list[str | int | float] | None = Field(default=None, min_length=1, max_length=MAX_ITEMS)
-    replacement: bool = False
-    seed: int | None = None
+    action: Literal["integers", "sample", "shuffle"] = Field(description="Use 'sample' to choose items, 'shuffle' to reorder items, and 'integers' for dice, rolls, and random numbers.")
+    start: int = Field(default=1, ge=-MAX_RANGE_BOUND, le=MAX_RANGE_BOUND, description="Inclusive lower bound for action='integers'.")
+    end: int | None = Field(default=None, ge=-MAX_RANGE_BOUND, le=MAX_RANGE_BOUND, description="Inclusive upper bound for action='integers'.")
+    count: int = Field(default=1, ge=1, le=MAX_COUNT, description="How many integers or sampled items to return.")
+    items: list[str | int | float] | None = Field(default=None, min_length=1, max_length=MAX_ITEMS, description="Items to sample from or shuffle for action='sample' or action='shuffle'.")
+    replacement: bool = Field(default=False, description="For action='sample', true allows the same item to be picked more than once.")
+    seed: int | None = Field(default=None, description="Optional integer seed for reproducible random results. Leave null for real randomness.")
 
     @model_validator(mode="after")
     def validate_action_fields(self) -> "RandomArguments":
@@ -55,7 +55,8 @@ class RandomArguments(ToolArguments):
         return self
 
 
-async def execute_random(arguments: RandomArguments) -> ToolOutput:
+async def execute_random(arguments: ToolArguments) -> ToolOutput:
+    assert isinstance(arguments, RandomArguments)
     if arguments.seed is not None:
         rng = random.Random(arguments.seed)
         seeded = True
@@ -64,6 +65,7 @@ async def execute_random(arguments: RandomArguments) -> ToolOutput:
         seeded = False
 
     if arguments.action == "integers":
+        assert arguments.end is not None
         results = [rng.randint(arguments.start, arguments.end) for _ in range(arguments.count)]
         val = {
             "results": results,
@@ -76,6 +78,7 @@ async def execute_random(arguments: RandomArguments) -> ToolOutput:
         return ToolOutput(val, trace)
 
     if arguments.action == "sample":
+        assert arguments.items is not None
         items_copy = list(arguments.items)
         if arguments.replacement:
             results = rng.choices(items_copy, k=arguments.count)
@@ -90,6 +93,7 @@ async def execute_random(arguments: RandomArguments) -> ToolOutput:
         trace = {"action": "sample", "count": arguments.count, "replacement": arguments.replacement, "seeded": seeded}
         return ToolOutput(val, trace)
 
+    assert arguments.items is not None
     shuffled = list(arguments.items)
     rng.shuffle(shuffled)
     val = {
@@ -103,7 +107,11 @@ async def execute_random(arguments: RandomArguments) -> ToolOutput:
 
 RANDOM_TOOL = ConversaTool(
     name="random",
-    description="Generate random integers in an inclusive range, sample items with or without replacement, or shuffle a list. Supports optional integer seed for reproducibility.",
+    description=(
+        "Use this when the user asks for a random choice, chance outcome, winner, sample, shuffle, draw, dice roll, coin-style decision, or random number. "
+        "Prefer sample when choosing from user-provided options, shuffle when reordering options, and integers only when a numeric range, die, roll, or count is requested. "
+        "Use seed only when the user asks for repeatable or reproducible randomness."
+    ),
     arguments=RandomArguments,
     execute=execute_random,
     artifact_fresh_for=None,

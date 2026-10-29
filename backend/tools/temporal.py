@@ -11,18 +11,18 @@ from .conversa_tool import ConversaTool, ToolArguments, ToolFailed, ToolOutput
 
 
 class DatetimeArguments(ToolArguments):
-    action: Literal["now", "add", "difference"] = "now"
-    timezone: str = Field(default="UTC", min_length=1, max_length=64)
-    datetime: str | None = Field(default=None, max_length=64)
-    target: str | None = Field(default=None, max_length=64)
-    mode: Literal["elapsed", "calendar"] | None = None
-    years: int | None = None
-    months: int | None = None
-    weeks: float | None = Field(default=None, allow_inf_nan=False)
-    days: float | None = Field(default=None, allow_inf_nan=False)
-    hours: float | None = Field(default=None, allow_inf_nan=False)
-    minutes: float | None = Field(default=None, allow_inf_nan=False)
-    seconds: float | None = Field(default=None, allow_inf_nan=False)
+    action: Literal["now", "add", "difference"] = Field(default="now", description="Use 'now' for the current date, time, weekday, year, or timezone-aware current context; 'add' for date math; 'difference' for time between two timestamps.")
+    timezone: str = Field(default="UTC", min_length=1, max_length=64, description="IANA timezone for the operation, for example UTC, America/New_York, Europe/London, or Asia/Kolkata.")
+    datetime: str | None = Field(default=None, max_length=64, description="ISO-8601 start timestamp for action='add' or action='difference'.")
+    target: str | None = Field(default=None, max_length=64, description="ISO-8601 target timestamp for action='difference'.")
+    mode: Literal["elapsed", "calendar"] | None = Field(default=None, description="For action='add': elapsed means fixed seconds; calendar preserves wall-clock dates across DST and month boundaries.")
+    years: int | None = Field(default=None, description="Calendar years to add for action='add'.")
+    months: int | None = Field(default=None, description="Calendar months to add for action='add'.")
+    weeks: float | None = Field(default=None, allow_inf_nan=False, description="Weeks to add for action='add'.")
+    days: float | None = Field(default=None, allow_inf_nan=False, description="Days to add for action='add'.")
+    hours: float | None = Field(default=None, allow_inf_nan=False, description="Hours to add for action='add'.")
+    minutes: float | None = Field(default=None, allow_inf_nan=False, description="Minutes to add for action='add'.")
+    seconds: float | None = Field(default=None, allow_inf_nan=False, description="Seconds to add for action='add'.")
 
     @model_validator(mode="after")
     def validate_action_fields(self) -> "DatetimeArguments":
@@ -128,6 +128,7 @@ async def _run_datetime(arguments: DatetimeArguments) -> ToolOutput:
         return ToolOutput(payload, {"action": "now", "timezone": arguments.timezone})
 
     if arguments.action == "add":
+        assert arguments.datetime is not None
         base_dt = _parse_iso(arguments.datetime, tz)
         effective_mode = arguments.mode or ("calendar" if (arguments.years is not None or arguments.months is not None) else "elapsed")
 
@@ -179,6 +180,8 @@ async def _run_datetime(arguments: DatetimeArguments) -> ToolOutput:
         payload["mode"] = effective_mode
         return ToolOutput(payload, {"action": "add", "mode": effective_mode, "timezone": arguments.timezone})
 
+    assert arguments.datetime is not None
+    assert arguments.target is not None
     start_dt = _parse_iso(arguments.datetime, tz)
     target_dt = _parse_iso(arguments.target, tz)
     diff_seconds = (target_dt.astimezone(timezone.utc) - start_dt.astimezone(timezone.utc)).total_seconds()
@@ -203,7 +206,8 @@ async def _run_datetime(arguments: DatetimeArguments) -> ToolOutput:
     return ToolOutput(payload, {"action": "difference", "seconds": diff_seconds, "sign": sign})
 
 
-async def execute_datetime(arguments: DatetimeArguments) -> ToolOutput:
+async def execute_datetime(arguments: ToolArguments) -> ToolOutput:
+    assert isinstance(arguments, DatetimeArguments)
     try:
         return await _run_datetime(arguments)
     except (ValueError, OverflowError) as error:
@@ -212,7 +216,11 @@ async def execute_datetime(arguments: DatetimeArguments) -> ToolOutput:
 
 DATETIME_TOOL = ConversaTool(
     name="datetime",
-    description="Current date and time in IANA timezones, date math (add elapsed or calendar units), and time differences between ISO-8601 timestamps.",
+    description=(
+        "Use this whenever the answer depends on the current date or time, today's date, the current year/month/week/day, a user's timezone, a deadline, schedule, age, duration, countdown, or date math. "
+        "Also use action='now' when current or recent context is being discussed and the date could affect the answer. "
+        "Actions: now returns the current date, time, weekday, timezone offset, and timestamp; add moves an ISO-8601 datetime by elapsed or calendar units; difference returns the signed duration between two ISO-8601 datetimes."
+    ),
     arguments=DatetimeArguments,
     execute=execute_datetime,
     artifact_fresh_for=None,
