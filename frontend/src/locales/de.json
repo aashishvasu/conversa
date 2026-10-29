@@ -328,8 +328,9 @@
     "estimated": "Nach veröffentlichten Preisen geschätzt"
   },
   "workspace": {
-    "sharedPrompt": "Gemeinsamer System-Prompt für Chats",
+    "sharedPrompt": "Gemeinsame System-Prompts für Chats",
     "promptPlaceholder": "Wird in Chats dieses Arbeitsbereichs verwendet",
+    "addPrompt": "+ System-Prompt hinzufügen",
     "documents": "Dokumente (Text/Markdown, werden mit jeder Chatanfrage vollständig gesendet)",
     "addDocuments": "+ Dokumente hinzufügen",
     "sharedCards": "Gemeinsame Chatkarten"

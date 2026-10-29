@@ -328,8 +328,9 @@
     "estimated": "Estimation d'après les tarifs publiés"
   },
   "workspace": {
-    "sharedPrompt": "Invite système partagée pour le chat",
+    "sharedPrompt": "Invites système partagées pour le chat",
     "promptPlaceholder": "Utilisée par les conversations de cet espace de travail",
+    "addPrompt": "+ Ajouter une invite système",
     "documents": "Documents (texte ou Markdown, envoyés en entier avec chaque requête de chat)",
     "addDocuments": "+ Ajouter des documents",
     "sharedCards": "Fiches de chat partagées"
