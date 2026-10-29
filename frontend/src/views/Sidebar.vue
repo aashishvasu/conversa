@@ -166,15 +166,17 @@ async function remove(id, message) {
         <div
           v-for="t in templates"
           :key="t.id"
-          class="group relative rounded hover:bg-surface2"
+          class="group rounded hover:bg-surface2"
           :class="t.id === currentId && 'bg-surface2'"
         >
-          <button class="w-full truncate rounded-md px-2 py-1.5 pr-8 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="startFromTemplate(t)">{{ t.title }}</button>
-          <div class="absolute right-1 top-1.5">
-            <RowActionsMenu :actions="[
-              { label: tr('sidebar.editTemplate'), icon: Edit3, onSelect: () => pick(t.id) },
-              { label: tr('sidebar.deleteTemplate'), icon: X, danger: true, onSelect: () => remove(t.id, tr('confirm.deleteTemplate')) },
-            ]" />
+          <div class="flex items-center">
+            <button class="min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="startFromTemplate(t)">{{ t.title }}</button>
+            <div class="mr-1 shrink-0">
+              <RowActionsMenu :actions="[
+                { label: tr('sidebar.editTemplate'), icon: Edit3, onSelect: () => pick(t.id) },
+                { label: tr('sidebar.deleteTemplate'), icon: X, danger: true, onSelect: () => remove(t.id, tr('confirm.deleteTemplate')) },
+              ]" />
+            </div>
           </div>
         </div>
       </template>
@@ -228,17 +230,19 @@ async function remove(id, message) {
         <UiIconButton class="!size-7" :label="$t('sidebar.newWorkspace')" @click="addWorkspace"><Plus :size="14" /></UiIconButton>
       </p>
       <template v-for="w in workspaces" :key="w.id">
-        <div class="group relative rounded hover:bg-surface2">
-          <UiTooltip :content="$t('sidebar.editWorkspace')">
-            <button class="flex w-full items-center gap-1.5 truncate rounded-md px-2 py-1.5 pr-8 text-left text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="editWorkspace(w)">
-              <Boxes :size="14" class="shrink-0 text-muted" />{{ w.name }}
-            </button>
-          </UiTooltip>
-          <div class="absolute right-1 top-1.5">
-            <RowActionsMenu :actions="[
-              { label: tr('sidebar.newHere'), icon: MessageSquarePlus, onSelect: () => newWorkspaceConversation(w) },
-              { label: tr('sidebar.deleteWorkspace'), icon: X, danger: true, onSelect: () => removeWorkspace(w) },
-            ]" />
+        <div class="group rounded hover:bg-surface2">
+          <div class="flex items-center">
+            <UiTooltip :content="$t('sidebar.editWorkspace')">
+              <button class="flex min-w-0 flex-1 items-center gap-1.5 truncate rounded-md px-2 py-1.5 text-left text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="editWorkspace(w)">
+                <Boxes :size="14" class="shrink-0 text-muted" />{{ w.name }}
+              </button>
+            </UiTooltip>
+            <div class="mr-1 shrink-0">
+              <RowActionsMenu :actions="[
+                { label: tr('sidebar.newHere'), icon: MessageSquarePlus, onSelect: () => newWorkspaceConversation(w) },
+                { label: tr('sidebar.deleteWorkspace'), icon: X, danger: true, onSelect: () => removeWorkspace(w) },
+              ]" />
+            </div>
           </div>
         </div>
         <ConversationRow
