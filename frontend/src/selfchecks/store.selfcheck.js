@@ -3,6 +3,7 @@ import assert from 'node:assert'
 import { activePane, activeRunOf, attachedDocs, conversations, createConversation, createDoc, createFromTemplate, createRun, createWorkspace, deleteConversation, deleteDoc, deleteWorkspace, docsOf, exportData, finishRun, globalSettings, importData, modelSupportsCache, models, removeDocRef, resetGlobalSettings, restoreData, runById, saveAsTemplate, selectConversation, setGlobalSettings, snapshotInfo, undoDocRevision, updateDocText, workspaceOf } from '../state/store.js'
 // recordUsage/usageDays operate on in-memory state; initUsage() itself needs a real IndexedDB and is not called here, the same reason this file never calls initStore() either.
 import { recordUsage, usageDays } from '../state/usage.js'
+import { SNAPSHOT_VERSION } from '../state/snapshot.js'
 
 assert.equal(await importData([{ id: 'a', title: 'A', messages: [] }]), 1, 'adds new conversation')
 assert.equal(await importData([{ id: 'a', title: 'A2', messages: [{ id: 'm', role: 'user', content: 'hi' }] }]), 1)
@@ -46,7 +47,7 @@ resetGlobalSettings()
 assert.equal(globalSettings.value.temperature, 0.7, 'reset restores server defaults')
 recordUsage('chat', { model: 'claude-sonnet-5', input: 100, output: 50, cache_read: 0, cache_write: 0, usd: 0.01 })
 const snapshot = exportData()
-assert.equal(snapshot.version, 4, 'full export is versioned')
+assert.equal(snapshot.version, SNAPSHOT_VERSION, 'full export is versioned')
 assert.equal(snapshot.prefs.showThinkingAndSearch, true, 'thinking and search show by default')
 assert.ok(snapshot.exportedAt, 'full export is dated')
 assert.equal(snapshotInfo(snapshot)?.runs, 0, 'snapshot omits dropped legacy runs')
@@ -90,6 +91,15 @@ const lw = workspaceOf({ workspaceId: 'lw' })
 assert.deepEqual(lw.docIds, ['ld'], 'inline docs became refs on import')
 assert.ok(!lw.docs, 'the inline list is gone after the hoist')
 assert.equal(exportData().docs.find((d) => d.id === 'ld')?.source.kind, 'upload', 'the hoisted doc landed in the store')
+
+// --- Workspaces ---
+// A pre-v5 workspace held one shared prompt string; it becomes the first system message on import.
+await importData({ conversations: [], workspaces: [{ id: 'vp', name: 'Legacy prompts', systemPrompt: 'SHARED' }, { id: 'np', name: 'No prompt' }] })
+const vp = workspaceOf({ workspaceId: 'vp' })
+assert.deepEqual(vp.messages.map((m) => [m.role, m.content]), [['system', 'SHARED']], 'the shared prompt became one system message')
+assert.ok(vp.messages[0].id, 'the migrated prompt is keyed like any other message')
+assert.ok(!Object.hasOwn(vp, 'systemPrompt'), 'the legacy field is gone after the migration')
+assert.deepEqual(workspaceOf({ workspaceId: 'np' }).messages, [], 'a workspace with no prompt gets an empty list')
 
 // Resolution drops dangling refs; attachment merge puts workspace docs first and dedupes shared ids.
 const doc2 = createDoc({ name: 'notes.md', text: 'NOTES', source: { kind: 'chat', convoId: 'v1', messageId: 'm' } })

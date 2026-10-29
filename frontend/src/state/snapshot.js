@@ -3,12 +3,13 @@ import { IMAGE_KEY_PREFIX, isLoaded, persistNow, state } from './persistence.js'
 import { activePane, cloneWithNewIds, conversations, currentId } from './conversations.js'
 import { docsOf, hoistInlineDocs, validImage } from './docs.js'
 import { migrateRun, validRun } from './runs.js'
+import { migrateWorkspacePrompts } from './workspaces.js'
 import { replaceUsage, usageDays } from './usage.js'
 import { isDark } from '../utils/theme.js'
 import { enterToSend, fontScale, locale, showThinkingAndSearch } from '../utils/prefs.js'
 import { tr } from '../i18n/index.js'
 
-export const SNAPSHOT_VERSION = 4
+export const SNAPSHOT_VERSION = 5
 
 function wire(value) {
   return JSON.parse(JSON.stringify(value))
@@ -78,6 +79,7 @@ export async function importData(data) {
   const extras = Array.isArray(data) ? {} : data
   const incomingDocs = Array.isArray(extras.docs) ? [...extras.docs] : []
   hoistInlineDocs(Array.isArray(extras.workspaces) ? extras.workspaces : [], incomingDocs)
+  migrateWorkspacePrompts(Array.isArray(extras.workspaces) ? extras.workspaces : [])
   const incomingImages = Array.isArray(extras.images) ? extras.images.filter(validImage) : []
   const newImages = incomingImages.filter((image) => !state.images.some((local) => local.id === image.id))
   if (newImages.length) await setMany(newImages.map((image) => [`${IMAGE_KEY_PREFIX}${image.id}`, image]))
@@ -115,6 +117,7 @@ export async function restoreData(data, applySettings) {
   }
   state.images = restoredImages
   hoistInlineDocs(state.workspaces, state.docs)
+  migrateWorkspacePrompts(state.workspaces)
   const restoredSettings = restored.settings && typeof restored.settings === 'object' ? restored.settings : null
   const settingsDone = typeof applySettings === 'function' ? applySettings(restoredSettings) : Promise.resolve()
   currentId.value = conversations.value[0]?.id || null

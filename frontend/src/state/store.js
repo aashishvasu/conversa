@@ -17,6 +17,7 @@ import {
 import { conversations, createConversation, currentId } from './conversations.js'
 import { gcImages, hoistInlineDocs, downloadText, validImage } from './docs.js'
 import { migrateRun, validRun } from './runs.js'
+import { migrateWorkspacePrompts } from './workspaces.js'
 import { exportData as _exportData, restoreData as _restoreData } from './snapshot.js'
 
 export { persistNow } from './persistence.js'
@@ -108,6 +109,7 @@ export async function initStore() {
     for (const m of c.messages) if (!m.id) m.id = crypto.randomUUID()
   }
   hoistInlineDocs(state.workspaces, state.docs)
+  migrateWorkspacePrompts(state.workspaces)
   gcImages()
   setLoaded(true)
   startWatching()
