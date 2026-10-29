@@ -251,7 +251,7 @@ function resetDefaults() {
           <UiSlider v-model="fontScale" :label="$t('settings.fontSize', { size: Math.round(fontScale * 100) })" :min="0.8" :max="1.4" :step="0.05" />
         </div>
 
-        <UiSwitch v-model="enterToSend" :label="$t('settings.enterSends')" :help="$t('settings.enterSendsHelp')" />
+        <UiSwitch v-model="enterToSend" :label="$t(enterToSend ? 'settings.enterSends' : 'settings.shiftEnterSends')" />
 
         <UiSwitch v-model="showThinkingAndSearch" :label="$t('settings.showThinkingAndSearch')" />
 
