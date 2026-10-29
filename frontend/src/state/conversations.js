@@ -58,6 +58,7 @@ export function createFromTemplate(template) {
   const c = cloneWithNewIds(template)
   c.isTemplate = false
   c.createdAt = c.updatedAt = Date.now()
+  c.usage = null
   state.conversations.unshift(c)
   currentId.value = c.id
   return c

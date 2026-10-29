@@ -66,8 +66,8 @@ export function recallMessages(convo, outgoing) {
 // With memory on, the summary refreshes in the background after each reply (see memory.js).
 // This reads whatever memory and memoryCount currently hold.
 //
-// `workspace` (optional) = { systemPrompt, cards, docIds } shared across its convos.
-// Its prompt leads the system param and its cards merge ahead of the convo's own, so a convo card can refine a workspace card.
+// `workspace` (optional) = { messages, cards, docIds } shared across its convos.
+// Its system prompts lead the system param and its cards merge ahead of the convo's own, so a convo prompt or card can refine a workspace one.
 // `docs` = the resolved documents to send (attachedDocs in store.js: workspace docs first, then convo attachments, deduped).
 // Docs are plain text sent whole, no chunking or retrieval.
 // Score chunks with the recall tokenizer above if attached docs ever outgrow the context window.
@@ -84,8 +84,7 @@ export function buildPayload(convo, settings, workspace = null, docs = [], image
 
   const parts = []
   if (settings.send_system_prompt) {
-    if (workspace?.systemPrompt?.trim()) parts.push(workspace.systemPrompt)
-    for (const m of convo.messages) {
+    for (const m of [...(workspace?.messages ?? []), ...convo.messages]) {
       if (m.role === 'system' && m.content.trim()) parts.push(m.content)
     }
   }

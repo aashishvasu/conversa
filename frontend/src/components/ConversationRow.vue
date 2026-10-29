@@ -16,26 +16,33 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
 
 <template>
   <div
-    class="group relative rounded hover:bg-surface2"
+    class="group rounded hover:bg-surface2"
     :class="[active && 'bg-surface2', indent && 'ml-2']"
   >
+    <div class="flex items-center">
+      <button
+        class="min-w-0 flex-1 rounded-md px-2 pt-1.5 pb-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
+        @click="emit('select')"
+      >
+        <div class="truncate text-sm">{{ convo.title }}</div>
+      </button>
+      <div class="mr-1 shrink-0">
+        <RowActionsMenu :actions="[
+          { label: tr('sidebar.transferConversation'), icon: Send, onSelect: () => emit('transfer') },
+          { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => emit('export') },
+          { label: tr('settings.saveTemplate'), icon: BookmarkPlus, onSelect: () => emit('save-template') },
+          { label: tr('common.delete'), icon: X, danger: true, onSelect: () => emit('delete') },
+        ]" />
+      </div>
+    </div>
     <button
-      class="w-full rounded-md px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
+      class="w-full rounded-md px-2 pt-0 pb-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus"
       @click="emit('select')"
     >
-      <div class="truncate pr-8 text-sm">{{ convo.title }}</div>
-      <div class="mt-0.5 flex justify-between text-[10px] text-muted">
+      <div class="flex justify-between text-[10px] text-muted">
         <span>{{ $t('sidebar.messageCount', convo.messages.length, { count: convo.messages.length }) }}</span>
         <span>{{ formatShort(lastTs(convo)) }}</span>
       </div>
     </button>
-    <div class="absolute right-1 top-1.5">
-      <RowActionsMenu :actions="[
-        { label: tr('sidebar.transferConversation'), icon: Send, onSelect: () => emit('transfer') },
-        { label: tr('sidebar.exportConversation'), icon: Download, onSelect: () => emit('export') },
-        { label: tr('settings.saveTemplate'), icon: BookmarkPlus, onSelect: () => emit('save-template') },
-        { label: tr('common.delete'), icon: X, danger: true, onSelect: () => emit('delete') },
-      ]" />
-    </div>
   </div>
 </template>
