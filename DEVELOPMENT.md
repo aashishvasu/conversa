@@ -112,11 +112,12 @@ The system content order is:
 
 1. Workspace system prompts, then conversation system messages, when `send_system_prompt` is enabled.
 2. Attached workspace and conversation documents.
-3. Memory when `use_memory` is enabled.
+3. The artifact evidence policy when tool evidence is in context.
 4. Triggered cards.
 5. Recalled turns when `use_recall` is enabled.
+6. Memory when `use_memory` is enabled.
 
-Comma separates OR clauses in card triggers; `&` joins required terms. Conversation overrides `include` and `skip` change the effective card set without editing workspace cards. With `use_cache`, prompts, system messages, and documents form the stable block; memory, cards, and recall form the volatile block.
+Comma separates OR clauses in card triggers; `&` joins required terms. Conversation overrides `include` and `skip` change the effective card set without editing workspace cards. With `use_cache`, prompts, system messages, and documents form the stable block; the artifact policy, cards, recall, and memory form the volatile block.
 
 Pinned turns precede the send window, are deduplicated, and bypass `num_messages_to_send`. With memory enabled, the window includes turns after the summary's recorded coverage. Images become provider image blocks on their original turns. Recall selects up to three dropped turns by token overlap with the latest user message and returns them in chronological order.
 

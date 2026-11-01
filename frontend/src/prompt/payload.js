@@ -94,22 +94,21 @@ export function buildPayload(convo, settings, workspace = null, docs = [], image
   }
 
   // Cache breakpoint.
-  // Everything pushed above holds still turn to turn; memory, recall and cards below all change.
-  // Caching is prefix-match, so cards go last: a card firing mid-conversation rewrites only the uncached tail. system_param() in main.py turns the split into API blocks.
+  // Everything pushed above holds still turn to turn; everything below changes per turn.
+  // Caching is prefix-match, so a card firing mid-conversation rewrites only the uncached tail. system_param() in main.py turns the split into API blocks.
   const stable = parts.length
 
-  if (settings.use_memory && convo.memory) {
-    parts.push(`Summary of earlier conversation:\n${convo.memory}`)
-  }
+  // Cards are intentional, trigger-gated context, injected even when the base system prompt is off.
+  // The artifact instruction appears only when evidence is in context, and flipping it must never invalidate the cached stable prefix.
+  if (outgoing.some((m) => m.artifacts?.length)) parts.push(ARTIFACT_INSTRUCTION)
+  parts.push(...matchCards(effectiveCards(convo, workspace), window, convo.scanAssistant))
   if (settings.use_recall) {
     const recalled = recallMessages(convo, outgoing)
     if (recalled.length) parts.push(`Relevant earlier messages (verbatim, for reference):\n\n${recalled.join('\n\n')}`)
   }
-  // Cards are intentional, trigger-gated context, injected even when the base system prompt is off.
-  parts.push(...matchCards(effectiveCards(convo, workspace), window, convo.scanAssistant))
-  // Artifact instruction rides in the volatile half: it appears only when evidence is in context,
-  // and flipping it must never invalidate the cached stable prefix.
-  if (outgoing.some((m) => m.artifacts?.length)) parts.push(ARTIFACT_INSTRUCTION)
+  if (settings.use_memory && convo.memory) {
+    parts.push(`Summary of earlier conversation:\n${convo.memory}`)
+  }
 
   // Array = [stable, volatile] for the backend to cache the first half, and a plain string when there is no stable half.
   // Messages stay uncached.
