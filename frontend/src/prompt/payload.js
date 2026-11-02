@@ -1,6 +1,8 @@
-// Request assembly: send window, lexical recall, and buildPayload. Pure functions, no Vue, so it runs in node.
+// Request assembly: send window, lexical recall, and buildPayload. Pure assembly plus the settings and prefs values the structured runtime block needs; runs in node.
 import { effectiveCards, matchCards } from './cards.js'
 import { ARTIFACT_INSTRUCTION, evidenceBlock } from './artifacts.js'
+import { enabledTools } from '../state/settings.js'
+import { locale } from '../utils/prefs.js'
 
 // The turns sent verbatim this round.
 // With memory on, that is everything past the summary's coverage (memoryCount), floored at num_messages_to_send.
@@ -82,43 +84,69 @@ export function buildPayload(convo, settings, workspace = null, docs = [], image
   const pinned = turns.filter((m) => m.pinned && !inWindow.has(m.id))
   const outgoing = [...pinned, ...window]
 
-  const parts = []
-  if (settings.send_system_prompt) {
-    for (const m of [...(workspace?.messages ?? []), ...convo.messages]) {
-      if (m.role === 'system' && m.content.trim()) parts.push(m.content)
+  // Every named part is the text today's flat prompt carries, so switching modes only changes the shape.
+  const instructions = settings.send_system_prompt
+    ? [...(workspace?.messages ?? []), ...convo.messages]
+        .filter((m) => m.role === 'system' && m.content.trim())
+        .map((m) => m.content)
+        .join('\n\n')
+    : ''
+  const docList = docs.filter((d) => d.text).map((d) => ({ name: d.name, text: d.text }))
+  const hasEvidence = outgoing.some((m) => m.artifacts?.length)
+  const cards = matchCards(effectiveCards(convo, workspace), window, convo.scanAssistant)
+  const cardsText = cards.join('\n\n')
+  const recalled = settings.use_recall ? recallMessages(convo, outgoing) : []
+  const recallText = recalled.length ? `Relevant earlier messages (verbatim, for reference):\n\n${recalled.join('\n\n')}` : ''
+  const summaryText = settings.use_memory && convo.memory ? `Summary of earlier conversation:\n${convo.memory}` : ''
+
+  let system
+  if (settings.structure_system_prompt) {
+    // Structured mode: named parts; the server renders tags and runtime lines.
+    system = {
+      ...(instructions ? { instructions } : {}),
+      ...(docList.length ? { docs: docList } : {}),
+      ...(summaryText ? { summary: summaryText } : {}),
+      ...(recallText ? { recall: recallText } : {}),
+      ...(cardsText ? { cards: cardsText } : {}),
+      ...(hasEvidence ? { evidence: true } : {}),
+      runtime: {
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        locale: locale.value,
+        use_memory: settings.use_memory,
+        use_recall: settings.use_recall,
+        use_cache: settings.use_cache,
+        enabled_tools: enabledTools(settings),
+      },
     }
-  }
-  // Docs are intentional shared context, like cards: sent even with base system off.
-  for (const d of docs) {
-    if (d.text) parts.push(`Reference document "${d.name}":\n${d.text}`)
-  }
+  } else {
+    const parts = []
+    if (instructions) parts.push(instructions)
+    // Docs are intentional shared context, like cards: sent even with base system off.
+    for (const d of docs) {
+      if (d.text) parts.push(`Reference document "${d.name}":\n${d.text}`)
+    }
 
-  // Cache breakpoint.
-  // Everything pushed above holds still turn to turn; memory, recall and cards below all change.
-  // Caching is prefix-match, so cards go last: a card firing mid-conversation rewrites only the uncached tail. system_param() in main.py turns the split into API blocks.
-  const stable = parts.length
+    // Cache breakpoint.
+    // Everything pushed above holds still turn to turn; everything below changes per turn.
+    // Caching is prefix-match, so a card firing mid-conversation rewrites only the uncached tail. system_param() in main.py turns the split into API blocks.
+    const stable = parts.length
 
-  if (settings.use_memory && convo.memory) {
-    parts.push(`Summary of earlier conversation:\n${convo.memory}`)
-  }
-  if (settings.use_recall) {
-    const recalled = recallMessages(convo, outgoing)
-    if (recalled.length) parts.push(`Relevant earlier messages (verbatim, for reference):\n\n${recalled.join('\n\n')}`)
-  }
-  // Cards are intentional, trigger-gated context, injected even when the base system prompt is off.
-  parts.push(...matchCards(effectiveCards(convo, workspace), window, convo.scanAssistant))
-  // Artifact instruction rides in the volatile half: it appears only when evidence is in context,
-  // and flipping it must never invalidate the cached stable prefix.
-  if (outgoing.some((m) => m.artifacts?.length)) parts.push(ARTIFACT_INSTRUCTION)
+    // Cards are intentional, trigger-gated context, injected even when the base system prompt is off.
+    // The artifact instruction appears only when evidence is in context, and flipping it must never invalidate the cached stable prefix.
+    if (hasEvidence) parts.push(ARTIFACT_INSTRUCTION)
+    parts.push(...cards)
+    if (recallText) parts.push(recallText)
+    if (summaryText) parts.push(summaryText)
 
-  // Array = [stable, volatile] for the backend to cache the first half, and a plain string when there is no stable half.
-  // Messages stay uncached.
-  // The send window drops turns off the front as it slides, so the message prefix shifts on most turns.
-  // Revisit if pinning gets used heavily enough to hold the head of `outgoing` still.
-  const system =
-    settings.use_cache && stable
-      ? [parts.slice(0, stable).join('\n\n'), parts.slice(stable).join('\n\n')]
-      : parts.join('\n\n') || undefined
+    // Array = [stable, volatile] for the backend to cache the first half, and a plain string when there is no stable half.
+    // Messages stay uncached.
+    // The send window drops turns off the front as it slides, so the message prefix shifts on most turns.
+    // Revisit if pinning gets used heavily enough to hold the head of `outgoing` still.
+    system =
+      settings.use_cache && stable
+        ? [parts.slice(0, stable).join('\n\n'), parts.slice(stable).join('\n\n')]
+        : parts.join('\n\n') || undefined
+  }
 
   return {
     system,

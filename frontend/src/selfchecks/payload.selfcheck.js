@@ -270,4 +270,43 @@ assert.ok(rapp.system.includes('DRAGON_PAGE'), 'a recalled turn brings its evide
 // a contentless turn without artifacts is still dropped entirely
 assert.deepEqual(hp.messages.map((m) => m.content), ['ask', 'follow-up'], 'empty turns are still dropped')
 
+// --- Structured system prompt mode -----------------------------------------------
+// Flag on: system is an object of named parts; the server renders tags and runtime lines.
+const structuredSettings = { ...aSettings, structure_system_prompt: true }
+const structured = buildPayload(artConvo, structuredSettings)
+assert.ok(structured.system && typeof structured.system === 'object' && !Array.isArray(structured.system), 'structured mode returns an object')
+assert.ok(structured.system.instructions.includes('sys'), 'instructions holds the system prompt')
+assert.equal(structured.system.evidence, true, 'evidence is true with artifacts in the window')
+assert.ok(structured.system.runtime && !structured.system.runtime.use_cache, 'runtime carries the use_* switches')
+assert.ok(Array.isArray(structured.system.runtime.enabled_tools), 'runtime carries enabled tools')
+assert.ok(structured.messages.find((m) => m.role === 'assistant').content.includes('[Tool evidence recorded with this assistant response]'), 'evidence still rides in messages')
+
+// Without artifacts there is no evidence flag.
+const structuredNoEvidence = buildPayload(convo, structuredSettings)
+assert.ok(structuredNoEvidence.system && typeof structuredNoEvidence.system === 'object' && !structuredNoEvidence.system.evidence, 'evidence is absent without artifacts')
+
+// Docs become a named list.
+const structuredDocs = buildPayload(convo, structuredSettings, null, [{ id: 'd', name: 'lore.md', text: 'Dragons.' }])
+assert.ok(Array.isArray(structuredDocs.system.docs) && structuredDocs.system.docs[0].name === 'lore.md', 'docs become a named list')
+
+// Memory and recall stay named when today's flat prompt would carry them.
+const structuredMemory = buildPayload(memConvo, { ...mSettings, structure_system_prompt: true })
+assert.ok(structuredMemory.system.summary.includes('EARLIER_SUMMARY'), 'summary is named in structured mode')
+const structuredRecall = buildPayload(recallConvo, { ...rSettings, structure_system_prompt: true })
+assert.ok(structuredRecall.system.recall.includes('Smaug'), 'recall is named in structured mode')
+
+// Cards are named when triggered.
+const structuredCards = buildPayload(convo, { ...structuredSettings, num_messages_to_send: 1 })
+assert.ok(structuredCards.system.cards.includes('DRAGON_LORE'), 'cards are named when triggered')
+
+// use_cache still returns the object; the server does the split.
+const structuredCache = buildPayload(artConvo, { ...structuredSettings, use_cache: true })
+assert.ok(structuredCache.system && typeof structuredCache.system === 'object' && !Array.isArray(structuredCache.system), 'structured mode leaves the cache split to the server')
+assert.equal(structuredCache.system.runtime.use_cache, true, 'runtime records use_cache')
+
+// Preparation lands on the object form.
+const structuredPrepared = buildResearchInput(clarified, { ...structuredSettings, num_messages_to_send: 1 })
+assert.ok(structuredPrepared.system && typeof structuredPrepared.system === 'object' && !Array.isArray(structuredPrepared.system), 'preparation keeps the object form')
+assert.ok(structuredPrepared.system.preparation.includes('Project Orion'), 'preparation is set on the object form')
+
 console.log('payload selfcheck OK')

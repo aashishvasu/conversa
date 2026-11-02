@@ -22,7 +22,8 @@ FINISHED_TTL = int(os.environ.get("RESEARCH_RESULT_TTL", "3600"))
 MAX_ACTIVE_RUNS = int(os.environ.get("MAX_ACTIVE_RUNS", "2"))
 MAX_WAVES = int(os.environ.get("RESEARCH_MAX_WAVES", "8"))
 MAX_TASKS = int(os.environ.get("RESEARCH_MAX_TASKS", "18"))
-DEFAULT_MAX_CALLS = int(os.environ.get("RESEARCH_MAX_CALLS", "48"))
+_MAX_CALLS = os.environ.get("RESEARCH_MAX_CALLS", "").strip()
+DEFAULT_MAX_CALLS = int(_MAX_CALLS) if _MAX_CALLS else None
 DEFAULT_MAX_SOURCES = int(os.environ.get("RESEARCH_MAX_SOURCES", "24"))
 DEFAULT_MIN_SOURCES = int(os.environ.get("RESEARCH_MIN_SOURCES", "8"))
 DEFAULT_MAX_SECONDS = float(os.environ.get("RESEARCH_MAX_SECONDS", "900"))
@@ -30,6 +31,10 @@ MIN_EVIDENCE = int(os.environ.get("RESEARCH_MIN_EVIDENCE", "8"))
 DEFAULT_RESEARCH_DEPTH = int(os.environ.get("DEFAULT_RESEARCH_DEPTH", "5"))
 
 REPORT_RESERVE = 2
+
+
+def _max_calls_for(max_sources):
+    return DEFAULT_MAX_CALLS if DEFAULT_MAX_CALLS is not None else max_sources * 2 + MAX_TASKS + MAX_WAVES + 4
 
 
 class RunLimitError(Exception):
@@ -68,9 +73,7 @@ class Run:
         raw_max = max_sources if max_sources is not None else DEFAULT_MAX_SOURCES
         self.min_sources = max(MIN_EVIDENCE, raw_min) if min_sources is not None else MIN_EVIDENCE
         self.max_sources = max(self.min_sources, min(raw_max, 300))
-        # calls ~= sources*2 + tasks + waves + report sections (each wave has coordinator call, report has write + verify)
-        # default report sections/passes ~ 4
-        self.max_calls = max_calls if max_calls is not None else (self.max_sources * 2 + MAX_TASKS + MAX_WAVES + 4)
+        self.max_calls = max_calls if max_calls is not None else _max_calls_for(self.max_sources)
         self.max_elapsed = max_elapsed if max_elapsed is not None else max(DEFAULT_MAX_SECONDS, self.max_sources * 15.0)
         self.prompts = {**PROMPTS, **(prompts or {})}
         self.status = "running"
@@ -80,7 +83,7 @@ class Run:
         self.payload = None
         self.error = None
         self.finished_at = None
-        self.task = None
+        self.task: asyncio.Task | None = None
         self.started_at = time.monotonic()
         broad = {"id": "T1", "question": self.brief.get("objective", "Explore the requested subject"), "reason": "broad initial exploration"}
         resumed_from_checkpoint = checkpoint_data is not None
@@ -322,7 +325,7 @@ def _apply_coord(run, decision, wave=0):
     # Contradiction-forced redirection: at most one per wave, subject to MAX_TASKS
     forced_task = None
     has_contra, v_question, v_reason = _detect_contradiction(run, run.data.get("theory"))
-    if has_contra and len(run.frontier) < MAX_TASKS:
+    if has_contra and isinstance(v_question, str) and len(run.frontier) < MAX_TASKS:
         norm_v = " ".join(v_question.split())
         if norm_v.lower() not in questions:
             task = {"id": f"T{len(run.frontier) + 1}", "question": norm_v, "reason": v_reason, "status": "pending", "attempts": 0}
@@ -483,6 +486,7 @@ async def _run(run):
                 run.data["gaps"].append(f"coordinator stopped gathering: {error}")
                 break
             decision = _coverage_gate(run, decision)
+            assert decision is not None
             _apply_coord(run, decision, wave=wave + 1)
             if decision["action"] == "finish":
                 break
@@ -536,7 +540,7 @@ def start(brief, models, depth=DEFAULT_RESEARCH_DEPTH, title=None, prompts=None,
                 _reopen_failed_tasks(existing.data)
             existing.min_sources = max(MIN_EVIDENCE, min_sources)
             existing.max_sources = max(existing.min_sources, min(max_sources, 300))
-            existing.max_calls = existing.max_sources * 2 + MAX_TASKS + MAX_WAVES + 4
+            existing.max_calls = _max_calls_for(existing.max_sources)
             existing.max_elapsed = max(DEFAULT_MAX_SECONDS, existing.max_sources * 15.0)
             existing.status = "running"
             existing.phase = "researching"

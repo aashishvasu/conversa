@@ -58,6 +58,8 @@
     "maxTokensValue": "Maximale Tokenzahl: {value}",
     "thinkingEffort": "Denkaufwand",
     "sendSystem": "System- und Arbeitsbereichsprompts senden",
+    "structureSystemPrompt": "Strukturierter Systemprompt",
+    "structureSystemPromptHelp": "Benannte Teile senden; der Server setzt den Prompt zusammen.",
     "compressHistory": "Ältere Nachrichten zusammenfassen",
     "messagesToSummarise": "Zusammenzufassende Nachrichten",
     "messagesToSummariseValue": "Zusammenzufassende Nachrichten: {value}",
@@ -151,8 +153,10 @@
     "help": "System- und angeheftete Nachrichten werden immer gesendet."
   },
   "debug": {
-    "help": "Vorschau des nächsten System-Prompts: Systemnachrichten, Dokumente, Gedächtnis und ausgelöste Karten.",
+    "help": "Vom Server gerenderte Vorschau des nächsten System-Prompts: Systemnachrichten, Dokumente, Gedächtnis und ausgelöste Karten. Im strukturierten Modus setzt der Server die Tags und Laufzeitzeilen zusammen.",
     "empty": "(leer, daher wird kein System-Prompt gesendet)",
+    "stable": "Stabiles System",
+    "volatile": "Flüchtiges System",
     "summary": "{model} · Temperatur {temperature} · max. {tokens} Token · {messages} Nachrichten im Fenster · System {chars} Zeichen",
     "title": "System-Prompt (live)",
     "button": "Debug: System-Prompt live"

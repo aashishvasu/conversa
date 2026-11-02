@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from api.auth import require_auth
-from api.chat import Msg
+from api.chat import Msg, SystemParts, render_system
 from api.sse import sse
 from providers import DEFAULT_MODEL, complete_messages
 from research import runs
@@ -95,7 +95,8 @@ def prepare_system(system):
 @router.post("/api/research/prepare", response_model=PrepareResponse)
 async def research_prepare(req: "PrepareRequest", _=Depends(require_auth)):
     try:
-        text = await complete_messages(req.model or DEFAULT_MODEL, prepare_system(req.system), [message.model_dump() for message in req.messages], max_tokens=1400)
+        system = render_system(req.system, req.model or DEFAULT_MODEL, [])
+        text = await complete_messages(req.model or DEFAULT_MODEL, prepare_system(system), [message.model_dump() for message in req.messages], max_tokens=1400)
         return parse_prepare_response(text)
     except ValueError as error:
         raise HTTPException(502, {"code": "research_prepare_failed", "message": str(error)}) from error
@@ -106,7 +107,7 @@ async def research_prepare(req: "PrepareRequest", _=Depends(require_auth)):
 
 class PrepareRequest(BaseModel):
     messages: list[Msg]
-    system: str | list[str] | None = None
+    system: str | list[str] | SystemParts | None = None
     model: str | None = None
 
 

@@ -58,6 +58,8 @@
     "maxTokensValue": "Máximo de tokens: {value}",
     "thinkingEffort": "Nivel de razonamiento",
     "sendSystem": "Enviar mensajes del sistema y el prompt del espacio de trabajo",
+    "structureSystemPrompt": "Prompt del sistema estructurado",
+    "structureSystemPromptHelp": "Envía partes con nombre; el servidor ensambla el prompt.",
     "compressHistory": "Resumir mensajes antiguos",
     "messagesToSummarise": "Mensajes a resumir",
     "messagesToSummariseValue": "Mensajes a resumir: {value}",
@@ -151,8 +153,10 @@
     "help": "Los mensajes de sistema y fijados siempre se envían."
   },
   "debug": {
-    "help": "Vista previa del próximo prompt de sistema: mensajes de sistema, documentos, memoria y tarjetas activadas.",
+    "help": "Vista previa generada por el servidor del próximo prompt de sistema: mensajes de sistema, documentos, memoria y tarjetas activadas. En el modo estructurado, el servidor ensambla las etiquetas y las líneas de tiempo de ejecución.",
     "empty": "(vacío; no se enviará ningún prompt de sistema)",
+    "stable": "Sistema estable",
+    "volatile": "Sistema volátil",
     "summary": "{model} · temperatura {temperature} · máx. {tokens} tokens · {messages} mensajes en la ventana · sistema: {chars} caracteres",
     "title": "Prompt de sistema (en directo)",
     "button": "Depurar: prompt de sistema en directo"

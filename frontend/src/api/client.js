@@ -123,6 +123,20 @@ export async function streamChat(payload, onText, signal, onTrace, onUsage, onAr
   })
 }
 
+// Fetch the server-rendered system prompt for a chat payload without calling a provider.
+// Returns a string or a [stable, volatile] list when cache mode is on.
+export async function fetchSystemPreview(payload, signal) {
+  const res = await check(
+    await fetch('/api/chat/system-preview', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(payload),
+      signal,
+    }),
+  )
+  return (await res.json()).system
+}
+
 // Read an SSE body, calling onEvent with each decoded frame.
 // Both server streams frame the same way.
 async function readSSE(res, onEvent) {
