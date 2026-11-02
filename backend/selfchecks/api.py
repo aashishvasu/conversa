@@ -118,10 +118,10 @@ assert "tools: search_web, fetch_url" in stable
 assert "memory: on" in stable and "recall: off" in stable
 assert "instructions: " in stable and "docs: " in stable and '<doc name="lore.md">' in stable
 assert "<summary>" in volatile and "Earlier." in volatile
-assert "untrusted data" in volatile
+assert "<evidence-policy>" in volatile
 # Without evidence the artifact instruction is omitted.
 no_evidence = render_system(SystemParts.model_validate({"instructions": "Be brief.", "runtime": {}}), "m", [])
-assert isinstance(no_evidence, str) and "untrusted data" not in no_evidence
+assert isinstance(no_evidence, str) and "<evidence-policy>" not in no_evidence
 # The server tools argument is authoritative. Research prepare has no tool loop, so a
 # client-supplied enabled_tools hint never renders a tools line.
 research_hint = render_system(SystemParts.model_validate({"runtime": {"enabled_tools": ["search_web"]}}), "m", [])

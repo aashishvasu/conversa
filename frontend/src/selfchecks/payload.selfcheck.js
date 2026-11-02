@@ -3,6 +3,7 @@
 import assert from 'node:assert'
 import { buildPayload, recallMessages } from '../prompt/payload.js'
 import { buildResearchInput } from '../prompt/research-input.js'
+import { ARTIFACT_INSTRUCTION } from '../prompt/artifacts.js'
 
 const cards = [
   { id: '1', triggers: 'dragon, wyrm', content: 'DRAGON_LORE' },
@@ -240,19 +241,19 @@ assert.ok(sent.content.startsWith('Answer with sources.'), 'the answer text stil
 assert.ok(sent.content.includes('[Tool evidence recorded with this assistant response]'), 'the evidence block trails the answer')
 assert.ok(sent.content.includes('"query":"release notes"') && sent.content.includes('https://example.com/r'), 'input and output are serialized')
 assert.ok(!sent.content.includes('Stale:'), 'a fresh artifact is not marked stale')
-assert.ok(ap.system.includes('untrusted data'), 'the trust instruction is sent whenever evidence is in context')
+assert.ok(ap.system.includes(ARTIFACT_INSTRUCTION), 'the trust instruction is sent whenever evidence is in context')
 // Preparation routes rather than answers, so it sees the same turns without their tool evidence.
 const prepared = buildResearchInput(artConvo, aSettings)
 const preparedAssistant = prepared.messages.find((m) => m.role === 'assistant')
 assert.ok(preparedAssistant.content.startsWith('Answer with sources.'), 'preparation keeps the assistant text')
 assert.ok(!preparedAssistant.content.includes('[Tool evidence recorded with this assistant response]'), 'preparation drops the evidence block')
-assert.ok(!prepared.system.includes('untrusted data'), 'preparation drops the artifact instruction with it')
+assert.ok(!prepared.system.includes(ARTIFACT_INSTRUCTION), 'preparation drops the artifact instruction with it')
 // no artifacts anywhere: no instruction, no block
-assert.ok(!buildPayload(convo, aSettings).system.includes('untrusted data'), 'no evidence means no instruction')
+assert.ok(!buildPayload(convo, aSettings).system.includes(ARTIFACT_INSTRUCTION), 'no evidence means no instruction')
 // use_cache: the instruction must sit in the volatile half or it invalidates the cached prefix
 const ac = buildPayload(artConvo, { ...aSettings, use_cache: true, use_memory: true })
 assert.ok(Array.isArray(ac.system), 'cache splits the system')
-assert.ok(!ac.system[0].includes('untrusted data') && ac.system[1].includes('untrusted data'), 'the artifact instruction stays volatile')
+assert.ok(!ac.system[0].includes(ARTIFACT_INSTRUCTION) && ac.system[1].includes(ARTIFACT_INSTRUCTION), 'the artifact instruction stays volatile')
 // a stale artifact is marked so the model knows to refetch
 const staleConvo = { scanAssistant: false, cards: [], messages: [{ id: 'u', role: 'user', content: 'q' }, { id: 'a', role: 'assistant', content: 'old', artifacts: [{ tool: 'fetch_url', recordedAt: 1000, freshUntil: 2000, input: { url: 'https://old.example' }, output: { content: 'OLD BODY' } }] }] }
 const staleMsg = buildPayload(staleConvo, aSettings).messages.find((m) => m.role === 'assistant')
