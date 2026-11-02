@@ -58,6 +58,8 @@
     "maxTokensValue": "Nombre maximal de jetons : {value}",
     "thinkingEffort": "Niveau de réflexion",
     "sendSystem": "Envoyer les messages système et l'invite de l'espace de travail",
+    "structureSystemPrompt": "Invite système structurée",
+    "structureSystemPromptHelp": "Envoie des parties nommées ; le serveur assemble l'invite.",
     "compressHistory": "Résumer l'historique du chat dans la mémoire",
     "messagesToSummarise": "Messages à résumer",
     "messagesToSummariseValue": "Messages à résumer : {value}",
@@ -151,8 +153,10 @@
     "help": "Les messages système et épinglés sont toujours envoyés."
   },
   "debug": {
-    "help": "Aperçu de la prochaine invite système : messages système, documents, mémoire et fiches déclenchées.",
+    "help": "Aperçu généré par le serveur de la prochaine invite système : messages système, documents, mémoire et fiches déclenchées. En mode structuré, le serveur assemble les balises et les lignes d'exécution.",
     "empty": "(vide ; aucune invite système ne sera envoyée)",
+    "stable": "Système stable",
+    "volatile": "Système volatile",
     "summary": "{model} · température {temperature} · max. {tokens} jetons · {messages} messages dans la fenêtre · système : {chars} caractères",
     "title": "Invite système (en direct)",
     "button": "Débogage : invite système en direct"

@@ -170,6 +170,7 @@ function resetDefaults() {
         </div>
 
         <UiSwitch v-model="g.send_system_prompt" :label="$t('settings.sendSystem')" @update:model-value="persistGlobal" />
+        <UiSwitch v-model="g.structure_system_prompt" :label="$t('settings.structureSystemPrompt')" :help="$t('settings.structureSystemPromptHelp')" @update:model-value="persistGlobal" />
 
         <UiSwitch v-model="g.use_memory" :label="$t('settings.compressHistory')" @update:model-value="persistGlobal" />
 

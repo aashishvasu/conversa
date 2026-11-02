@@ -29,8 +29,13 @@ export function buildResearchInput(convo, settings, workspace = null, docs = [],
   const pending = pendingPreparation(scoped)
   if (!pending) return { system: payload.system, messages: payload.messages }
   const context = continuation(pending)
-  const system = Array.isArray(payload.system)
-    ? [payload.system[0], [payload.system[1], context].filter(Boolean).join('\n\n')]
-    : [payload.system, context].filter(Boolean).join('\n\n')
+  let system
+  if (payload.system && typeof payload.system === 'object' && !Array.isArray(payload.system)) {
+    system = { ...payload.system, preparation: context }
+  } else if (Array.isArray(payload.system)) {
+    system = [payload.system[0], [payload.system[1], context].filter(Boolean).join('\n\n')]
+  } else {
+    system = [payload.system, context].filter(Boolean).join('\n\n')
+  }
   return { system, messages: payload.messages }
 }

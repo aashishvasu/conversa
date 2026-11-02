@@ -155,6 +155,12 @@ async function remove() {
           </template>
         </UiSwitch>
 
+        <UiSwitch :model-value="eff('structure_system_prompt')" :label="$t('settings.structureSystemPrompt')" :help="$t('settings.structureSystemPromptHelp')" @update:model-value="setOv('structure_system_prompt', $event)">
+          <template #action>
+            <OverrideReset :overridden="overridden('structure_system_prompt')" @use-global="reset('structure_system_prompt')" />
+          </template>
+        </UiSwitch>
+
         <UiSwitch :model-value="eff('use_memory')" :label="$t('settings.compressHistory')" @update:model-value="setOv('use_memory', $event)">
           <template #action>
             <OverrideReset :overridden="overridden('use_memory')" @use-global="reset('use_memory')" />

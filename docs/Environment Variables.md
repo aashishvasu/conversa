@@ -17,6 +17,7 @@ Set these as environment variables when you start the backend container or local
 | `DEFAULT_TEMPERATURE` | no | `1.0` | Creativity, 0 to 1. Claude 4.6+ and Responses reasoning models receive no temperature; older Claude models receive it when thinking is off. |
 | `DEFAULT_NUM_MESSAGES` | no | `20` | How many recent messages are sent each turn. |
 | `DEFAULT_SEND_SYSTEM_PROMPT` | no | `true` | Whether system messages are sent. |
+| `DEFAULT_STRUCTURE_SYSTEM_PROMPT` | no | `false` | Whether the system prompt is sent as named parts for the server to render into tagged text. |
 | `DEFAULT_MAX_TOKENS` | no | `4096` | Cap on reply length. |
 | `DEFAULT_EFFORT` | no | *(off)* | Thinking effort new conversations start with: empty, `low`, `medium`, or `high`. |
 | `DEFAULT_UTILITY_MODEL` | no | `claude-haiku-4-5` | Cheap model used for auto-titling and memory. |

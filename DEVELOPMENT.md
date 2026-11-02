@@ -119,6 +119,8 @@ The system content order is:
 
 Comma separates OR clauses in card triggers; `&` joins required terms. Conversation overrides `include` and `skip` change the effective card set without editing workspace cards. With `use_cache`, prompts, system messages, and documents form the stable block; the artifact policy, cards, recall, and memory form the volatile block.
 
+With `structure_system_prompt` enabled, `system` is an object of named parts (`instructions`, `docs`, `summary`, `recall`, `cards`, `evidence`, `preparation`, `runtime`) instead of flat text. The server renders the parts into tagged text in this order: `<runtime>`, `<conversa-policy>`, `<instructions>`, `<docs>`, `<summary>`, `<recall>`, `<cards>`, `<evidence-policy>`, `<preparation>`.
+
 Pinned turns precede the send window, are deduplicated, and bypass `num_messages_to_send`. With memory enabled, the window includes turns after the summary's recorded coverage. Images become provider image blocks on their original turns. Recall selects up to three dropped turns by token overlap with the latest user message and returns them in chronological order.
 
 `state/settings.js` resolves per-conversation values against global defaults. The Tools tabs control the master switch and individual tools. `enabledTools()` builds the chat allowlist when `research/orchestration.js` assembles the turn; utility-model calls use an empty allowlist.
