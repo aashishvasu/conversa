@@ -27,7 +27,7 @@ JWT_SECRET = os.environ.get("JWT_SECRET") or secrets.token_urlsafe(32)
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL_SECONDS", str(7 * 24 * 3600)))
 LOGIN_RATE_LIMIT = os.environ.get("LOGIN_RATE_LIMIT", "5/minute")
 
-# WHY: slowapi over a hand-rolled counter dict; limits already does window accounting and keys per client, and this is the one unauthenticated route.
+# slowapi over a hand-rolled counter dict; limits already does window accounting and keys per client, and this is the one unauthenticated route.
 limiter = Limiter(key_func=get_remote_address)
 
 

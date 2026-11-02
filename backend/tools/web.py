@@ -48,7 +48,7 @@ async def search_web(arguments: SearchWebArguments) -> ToolOutput:
     return ToolOutput(
         result,
         {"query": arguments.query, "results": [hit.model_dump(mode="json") for hit in result.results]},
-        # WHY: the artifact is the durable client-side provenance record, so it repeats the query and the hits; the trace alone is ephemeral and redacted.
+        # Tthe artifact is the durable client-side provenance record, so it repeats the query and the hits; the trace alone is ephemeral and redacted.
         {"input": {"query": arguments.query, "limit": arguments.limit}, "output": {"results": [hit.model_dump(mode="json") for hit in result.results]}},
     )
 
@@ -61,7 +61,7 @@ async def fetch_url(arguments: FetchUrlArguments) -> ToolOutput:
     except fetch.FetchError as error:
         raise ToolFailed(f"app URL fetch failed: {error}") from error
     result = FetchUrlOutput.model_validate(page)
-    # WHY: the artifact is provenance for later turns; the fetching turn got the full body as `value`, so only a bounded excerpt rides along.
+    # The artifact is provenance for later turns; the fetching turn got the full body as `value`, so only a bounded excerpt rides along.
     artifact = {
         "input": {"url": arguments.url, "topic": arguments.topic, "raw": arguments.raw, "offset": arguments.offset},
         "output": {

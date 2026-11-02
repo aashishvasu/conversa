@@ -134,7 +134,8 @@ assert response_frame(Obj(type="response.output_item.done", item={
 assert response_frame(Obj(type="response.output_text.annotation.added", annotation={
     "type": "url_citation", "title": "Kettles", "url": "https://example.com/kettle"
 })) == {"results": [{"title": "Kettles", "url": "https://example.com/kettle"}]}
-assert response_frame(Obj(type="response.incomplete", response={"incomplete_details": {"reason": "max_output_tokens"}})) == {"error": "incomplete response: max_output_tokens"}
+assert response_frame(Obj(type="response.incomplete", response={"incomplete_details": {"reason": "max_output_tokens"}})) is None
+assert response_frame(Obj(type="response.incomplete", response={"incomplete_details": {"reason": "content_filter"}})) == {"error": "incomplete response: content_filter"}
 assert response_frame(Obj(type="response.failed", response={"error": {"message": "Invalid schema"}})) == {"error": "failed response: Invalid schema"}
 
 frames = chat_completion_frames(Obj(choices=[Obj(delta={"reasoning_content": "hmm", "content": "answer"})]))

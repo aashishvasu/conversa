@@ -326,7 +326,7 @@ async def check_compatible_omits_tools() -> None:
 async def check_artifact_frames() -> None:
     """An opted-in tool's artifact becomes a durable frame; an opted-out tool never emits one."""
     async def sourced(arguments: CountArguments):
-        # WHY: the artifact deliberately differs from the model-facing value to prove the two stay separate.
+        # The artifact deliberately differs from the model-facing value to prove the two stay separate.
         return ToolOutput({"private": arguments.count}, {"source": "sourced"}, {"input": {"count": arguments.count}, "output": {"items": [arguments.count]}})
 
     sourced_tool = ConversaTool("lookup", "Look up a count.", CountArguments, sourced, artifact_fresh_for=1800)

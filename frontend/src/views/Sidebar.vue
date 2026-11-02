@@ -1,5 +1,5 @@
 <script setup>
-import { Boxes, CopyPlus, LogOut, MessageSquarePlus, Moon, Plus, SlidersHorizontal, Sun, X } from '@lucide/vue'
+import { Boxes, Edit3, LogOut, MessageSquarePlus, Moon, Plus, SlidersHorizontal, Sun, X } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { DrawerContent, DrawerOverlay, DrawerPortal, DrawerRoot, DrawerTitle } from 'reka-ui'
 import { logout } from '../api/client.js'
@@ -87,6 +87,28 @@ function saveTemplate(convo) {
   notify({ key: 'template', severity: 'success', foreground: true, text: tr('settings.templateCreated') })
 }
 
+// A template row launches: click starts a conversation from it, the menu edits the template itself.
+// Undo is here because that click creates a record, and a mis-click should cost nothing.
+// The key is per-conversation so two launches in a row each keep their own Undo.
+function startFromTemplate(t) {
+  const previous = currentId.value
+  const c = createFromTemplate(t)
+  sidebarOpen.value = false
+  notify({
+    key: `from-template:${c.id}`,
+    severity: 'success',
+    foreground: true,
+    text: tr('sidebar.newFromTemplate', { title: t.title }),
+    action: {
+      label: tr('common.undo'),
+      fn: () => {
+        deleteConversation(c.id)
+        if (previous && conversations.value.some((x) => x.id === previous)) currentId.value = previous
+      },
+    },
+  })
+}
+
 const version = __APP_VERSION__ // injected by Vite at build time (package.json version)
 
 // Chat lists chat-mode convos outside any workspace; Research filters by mode; each workspace lists its members on the Workspaces tab.
@@ -138,21 +160,23 @@ async function remove(id, message) {
     <!-- Chat tab: templates, then conversations -->
     <UiScrollArea v-if="activePane === 'chat'" class="flex-1">
       <div class="p-2">
-      <!-- Templates: click to edit in the chat window; copy to start a conversation; delete -->
+      <!-- Templates: click starts a conversation from one; the menu edits or deletes the template -->
       <template v-if="templates.length">
         <p class="px-1 pb-1 text-xs uppercase text-muted">{{ $t('sidebar.templates') }}</p>
         <div
           v-for="t in templates"
           :key="t.id"
-          class="group relative rounded hover:bg-surface2"
+          class="group rounded hover:bg-surface2"
           :class="t.id === currentId && 'bg-surface2'"
         >
-          <button class="w-full truncate rounded-md px-2 py-1.5 pr-8 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="pick(t.id)">{{ t.title }}</button>
-          <div class="absolute right-1 top-1.5">
-            <RowActionsMenu :actions="[
-              { label: tr('sidebar.newFromTemplate'), icon: CopyPlus, onSelect: () => createFromTemplate(t) },
-              { label: tr('sidebar.deleteTemplate'), icon: X, danger: true, onSelect: () => remove(t.id, tr('confirm.deleteTemplate')) },
-            ]" />
+          <div class="flex items-center">
+            <button class="min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="startFromTemplate(t)">{{ t.title }}</button>
+            <div class="mr-1 shrink-0">
+              <RowActionsMenu :actions="[
+                { label: tr('sidebar.editTemplate'), icon: Edit3, onSelect: () => pick(t.id) },
+                { label: tr('sidebar.deleteTemplate'), icon: X, danger: true, onSelect: () => remove(t.id, tr('confirm.deleteTemplate')) },
+              ]" />
+            </div>
           </div>
         </div>
       </template>
@@ -206,17 +230,19 @@ async function remove(id, message) {
         <UiIconButton class="!size-7" :label="$t('sidebar.newWorkspace')" @click="addWorkspace"><Plus :size="14" /></UiIconButton>
       </p>
       <template v-for="w in workspaces" :key="w.id">
-        <div class="group relative rounded hover:bg-surface2">
-          <UiTooltip :content="$t('sidebar.editWorkspace')">
-            <button class="flex w-full items-center gap-1.5 truncate rounded-md px-2 py-1.5 pr-8 text-left text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="editWorkspace(w)">
-              <Boxes :size="14" class="shrink-0 text-muted" />{{ w.name }}
-            </button>
-          </UiTooltip>
-          <div class="absolute right-1 top-1.5">
-            <RowActionsMenu :actions="[
-              { label: tr('sidebar.newHere'), icon: MessageSquarePlus, onSelect: () => newWorkspaceConversation(w) },
-              { label: tr('sidebar.deleteWorkspace'), icon: X, danger: true, onSelect: () => removeWorkspace(w) },
-            ]" />
+        <div class="group rounded hover:bg-surface2">
+          <div class="flex items-center">
+            <UiTooltip :content="$t('sidebar.editWorkspace')">
+              <button class="flex min-w-0 flex-1 items-center gap-1.5 truncate rounded-md px-2 py-1.5 text-left text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-focus" @click="editWorkspace(w)">
+                <Boxes :size="14" class="shrink-0 text-muted" />{{ w.name }}
+              </button>
+            </UiTooltip>
+            <div class="mr-1 shrink-0">
+              <RowActionsMenu :actions="[
+                { label: tr('sidebar.newHere'), icon: MessageSquarePlus, onSelect: () => newWorkspaceConversation(w) },
+                { label: tr('sidebar.deleteWorkspace'), icon: X, danger: true, onSelect: () => removeWorkspace(w) },
+              ]" />
+            </div>
           </div>
         </div>
         <ConversationRow

@@ -170,7 +170,6 @@ def hosted_artifacts(dialect: str, response: object) -> list[dict]:
                 if field(block, "name") == "web_search":
                     artifacts.append({"tool": "search_web", "input": {"query": (field(block, "input") or {}).get("query")}, "output": {"results": []}})
                 elif field(block, "name") == "web_fetch":
-                    # WHY: output repeats the url so the frame carries provenance; hosted bodies stay out (base64 PDFs).
                     artifacts.append({"tool": "fetch_url", "input": {"url": (field(block, "input") or {}).get("url")}, "output": {"url": (field(block, "input") or {}).get("url")}})
             elif field(block, "type") == "web_search_tool_result" and artifacts and artifacts[-1]["tool"] == "search_web":
                 links = [{"title": field(result, "title"), "url": field(result, "url")} for result in field(block, "content") or [] if field(result, "type") == "web_search_result"]

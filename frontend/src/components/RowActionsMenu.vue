@@ -10,7 +10,7 @@ defineProps({ actions: { type: Array, required: true } })
 <template>
   <DropdownMenuRoot>
     <DropdownMenuTrigger
-      class="inline-flex size-8 items-center justify-center rounded-md text-muted opacity-40 outline-none hover:bg-surface2 hover:text-base focus-visible:ring-2 focus-visible:ring-focus group-hover:opacity-100 pointer-coarse:opacity-100 data-[state=open]:bg-surface2 data-[state=open]:opacity-100"
+      class="inline-flex size-6 items-center justify-center rounded-md text-muted opacity-40 outline-none hover:bg-surface2 hover:text-base focus-visible:ring-2 focus-visible:ring-focus group-hover:opacity-100 pointer-coarse:opacity-100 data-[state=open]:bg-surface2 data-[state=open]:opacity-100"
       :aria-label="$t('common.actions')"
     >
       <EllipsisVertical :size="14" />

@@ -153,7 +153,6 @@ async def _resilience_checks():
 
 asyncio.run(_resilience_checks())
 
-# WHY: reformulate_query makes a live provider call, so stub g.complete to keep selfchecks hermetic and free.
 async def _reformulation_checks():
     real_search, real_complete = g.search, g.complete
 
