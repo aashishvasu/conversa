@@ -83,7 +83,11 @@ async def workflow_checks():
     assert any(task["question"] == "follow-up question" for task in run.frontier)
     assert len(run.evidence) == 1 and len(calls) == 3, calls
     run.evidence[0]["excerpt"] = "x" * 1000
-    worker_excerpt = json.loads(r._worker_context(run))["known_findings"][0]["excerpt"]
+    try:
+        worker_context = json.loads(r._worker_context(run))
+    except ValueError as error:
+        raise AssertionError("worker context must be valid JSON") from error
+    worker_excerpt = worker_context["known_findings"][0]["excerpt"]
     assert 0 < len(worker_excerpt) < len(run.evidence[0]["excerpt"]) and run.evidence[0]["excerpt"].startswith(worker_excerpt), "worker context truncates a long excerpt to a bounded prefix"
     assert run.data["budgets"]["calls"] == run.prior_calls + run.spend.calls + run.data["budgets"].get("fallback_calls", 0)
     assert any(event["kind"] == "source_reused" for event in run.events), "run-wide URL reuse is visible"
@@ -112,7 +116,7 @@ async def breaker_and_resume_checks():
         await r._run(run)
     finally:
         g.search, g.complete, r.complete, report.complete = real
-    assert run.status == "error" and "no evidence" in run.error
+    assert run.status == "error" and run.error is not None and "no evidence" in run.error
     assert any(event["kind"] == "breaker" for event in run.events)
     assert run.data["breakers"], "breaker history must survive in checkpoints"
 
@@ -124,7 +128,7 @@ async def breaker_and_resume_checks():
         await r._run(partial)
     finally:
         r.complete, report.complete = real[2], real[3]
-    assert partial.status == "partial" and partial.payload["gaps"], partial.state()
+    assert partial.status == "partial" and partial.payload is not None and partial.payload["gaps"], partial.state()
 
     checkpoint = empty_state(brief(), {"id": "T1", "question": "Investigate Project Orion"})
     checkpoint["sources"]["https://example.test/page"] = {"id": "S1", "url": "https://example.test/page", "title": "Source", "task_ids": ["T1"]}

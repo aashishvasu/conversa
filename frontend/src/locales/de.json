@@ -242,6 +242,8 @@
   },
   "chat": {
     "template": "Vorlage",
+    "replyInProgress": "Antwort wird erstellt",
+    "replyInterrupted": "Die Antwort wurde unterbrochen. Der bisherige Text bleibt erhalten.",
     "conversationTitle": "Unterhaltungstitel",
     "regenerateTitle": "Titel neu erstellen",
     "scrollBottom": "Nach unten scrollen",

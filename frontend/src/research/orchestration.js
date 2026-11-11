@@ -1,96 +1,38 @@
 import { computed, ref } from 'vue'
-import { prepareResearch, streamChat } from '../api/client.js'
+import { prepareResearch } from '../api/client.js'
+import { attachTurn, cancelTurn, startTurn, turnState } from '../chat/coordinator.js'
 import { beginPreparation, endPreparation, getPreparationSignal, isPreparationCurrent, startRun } from './coordinator.js'
 import { useStreamGuard } from '../composables/useStreamGuard.js'
-import { refreshMemory } from '../jobs/memory.js'
-import { generateTitle } from '../jobs/titles.js'
 import { tr } from '../i18n/index.js'
 import { buildResearchInput } from '../prompt/research-input.js'
 import { chatRequest } from '../prompt/request.js'
 import { effectiveSettings, RESEARCH_KEYS } from '../state/settings.js'
-import { addConvoUsage, recordUsage } from '../state/usage.js'
 import { attachedDocs, createRun, currentConversation, images, persistNow, workspaceOf } from '../state/store.js'
-import { notify } from '../utils/notify.js'
-import { showThinkingAndSearch } from '../utils/prefs.js'
 
-// Orchestrates chat completion and research routing.
-// Both share the streaming/preparing flags and the live trace, so they live together.
+// Orchestrates chat completion and research routing for the viewed conversation.
+// Chat turns run in the module-level chat coordinator, so `streaming` reflects whichever conversation is current.
 // Called once per ChatPane mount; lifecycle hooks (wake lock, visibility) bind to that component.
 export function useStreamOrchestration() {
-  const streaming = ref(false)
   const preparing = ref(false)
-  const liveTrace = ref([])
-  const streamId = ref(null)
   const liveOpen = ref(true)
-  let controller = null
 
-  const showTrace = computed(() => currentConversation.value?.showThinkingAndSearch ?? showThinkingAndSearch.value)
-  const guard = useStreamGuard(() => streaming.value, () => controller?.abort())
+  const pendingMessage = computed(() => currentConversation.value?.messages.find((m) => m.turnId) ?? null)
+  const streaming = computed(() => !!pendingMessage.value)
+  useStreamGuard(
+    () => streaming.value,
+    () => turnState(pendingMessage.value?.id)?.lastFrameAt,
+    () => pendingMessage.value && attachTurn(currentConversation.value, pendingMessage.value),
+  )
 
-  function traceText(value) {
-    return typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value)
-  }
-
-  function addTrace(type, value) {
-    const last = liveTrace.value.at(-1)
-    if (type === 'thinking' && last?.type === 'thinking') last.text += value
-    else if (type === 'results') liveTrace.value.push({ type, links: value })
-    else if (type === 'tool') {
-      const { id, name, status, trace } = value
-      liveTrace.value.push({ id, type, text: [name, status, traceText(trace)].filter(Boolean).join('\n') })
-    } else liveTrace.value.push({ type, text: value })
-  }
-
+  // The placeholder carries its turnId and is saved before the request starts, so a reload mid-reply finds the pending turn.
   async function runCompletion(c) {
     const settings = effectiveSettings(c)
-    streaming.value = true
-    controller = new AbortController()
-    guard.start()
-    let assistant = null
-    try {
-      // Snapshot the payload before pushing the empty assistant placeholder.
-      // The tool selection is fixed here: settings edits mid-stream affect the next turn, not this one.
-      const payload = chatRequest(c, settings, workspaceOf(c), attachedDocs(c), images.value)
-      c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: Date.now() })
-      assistant = c.messages.at(-1) // reactive proxy, so streamed tokens render live
-      liveTrace.value = []
-      streamId.value = assistant.id
-      await streamChat(payload, (t) => {
-        guard.heartbeat()
-        assistant.content += t
-      }, controller.signal, (type, value) => {
-        guard.heartbeat()
-        if (!showTrace.value) return
-        addTrace(type, value)
-      }, (usage) => {
-        addConvoUsage(c, usage)
-        recordUsage('chat', usage)
-      }, (artifact) => {
-        // Durable provenance attaches to the message regardless of trace visibility; persistNow below saves it with the reply.
-        (assistant.artifacts ||= []).push(artifact)
-      })
-      if (c.title === tr('sidebar.newConversation')) {
-        try {
-          const t = await generateTitle(c, settings.utility_model)
-          if (t) c.title = t
-        } catch (e) {
-          notify({ key: 'utility:title', severity: 'warning', text: tr('chat.titleFailed', { error: e.message }) })
-        }
-      }
-    } catch (e) {
-      if (e.name !== 'AbortError' && assistant) {
-        assistant.content += `${assistant.content ? '\n\n' : ''}> ⚠️ **Error:** ${e.message}`
-      } else if (e.name !== 'AbortError') {
-        notify({ key: 'chat', text: e.message, foreground: true })
-      }
-    } finally {
-      streaming.value = false
-      guard.end()
-      // Refresh memory in the background, off the send path.
-      // The key dedupes: a persistently failing utility model refreshes one toast instead of stacking.
-      refreshMemory(c, settings).catch((e) => notify({ key: 'utility:memory', severity: 'warning', text: tr('chat.memoryFailed', { error: e.message }) }))
-      persistNow() // don't let a quick reload lose the completed message
-    }
+    // The tool selection is fixed here: settings edits mid-stream affect the next turn, not this one.
+    const payload = chatRequest(c, settings, workspaceOf(c), attachedDocs(c), images.value)
+    c.messages.push({ id: crypto.randomUUID(), role: 'assistant', content: '', turnId: crypto.randomUUID(), createdAt: Date.now() })
+    const assistant = c.messages.at(-1)
+    await persistNow()
+    return startTurn(c, assistant, payload, settings)
   }
 
   // Preparation sees the exact normal-chat context.
@@ -161,8 +103,8 @@ export function useStreamOrchestration() {
   }
 
   function stop() {
-    controller?.abort()
+    if (pendingMessage.value) cancelTurn(currentConversation.value, pendingMessage.value)
   }
 
-  return { streaming, preparing, liveTrace, streamId, liveOpen, runCompletion, routeResearch, sendResearch, stop }
+  return { streaming, preparing, liveOpen, runCompletion, routeResearch, sendResearch, stop }
 }

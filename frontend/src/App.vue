@@ -1,9 +1,10 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { ConfigProvider, TabsContent, TabsRoot, TooltipProvider } from 'reka-ui'
 import { locale } from './utils/prefs.js'
 import { authed, fetchModels, fetchSettings, getToken, logout } from './api/client.js'
 import { activePane, cacheModels, initStore, setGlobalSettings } from './state/store.js'
+import { syncPendingTurns } from './chat/coordinator.js'
 import { syncActiveRuns } from './research/coordinator.js'
 import { initUsage } from './state/usage.js'
 import { dismiss, notify } from './utils/notify.js'
@@ -33,7 +34,19 @@ onMounted(async () => {
   if (getToken()) await loadSettings()
   else bootState.value = 'ready'
   syncActiveRuns()
+  syncPendingTurns()
+  window.addEventListener('online', syncPendingTurns)
+  document.addEventListener('visibilitychange', syncPendingTurnsWhenVisible)
 })
+
+onUnmounted(() => {
+  window.removeEventListener('online', syncPendingTurns)
+  document.removeEventListener('visibilitychange', syncPendingTurnsWhenVisible)
+})
+
+function syncPendingTurnsWhenVisible() {
+  if (document.visibilityState === 'visible') syncPendingTurns()
+}
 
 async function loadSettings() {
   try {
@@ -59,6 +72,7 @@ async function onAuthed({ config_errors: errors, ...settings }) {
   else dismiss('config')
   setGlobalSettings(settings)
   authed.value = true
+  syncPendingTurns()
   try {
     cacheModels(await fetchModels())
   } catch { /* keep whatever's cached */ }

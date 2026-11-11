@@ -1,7 +1,15 @@
 """Selfcheck: python -m selfchecks.api"""
 
+import asyncio
+import json
+from collections.abc import AsyncGenerator
+from typing import cast
+
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+import api.chat as chat_api
 from api.chat import ChatRequest, ImageBlock, Msg, SystemParts, render_system
 from api.research import (
     PREPARE_SYSTEM,
@@ -160,5 +168,157 @@ preview_req = ChatRequest.model_validate({
 })
 assert isinstance(preview_req.system, SystemParts)
 assert preview_req.enabled_tools == ["search_web"]
+
+# Detached chat turns, with stream_chat replaced by a stub the check controls.
+stub_runs = {"started": 0, "finished": 0}
+stub_gate: asyncio.Event
+stub_frames: list[dict] = []
+stub_raise: str | None = None
+
+
+async def stub_stream_chat(*_args, **_kwargs):
+    stub_runs["started"] += 1
+    for index, frame in enumerate(stub_frames):
+        if index == 1:
+            await stub_gate.wait()
+        yield frame
+    if stub_raise:
+        raise RuntimeError(stub_raise)
+    stub_runs["finished"] += 1
+
+
+chat_api.stream_chat = stub_stream_chat
+chat_api.resolve_model = lambda _model: ("openai", "stub")
+
+
+def turn(turn_id: str, **extra) -> chat_api.ChatTurnRequest:
+    return chat_api.ChatTurnRequest.model_validate({"messages": [{"role": "user", "content": "hi"}], "turn_id": turn_id, **extra})
+
+
+def decoded(chunk: str) -> dict | None:
+    if not chunk.startswith("data: "):
+        return None
+    try:
+        return json.loads(chunk[len("data: "):])
+    except json.JSONDecodeError as error:
+        raise AssertionError(f"malformed SSE frame: {chunk!r}") from error
+
+
+def body(response) -> AsyncGenerator[str]:
+    return cast(AsyncGenerator[str], response.body_iterator)
+
+
+async def read_all(response) -> list[dict]:
+    return [frame async for chunk in body(response) if (frame := decoded(chunk)) is not None]
+
+
+async def settle(turn_id: str) -> None:
+    stream = chat_api.CHAT_STREAMS.get(turn_id)
+    assert stream is not None and stream.task is not None
+    await asyncio.wait({stream.task})
+
+
+async def not_found(turn_id: str) -> bool:
+    try:
+        await chat_api.chat_stream(turn_id)
+    except HTTPException as error:
+        return error.status_code == 404 and cast(dict, error.detail)["code"] == "no_such_turn"
+    return False
+
+
+async def detached_checks() -> None:
+    global stub_gate, stub_frames, stub_raise
+    sentinel = "SENTINEL-TEXT-7f3"
+    stub_frames = [{"text": sentinel}, {"text": " more"}, {"usage": {"input": 1}}, {"done": True}]
+
+    stub_gate = asyncio.Event()
+    stub_gate.set()
+    uninterrupted = await read_all(await chat_api.chat(turn("t-full")))
+    assert {"text": sentinel} in uninterrupted
+    replay = await read_all(await chat_api.chat_stream("t-full"))
+    assert [frame for frame in replay if frame != {"live": True}] == uninterrupted
+    assert replay.count({"live": True}) == 1
+
+    # A repeated turn id attaches to the existing stream instead of generating again.
+    started = stub_runs["started"]
+    assert await read_all(await chat_api.chat(turn("t-full"))) == uninterrupted
+    assert stub_runs["started"] == started
+
+    # An abandoned POST does not stop generation; a later GET replays from the beginning.
+    stub_gate = asyncio.Event()
+    finished = stub_runs["finished"]
+    dropped = body(await chat_api.chat(turn("t-drop")))
+    assert decoded(await anext(dropped)) == stub_frames[0]
+    await dropped.aclose()
+    stub_gate.set()
+    await settle("t-drop")
+    assert stub_runs["finished"] == finished + 1
+    assert [frame for frame in await read_all(await chat_api.chat_stream("t-drop")) if frame != {"live": True}] == stub_frames
+
+    # The live marker follows exactly the frames present when the GET arrived.
+    stub_gate = asyncio.Event()
+    started_live = body(await chat_api.chat(turn("t-live")))
+    await anext(started_live)
+    attach = asyncio.create_task(read_all(await chat_api.chat_stream("t-live")))
+    await asyncio.sleep(0)
+    stub_gate.set()
+    attached = await attach
+    await started_live.aclose()
+    assert attached.index({"live": True}) == 1 and attached.count({"live": True}) == 1
+    # With an empty backlog the marker comes first.
+    await chat_api.chat(turn("t-empty"))
+    early = await read_all(await chat_api.chat_stream("t-empty"))
+    assert early[0] == {"live": True} and early.count({"live": True}) == 1
+
+    # Idle connections get a keepalive comment, which is not a data frame.
+    chat_api.STREAM_IDLE_SECONDS, idle = 0.01, chat_api.STREAM_IDLE_SECONDS
+    stub_gate = asyncio.Event()
+    idling = body(await chat_api.chat(turn("t-idle")))
+    await anext(idling)
+    ping = await asyncio.wait_for(anext(idling), 1)
+    assert ping.startswith(":") and decoded(ping) is None
+    await idling.aclose()
+    chat_api.STREAM_IDLE_SECONDS = idle
+
+    # DELETE during generation stops the stub and forgets the turn.
+    finished = stub_runs["finished"]
+    await chat_api.chat_discard("t-idle")
+    stub_gate.set()
+    await asyncio.sleep(0)
+    assert stub_runs["finished"] == finished
+    assert await not_found("t-idle")
+    await chat_api.chat_discard("t-never-existed")
+
+    # An exception escaping the producer reaches a reattaching browser as an error frame.
+    stub_raise = "SENTINEL-ERROR-91c"
+    await read_all(await chat_api.chat(turn("t-raise")))
+    errors = [frame for frame in await read_all(await chat_api.chat_stream("t-raise")) if "error" in frame]
+    assert len(errors) == 1 and stub_raise in errors[0]["error"]
+    stub_raise = None
+
+    # A request that fails validation leaves no stream behind.
+    try:
+        await chat_api.chat(turn("t-invalid", effort="not-an-effort"))
+    except HTTPException as error:
+        assert error.status_code == 400
+    else:
+        raise AssertionError("invalid effort accepted")
+    assert await not_found("t-invalid")
+
+
+asyncio.run(detached_checks())
+
+# All three turn endpoints refuse a request without a token.
+unauthed = TestClient(FastAPI(routes=chat_api.router.routes))
+assert unauthed.post("/api/chat", json={"messages": [], "turn_id": "t-auth"}).status_code == 401
+assert unauthed.get("/api/chat/t-auth/stream").status_code == 401
+assert unauthed.delete("/api/chat/t-auth").status_code == 401
+# turn_id is required on POST.
+try:
+    chat_api.ChatTurnRequest.model_validate({"messages": []})
+except ValidationError:
+    pass
+else:
+    raise AssertionError("chat turn without turn_id accepted")
 
 print("api selfcheck OK")

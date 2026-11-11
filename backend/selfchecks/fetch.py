@@ -63,7 +63,8 @@ async def _cache_checks():
         cache.get("https://example.com/page/?a=1&b=2"),
     )
     assert len(calls) == 1, calls
-    assert alpha["content"].startswith("# Alpha") and alpha == beta == again
+    content = alpha["content"]
+    assert isinstance(content, str) and content.startswith("# Alpha") and alpha == beta == again
     assert cache.inflight == {}, cache.inflight
 
     raw = await cache.get("https://example.com/page?a=1&b=2", True)

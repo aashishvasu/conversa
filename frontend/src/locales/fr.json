@@ -242,6 +242,8 @@
   },
   "chat": {
     "template": "modèle",
+    "replyInProgress": "Réponse en cours",
+    "replyInterrupted": "La réponse a été interrompue. Le texte déjà reçu est conservé.",
     "conversationTitle": "Titre de la conversation",
     "regenerateTitle": "Regénérer le titre",
     "scrollBottom": "Aller en bas",

@@ -1,16 +1,19 @@
 """Settings, models, and the chat completion stream."""
 
 import os
+from collections.abc import AsyncIterator
 from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.auth import require_auth
-from api.sse import sse_stream
+from api.sse import sse, sse_ping
 from research import runs
+from streams.log import EventLog
+from streams.registry import Registry
 from providers import (
     CONFIG_ERRORS, DEFAULT_EFFORT, DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_TEMPERATURE,
     DEFAULT_UTILITY_MODEL, EFFORT_VALUES, MODELS, join_model, resolve_model, stream_chat,
@@ -36,6 +39,12 @@ DEFAULT_TOOL_CALCULATOR = os.environ.get("DEFAULT_TOOL_CALCULATOR", "true").lowe
 DEFAULT_TOOL_RANDOM = os.environ.get("DEFAULT_TOOL_RANDOM", "true").lower() == "true"
 DEFAULT_TOOL_MAX_ROUNDS = max(1, int(os.environ.get("DEFAULT_TOOL_MAX_ROUNDS", "4")))
 DEFAULT_TOOL_MAX_CALLS = max(1, int(os.environ.get("DEFAULT_TOOL_MAX_CALLS", "16")))
+# Detached chat replies: a finished, uncollected reply is kept this long, and at most this many are kept.
+CHAT_STREAM_TTL_SECONDS = float(os.environ.get("CHAT_STREAM_TTL_SECONDS", "600"))
+CHAT_MAX_FINISHED_STREAMS = int(os.environ.get("CHAT_MAX_FINISHED_STREAMS", "20"))
+# Seconds of silence before a streaming response sends a keepalive comment.
+STREAM_IDLE_SECONDS = 15
+CHAT_STREAMS = Registry(CHAT_STREAM_TTL_SECONDS, CHAT_MAX_FINISHED_STREAMS)
 
 router = APIRouter()
 
@@ -239,27 +248,70 @@ def resolve_next_system(req: ChatRequest):
     return provider, model, selected_tools, system
 
 
+class ChatTurnRequest(ChatRequest):
+    # Browser-chosen id of the detached reply; a repeated id attaches instead of generating again.
+    turn_id: str = Field(min_length=1)
+
+
 @router.post("/api/chat")
-async def chat(req: ChatRequest, _=Depends(require_auth)):
+async def chat(req: ChatTurnRequest, _=Depends(require_auth)):
     max_tokens = req.max_tokens or DEFAULT_MAX_TOKENS
     effort = req.effort if req.effort is not None else DEFAULT_EFFORT
     if effort and effort not in EFFORT_VALUES:
         raise HTTPException(400, {"code": "unknown_effort", "message": f"unknown effort level: {effort}", "effort": effort})
     provider, model, selected_tools, system = resolve_next_system(req)
-    events = stream_chat(
-        provider,
-        model,
-        [message.model_dump() for message in req.messages],
-        system,
-        max_tokens,
-        effort,
-        req.temperature if req.temperature is not None else DEFAULT_TEMPERATURE,
-        tools=selected_tools if selected_tools else None,
-        max_tool_rounds=req.tool_max_rounds or DEFAULT_TOOL_MAX_ROUNDS,
-        max_tool_calls=req.tool_max_calls or DEFAULT_TOOL_MAX_CALLS,
-        allow_hosted_tools=True,
-    )
-    return StreamingResponse(sse_stream(events), media_type="text/event-stream")
+
+    async def produce(log: EventLog) -> None:
+        events = stream_chat(
+            provider,
+            model,
+            [message.model_dump() for message in req.messages],
+            system,
+            max_tokens,
+            effort,
+            req.temperature if req.temperature is not None else DEFAULT_TEMPERATURE,
+            tools=selected_tools if selected_tools else None,
+            max_tool_rounds=req.tool_max_rounds or DEFAULT_TOOL_MAX_ROUNDS,
+            max_tool_calls=req.tool_max_calls or DEFAULT_TOOL_MAX_CALLS,
+            allow_hosted_tools=True,
+        )
+        try:
+            async for frame in events:
+                log.append(frame)
+        except Exception as error:
+            # stream_chat reports its own failures as frames; this covers one that escapes it.
+            log.append({"error": str(error)})
+            raise
+
+    stream, _ = CHAT_STREAMS.start(req.turn_id, produce)
+    return StreamingResponse(tail_frames(stream.log), media_type="text/event-stream")
+
+
+@router.get("/api/chat/{turn_id}/stream")
+async def chat_stream(turn_id: str, _=Depends(require_auth)):
+    stream = CHAT_STREAMS.get(turn_id)
+    if stream is None:
+        raise HTTPException(404, {"code": "no_such_turn", "message": "no such turn, or it ended before you came back"})
+    return StreamingResponse(tail_frames(stream.log, live_after=len(stream.log)), media_type="text/event-stream")
+
+
+@router.delete("/api/chat/{turn_id}")
+async def chat_discard(turn_id: str, _=Depends(require_auth)):
+    await CHAT_STREAMS.forget(turn_id)
+    return {"status": "forgotten"}
+
+
+async def tail_frames(log: EventLog, live_after: int | None = None) -> AsyncIterator[str]:
+    """Send the log from the start; with `live_after`, mark where the backlog present at request time ends."""
+    if live_after == 0:
+        yield sse(live=True)
+    async for seq, frame in log.tail(idle=STREAM_IDLE_SECONDS):
+        if frame is None:
+            yield sse_ping()
+            continue
+        yield sse(**frame)
+        if seq == live_after:
+            yield sse(live=True)
 
 
 @router.post("/api/chat/system-preview")

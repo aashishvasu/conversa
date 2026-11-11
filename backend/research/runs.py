@@ -80,9 +80,9 @@ class Run:
         self.phase = "researching"
         self.events = []
         self.spend = Spend()
-        self.payload = None
-        self.error = None
-        self.finished_at = None
+        self.payload: dict | None = None
+        self.error: str | None = None
+        self.finished_at: float | None = None
         self.task: asyncio.Task | None = None
         self.started_at = time.monotonic()
         broad = {"id": "T1", "question": self.brief.get("objective", "Explore the requested subject"), "reason": "broad initial exploration"}

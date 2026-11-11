@@ -41,7 +41,7 @@ function addMissing(target, values) {
 // A single-conversation export carries just that conversation plus the docs it references.
 export function exportData(id, settings = null) {
   const convos = state.conversations.filter((c) => !id || c.id === id)
-  return wire({
+  const data = wire({
     version: SNAPSHOT_VERSION,
     exportedAt: new Date().toISOString(),
     conversations: convos,
@@ -55,6 +55,9 @@ export function exportData(id, settings = null) {
       prefs: snapshotPrefs(),
     }),
   })
+  // A pending turn belongs to this browser; the copy is detached from it, so the store is untouched.
+  for (const c of data.conversations) for (const m of c.messages) delete m.turnId
+  return data
 }
 
 // Accepts this version or any older one this build still knows how to restore (see restoreData).

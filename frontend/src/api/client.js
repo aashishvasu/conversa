@@ -39,12 +39,13 @@ async function responseError(res) {
   return new Error(tr('errors.server', { status: res.status }))
 }
 
+// Every HTTP failure carries error.status, so callers can tell it from a network failure, which has none.
 async function check(res) {
   if (res.status === 401) {
     logout()
-    throw new Error(tr('errors.sessionExpired'))
+    throw Object.assign(new Error(tr('errors.sessionExpired')), { status: 401 })
   }
-  if (!res.ok) throw await responseError(res)
+  if (!res.ok) throw Object.assign(await responseError(res), { status: res.status })
   maybeRefresh()
   return res
 }
@@ -96,31 +97,39 @@ export async function fetchModels() {
   return (await check(await fetch('/api/models', { headers: authHeaders(false) }))).json()
 }
 
-// Streams assistant text.
-// Calls onText(chunk) per token; onTrace(type, value) for non-visible activity; onUsage(usage) once per turn.
-// onArtifact(artifact) fires for durable tool provenance records, independent of trace visibility.
-// Resolves when done.
-export async function streamChat(payload, onText, signal, onTrace, onUsage, onArtifact) {
+// A 404 from attachChatTurn: the server no longer holds the turn.
+export function isNoSuchTurn(error) {
+  return error?.code === 'no_such_turn'
+}
+
+// Start a chat turn the server generates detached from this request, or attach to it if turnId already exists.
+// onFrame receives every parsed frame as is, error frames included; resolves when the stream closes.
+export async function startChatTurn(turnId, payload, onFrame, signal) {
   const res = await check(
     await fetch('/api/chat', {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, turn_id: turnId }),
       signal,
     }),
   )
+  await readSSE(res, onFrame)
+}
 
-  await readSSE(res, (data) => {
-    if (data.error) throw new Error(data.error)
-    if (data.text) onText(data.text)
-    else if (data.think && onTrace) onTrace('thinking', data.think)
-    else if (data.search && onTrace) onTrace('search', data.search)
-    else if (data.fetch && onTrace) onTrace('fetch', data.fetch)
-    else if (data.results && onTrace) onTrace('results', data.results)
-    else if (data.tool && onTrace) onTrace('tool', data.tool)
-    else if (data.artifact && onArtifact) onArtifact(data.artifact)
-    else if (data.usage && onUsage) onUsage(data.usage)
-  })
+// Replay a turn from its first frame, then one { live: true } marker, then live frames.
+// An unknown turn rejects with status 404 and code no_such_turn.
+export async function attachChatTurn(turnId, onFrame, signal) {
+  const res = await check(
+    await fetch(`/api/chat/${encodeURIComponent(turnId)}/stream`, { headers: authHeaders(false), signal }),
+  )
+  await readSSE(res, onFrame)
+}
+
+// Cancel and forget a turn. Never throws: the server TTL cleans up a failed discard.
+export async function discardChatTurn(turnId) {
+  try {
+    await check(await fetch(`/api/chat/${encodeURIComponent(turnId)}`, { method: 'DELETE', headers: authHeaders(false) }))
+  } catch { /* left to the server TTL */ }
 }
 
 // Fetch the server-rendered system prompt for a chat payload without calling a provider.

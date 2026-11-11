@@ -11,6 +11,7 @@ import { tr } from '../i18n/index.js'
 import { sendWindow } from '../prompt/payload.js'
 import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
 import { activeRunOf, createDoc, currentConversation, imagesOf, persistNow, releaseImages, removeRun, sidebarOpen } from '../state/store.js'
+import { cancelTurn, turnState } from '../chat/coordinator.js'
 import { cancelPreparation } from '../research/coordinator.js'
 import { useStreamOrchestration } from '../research/orchestration.js'
 import { confirmDelete } from '../utils/confirm.js'
@@ -38,14 +39,14 @@ let editBackup = null // original {content, role} so Cancel can revert; null = n
 const activeId = ref(null) // tapped bubble: shows its action toolbar (mobile has no hover)
 const titling = ref(false)
 
-const { streaming, preparing, liveTrace, streamId, liveOpen, runCompletion, routeResearch, sendResearch, stop } = useStreamOrchestration()
+const { streaming, preparing, liveOpen, runCompletion, routeResearch, sendResearch, stop } = useStreamOrchestration()
 const { pendingImages, imageInput, onImageInput, onPaste, onDrop, removePending } = useImageAttachments()
 const { atBottom, scroller, scrollDown, onScroll } = useAutoScroll(convo)
 const { composerEl } = useAutoGrowTextarea(input)
 
-// Live thinking/search trace for the latest turn.
+// Live thinking/search trace, held per message by the chat coordinator.
 // Deliberately ephemeral: not on the message, not persisted, so a reload wipes it.
-// It stays visible after the turn completes (until the next send resets it), and can be collapsed via liveOpen.
+// It stays visible after the turn completes (until the next turn in the conversation replaces it), and can be collapsed via liveOpen.
 const showTrace = computed(() => convo.value?.showThinkingAndSearch ?? showThinkingAndSearch.value)
 
 // Render only the last N messages for speed; "Load more" reveals older ones in PAGE_SIZE batches.
@@ -121,9 +122,11 @@ function doneEdit(m) {
   editBackup = null
   editingId.value = null
 }
-function removeMessage(id) {
-  const message = convo.value.messages.find((m) => m.id === id)
-  convo.value.messages = convo.value.messages.filter((m) => m.id !== id)
+async function removeMessage(id) {
+  const c = convo.value
+  const message = c.messages.find((m) => m.id === id)
+  if (message?.turnId) await cancelTurn(c, message)
+  c.messages = c.messages.filter((m) => m.id !== id)
   releaseImages(message?.imageIds)
   if (editingId.value === id) editingId.value = null
 }
@@ -188,8 +191,8 @@ async function send() {
 
 // Regenerate: discard the generated tail and repeat the originating user turn.
 // A research-enabled turn goes through preparation again, so the model still chooses answer, clarify, or research.
-function regenerate(m) {
-  if (streaming.value || preparing.value || runActive.value || !convo.value) return
+async function regenerate(m) {
+  if (preparing.value || runActive.value || !convo.value) return
   const c = convo.value
   const idx = c.messages.findIndex((message) => message.id === m.id)
   if (idx < 0) return
@@ -199,11 +202,12 @@ function regenerate(m) {
     if (cut < 0) return // no user turn before it, so nothing to regenerate from
   }
   const user = c.messages[cut]
+  for (const message of c.messages.slice(cut + 1)) if (message.turnId) await cancelTurn(c, message)
   const removed = c.messages.slice(cut + 1).flatMap((message) => message.imageIds || [])
   c.messages = c.messages.filter((message, index) => index <= cut || message.role === 'system')
   releaseImages(removed)
 
-  if (convo.value?.mode === 'research') {
+  if (c.mode === 'research') {
     user.mode = 'research'
     if (user.runId) removeRun(user.runId)
     delete user.runId
@@ -283,7 +287,7 @@ async function regenTitle() {
             :editing="editingId === m.id"
             :active="activeId === m.id"
             :window-start="windowStartId === m.id"
-            :trace="showTrace && m.id === streamId ? liveTrace : null"
+            :trace="showTrace ? turnState(m.id)?.trace ?? null : null"
             :trace-open="liveOpen"
             :images="imagesOf(m)"
             @activate="activeId = m.id"
