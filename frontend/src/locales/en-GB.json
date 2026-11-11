@@ -242,6 +242,8 @@
   },
   "chat": {
     "template": "template",
+    "replyInProgress": "Reply in progress",
+    "replyInterrupted": "The reply was interrupted. The text so far has been kept.",
     "conversationTitle": "Conversation title",
     "regenerateTitle": "Regenerate title",
     "scrollBottom": "Scroll to bottom",

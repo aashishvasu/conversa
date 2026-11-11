@@ -1,13 +1,19 @@
 """Selfcheck: python -m selfchecks.registry"""
 
-from tools import TOOL_REGISTRY, ToolConfigError, resolve_enabled_tools, resolve_research_tools
+from tools import ToolConfigError, resolve_enabled_tools, resolve_research_tools
 
 assert [tool.name for tool in resolve_research_tools("search")] == ["search_web"]
 assert [tool.name for tool in resolve_research_tools("note")] == ["fetch_url"]
 assert resolve_research_tools("unknown") == []
 
-expected_tools = {"search_web", "fetch_url", "datetime", "calculator", "random"}
-assert set(TOOL_REGISTRY.keys()) == expected_tools, TOOL_REGISTRY
+# Every tool name the frontend can send resolves here. The list is hardcoded from TOOL_FIELDS in
+# frontend/src/state/settings.js, and settings.selfcheck.js pins the same five from the other end,
+# so the two sides constrain each other.
+#  hardcoded rather than read from the frontend file. This catches a tool removed from the backend
+# registry, not a sixth tool added to the frontend only. payload.selfcheck.js already carries one
+# cross-layer read; a second is not worth it until the tool list actually drifts.
+frontend_tools = ["search_web", "fetch_url", "datetime", "calculator", "random"]
+assert [tool.name for tool in resolve_enabled_tools(frontend_tools)] == frontend_tools, frontend_tools
 
 resolved = resolve_enabled_tools(["datetime", "calculator"])
 assert [tool.name for tool in resolved] == ["datetime", "calculator"], resolved

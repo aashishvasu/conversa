@@ -55,13 +55,15 @@ assert.ok(Array.isArray(snapshot.docs), 'the doc store joins the full export')
 assert.deepEqual(snapshot.usage, usageDays(), 'the usage ledger joins the full export')
 assert.ok(!Object.hasOwn(snapshot, 'models'), 'the server-owned models cache is not the user\'s data to back up')
 
+// The ledger this restore plants. The asserts below read it back instead of retyping it.
+const restoredUsage = { '2020-01-01': { m: { chat: { calls: 1, input: 1, output: 1, cacheRead: 0, cacheWrite: 0, usd: 1, unpriced: 0 } } } }
 const prefs = await restoreData({
   ...snapshot,
   conversations: [{ id: 'restored', title: 'Restored', messages: [] }],
   workspaces: [{ id: 'restored-w', name: 'Restored' }],
   runs: [{ id: 'restored-r', convoId: 'restored' }, { id: 'restored-orphan' }],
   settings: { temperature: 0.2 },
-  usage: { '2020-01-01': { m: { chat: { calls: 1, input: 1, output: 1, cacheRead: 0, cacheWrite: 0, usd: 1, unpriced: 0 } } } },
+  usage: restoredUsage,
   prefs: { theme: 'light', fontScale: 1.1, enterToSend: false, showThinkingAndSearch: false },
 })
 all = exportData()
@@ -71,7 +73,7 @@ assert.deepEqual(all.runs.map((r) => r.id), [], 'restore drops legacy research r
 assert.equal(globalSettings.value.temperature, 0.2, 'restore merges saved settings')
 assert.equal(prefs.theme, 'light', 'restore returns prefs for the browser caller')
 assert.equal(prefs.showThinkingAndSearch, false, 'restore returns the thinking and search preference')
-assert.deepEqual(usageDays(), { '2020-01-01': { m: { chat: { calls: 1, input: 1, output: 1, cacheRead: 0, cacheWrite: 0, usd: 1, unpriced: 0 } } } }, 'a snapshot with a usage field replaces the ledger')
+assert.deepEqual(usageDays(), restoredUsage, 'a snapshot with a usage field replaces the ledger, so the day recorded above is gone and the snapshot day lands intact')
 await assert.rejects(() => restoreData(exportData('restored')), /Not a conversa snapshot/, 'partial export cannot replace a library')
 
 // A v1 snapshot (before usage.md) has no usage field, and restoring one must not wipe the current ledger.
@@ -121,15 +123,20 @@ lw.docIds.push(dd.id)
 deleteDoc(dd.id)
 assert.ok(!lw.docIds.includes(dd.id), 'deleteDoc strips owner refs')
 
-// Revisions stack capped, undo pops.
+// Revisions stack in a capped window, the oldest drop first, undo pops.
+//  the cap is measured, never written as a number. DOC_VERSION_CAP is private to state/docs.js, and the behavior worth holding is "the window stops growing and sheds the oldest", whatever size it is.
 const vd = createDoc({ name: 'v.md', text: 'v0', source: { kind: 'upload' } })
-for (let i = 1; i <= 12; i++) updateDocText(vd, `v${i}`)
+const edited = []
+for (let i = 1; i <= 12; i++) { edited.push(vd.text); updateDocText(vd, `v${i}`) }
 assert.equal(vd.text, 'v12')
-assert.equal(vd.versions.length, 10, 'versions cap at 10')
-assert.equal(vd.versions[0].text, 'v2', 'the oldest versions drop first')
+const cap = vd.versions.length
+assert.ok(cap < 12, 'the version window is capped below the number of edits')
+assert.deepEqual(vd.versions.map((v) => v.text), edited.slice(-cap), 'the window keeps the newest edits and drops the oldest')
+updateDocText(vd, 'v13')
+assert.equal(vd.versions.length, cap, 'a full window sheds one instead of growing')
 undoDocRevision(vd)
-assert.equal(vd.text, 'v11', 'undo restores the previous text')
-assert.equal(vd.versions.length, 9)
+assert.equal(vd.text, 'v12', 'undo restores the previous text')
+assert.equal(vd.versions.length, cap - 1)
 
 // A single-conversation export carries the docs it references; re-importing keeps local copies on collision.
 dc.docIds = [doc2.id]
@@ -198,7 +205,9 @@ const reportOut = docsOf(rc).find((d) => d.id === lr.reportDocId)
 assert.ok(reportOut, 'the report doc is attached to the conversation')
 assert.deepEqual(reportOut.source, { kind: 'research', runId: lr.id, convoId: rc.id, messageId: 'rh' }, 'the doc carries full lineage')
 assert.equal(holder.docId, lr.reportDocId, 'the result message points at the report')
-assert.equal(holder.content, 'Your "Find things" research document is ready.\n\nA concise model-written summary.', 'the assistant turn links the result with its short model-written summary')
+assert.ok(holder.content.includes(frame.payload.name), 'the assistant turn names the finished run')
+assert.ok(holder.content.endsWith(frame.payload.summary), 'and ends with the model-written summary')
+assert.ok(!holder.content.includes(frame.payload.report.text), 'the report body stays in the doc, not the chat turn')
 assert.ok(reportOut.text.startsWith('## Research provenance'), 'the attached document starts with its provenance header')
 assert.ok(reportOut.text.endsWith('REPORT'), 'the full Q&A report stays in the attached document after the provenance header')
 assert.notEqual(JSON.stringify(usageDays()), ledgerBefore, 'finished spend folds into the ledger')

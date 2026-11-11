@@ -54,6 +54,8 @@ Set these as environment variables when you start the backend container or local
 | `RESEARCH_MAX_CALLS` | no | computed | Optional hard model-call cap for a research run. Empty computes it from source, task, wave, and report limits. |
 | `MAX_ACTIVE_RUNS` | no | `2` | Concurrent research runs allowed on the server. |
 | `RESEARCH_RESULT_TTL` | no | `3600` | Seconds a finished server-side research result remains available for collection. |
+| `CHAT_STREAM_TTL_SECONDS` | no | `600` | Seconds a finished chat reply the browser has not collected remains available. |
+| `CHAT_MAX_FINISHED_STREAMS` | no | `20` | Most finished, uncollected chat replies kept at once. The oldest are dropped first. |
 | `API_MAX_RETRIES` | no | `5` | Provider retries on 429, 5xx, and connection errors. |
 | `TRANSFER_TTL_SECONDS` | no | `3600` | Seconds a transfer phrase remains retrievable. |
 | `TRANSFER_MAX_ENTRY_BYTES` | no | `10000000` | Max bytes for one transfer payload. |

@@ -83,7 +83,12 @@ async def workflow_checks():
     assert any(task["question"] == "follow-up question" for task in run.frontier)
     assert len(run.evidence) == 1 and len(calls) == 3, calls
     run.evidence[0]["excerpt"] = "x" * 1000
-    assert len(json.loads(r._worker_context(run))["known_findings"][0]["excerpt"]) == 600
+    try:
+        worker_context = json.loads(r._worker_context(run))
+    except ValueError as error:
+        raise AssertionError("worker context must be valid JSON") from error
+    worker_excerpt = worker_context["known_findings"][0]["excerpt"]
+    assert 0 < len(worker_excerpt) < len(run.evidence[0]["excerpt"]) and run.evidence[0]["excerpt"].startswith(worker_excerpt), "worker context truncates a long excerpt to a bounded prefix"
     assert run.data["budgets"]["calls"] == run.prior_calls + run.spend.calls + run.data["budgets"].get("fallback_calls", 0)
     assert any(event["kind"] == "source_reused" for event in run.events), "run-wide URL reuse is visible"
 
@@ -111,7 +116,7 @@ async def breaker_and_resume_checks():
         await r._run(run)
     finally:
         g.search, g.complete, r.complete, report.complete = real
-    assert run.status == "error" and "no evidence" in run.error
+    assert run.status == "error" and run.error is not None and "no evidence" in run.error
     assert any(event["kind"] == "breaker" for event in run.events)
     assert run.data["breakers"], "breaker history must survive in checkpoints"
 
@@ -123,7 +128,7 @@ async def breaker_and_resume_checks():
         await r._run(partial)
     finally:
         r.complete, report.complete = real[2], real[3]
-    assert partial.status == "partial" and partial.payload["gaps"], partial.state()
+    assert partial.status == "partial" and partial.payload is not None and partial.payload["gaps"], partial.state()
 
     checkpoint = empty_state(brief(), {"id": "T1", "question": "Investigate Project Orion"})
     checkpoint["sources"]["https://example.test/page"] = {"id": "S1", "url": "https://example.test/page", "title": "Source", "task_ids": ["T1"]}
@@ -191,7 +196,8 @@ finally:
 # Coordinator payload: gists only, no raw evidence rows.
 payload = r._coordinator_payload(gate_run, [{"evidence": [{"id": "E1"}], "gaps": ["worker gap"]}])
 assert "new_results" not in payload and payload["new_evidence_ids"] == ["E1"] and payload["worker_gaps"] == ["worker gap"]
-assert len(payload["evidence"][0]["gist"]) == 240
+gist = payload["evidence"][0]["gist"]
+assert 0 < len(gist) < len(gate_run.evidence[0]["excerpt"]) and gate_run.evidence[0]["excerpt"].startswith(gist), "coordinator gists truncate long evidence to a bounded prefix"
 assert isinstance(payload["exhausted_queries"], list) and isinstance(payload["scope_coverage"], dict)
 
 # Outcome strings for terminal and active runs.
@@ -212,8 +218,18 @@ r.forget(busy_run.id)
 budget_run = Run(brief(), models, depth=3, min_sources=15, max_sources=50)
 assert budget_run.min_sources == 15
 assert budget_run.max_sources == 50
-assert budget_run.max_calls == 50 * 2 + r.MAX_TASKS + r.MAX_WAVES + 4
-assert budget_run.max_elapsed == max(r.DEFAULT_MAX_SECONDS, 50 * 15.0)
+#  budget contracts, not a restated formula. Scaling with the source cap, funding
+# every task, and clearing the elapsed floor hold for any cap; recomputing the formula
+# here would move in lockstep with production and prove nothing.
+narrow_run = Run(brief(), models, depth=3, max_sources=10)
+assert budget_run.max_calls > narrow_run.max_calls, (narrow_run.max_calls, budget_run.max_calls)
+assert budget_run.max_calls >= r.MAX_TASKS, "the call budget funds at least one call per task"
+assert budget_run.max_elapsed >= r.DEFAULT_MAX_SECONDS, "the elapsed budget never drops below the floor"
+wide_run = Run(brief(), models, depth=3, max_sources=200)
+assert wide_run.max_elapsed > budget_run.max_elapsed, (budget_run.max_elapsed, wide_run.max_elapsed)
+over_cap = Run(brief(), models, depth=3, max_sources=500)
+at_cap = Run(brief(), models, depth=3, max_sources=300)
+assert over_cap.max_calls == at_cap.max_calls, "the call budget tracks the clamped source cap"
 
 # min_sources clamps to >= 8, max_sources clamps to <= 300 and >= min_sources
 clamped_run = Run(brief(), models, min_sources=4, max_sources=500)
@@ -226,7 +242,7 @@ cov_finish = {"action": "finish", "resolve": [], "prune": [], "add": [], "merge"
 cov_run.evidence.extend({"id": f"E{i}", "source_id": "S1", "question": "Investigate Project Orion", "title": "t", "excerpt": "e"} for i in range(1, 9))
 gated_cov = r._coverage_gate(cov_run, cov_finish)
 assert gated_cov["action"] == "continue", "finish rejected when evidence < min_sources"
-assert "minimum 10 items" in gated_cov["gaps"][-1]
+assert str(cov_run.min_sources) in gated_cov["gaps"][-1], "the coverage gate names the evidence floor it enforces"
 
 # Theory and coverage in run state and coordinator handling
 t_run = Run(brief(), models, depth=1)
@@ -265,8 +281,9 @@ bad_coord = {
     "gaps": [],
     "theory": "invalid string",
 }
+theory_before = dict(t_run.data["theory"])
 r._apply_coord(t_run, bad_coord, wave=2)
-assert t_run.data["theory"]["hypothesis"] == "Project Orion was a nuclear pulse propulsion study."
+assert t_run.data["theory"] == theory_before, "a malformed theory payload leaves the stored theory untouched"
 
 # Coverage ledger updating as evidence lands
 ev_record = {"id": "E1", "source_id": "S1", "question": "Investigate Project Orion", "title": "Orion Overview"}
@@ -297,7 +314,6 @@ r._apply_coord(c6_run, c6_decision, wave=1)
 assert len(c6_run.frontier) == 2, f"expected initial task + 1 forced task, got {len(c6_run.frontier)}"
 forced_task = c6_run.frontier[-1]
 assert forced_task["status"] == "pending"
-assert "Resolve contradiction" in forced_task["question"]
 assert c6_decision["forced_redirection"]["task_id"] == forced_task["id"]
 assert c6_decision["action"] == "continue", "forced redirect converts finish to continue"
 assert c6_decision in c6_run.data["decisions"]

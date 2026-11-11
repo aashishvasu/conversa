@@ -1,23 +1,17 @@
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 
-// Defences for streams in backgrounded tabs.
-// Mobile browsers freeze a backgrounded tab and the read hangs: no chunks, no error, so `finally` never runs and the composer stays locked behind a spinner.
-// Two defences.
-// A screen wake lock held while streaming prevents the freeze when the cause is the screen locking.
-// And on returning to a visible tab, a stream that went silent is aborted through the caller's abort callback (the existing stop() path), keeping the partial reply and unlocking the composer.
-// Neither provider can restart a dropped stream, so a clean stop is the best outcome available.
-// Typing "continue" picks up from the partial assistant turn, which the next request already sends as history.
-// The knob: 60s of silence, no server keepalive.
-// If a long search or thinking gap trips it, emit a periodic `: ping` from /api/chat and key the watchdog off that.
+// Keeps a pending chat turn healthy while its tab is backgrounded.
+// A screen wake lock held while the viewed conversation streams prevents the freeze that mobile browsers apply when the screen locks.
+// Mobile browsers can still freeze a backgrounded tab, leaving the read hung with no frames and no error.
+// On returning to a visible tab after STALL_MS without a frame, the caller's reattach callback reconnects to the server-side stream, which replays the reply so far.
+// The server's keepalive comments never reach the frame handler, so a long thinking gap can trigger a reattach of a healthy stream; that is harmless.
 const STALL_MS = 60_000
 
-export function useStreamGuard(isStreaming, abort) {
-  let lastChunkAt = 0
+export function useStreamGuard(isStreaming, lastFrameAt, reattach) {
   let wakeLock = null
 
   async function acquireWakeLock() {
     // The lock is dropped automatically whenever the page hides, so this re-runs on every return to visible.
-    // Unsupported, insecure-context, and denied all land in catch, and the watchdog below still covers those cases.
     try {
       wakeLock = (await navigator.wakeLock?.request('screen')) || null
     } catch { /* best-effort */ }
@@ -30,19 +24,13 @@ export function useStreamGuard(isStreaming, abort) {
   function onVisibilityChange() {
     if (document.visibilityState !== 'visible' || !isStreaming()) return
     acquireWakeLock()
-    if (Date.now() - lastChunkAt > STALL_MS) abort()
+    if (Date.now() - (lastFrameAt() ?? 0) > STALL_MS) reattach()
   }
-  onMounted(() => document.addEventListener('visibilitychange', onVisibilityChange))
-  onUnmounted(() => document.removeEventListener('visibilitychange', onVisibilityChange))
 
-  return {
-    start() {
-      lastChunkAt = Date.now() // watchdog baseline: nothing has arrived yet
-      acquireWakeLock()
-    },
-    heartbeat() {
-      lastChunkAt = Date.now()
-    },
-    end: releaseWakeLock,
-  }
+  watch(isStreaming, (on) => (on ? acquireWakeLock() : releaseWakeLock()), { immediate: true })
+  onMounted(() => document.addEventListener('visibilitychange', onVisibilityChange))
+  onUnmounted(() => {
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+    releaseWakeLock()
+  })
 }

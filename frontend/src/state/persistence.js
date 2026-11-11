@@ -41,13 +41,20 @@ function save() {
 
 // Snapshot inside flush, not in save(), because save() runs on every mutation, meaning every streamed token.
 // The JSON round-trip strips the Vue reactive proxy so idb-keyval can store it, and it costs the whole archive each time.
-function flush() {
-  return Promise.all([
-    set(STORE_KEY, JSON.parse(JSON.stringify(state.conversations))),
-    set(WORKSPACES_KEY, JSON.parse(JSON.stringify(state.workspaces))),
-    set(RUNS_KEY, JSON.parse(JSON.stringify(state.runs))),
-    set(DOCS_KEY, JSON.parse(JSON.stringify(state.docs))),
-  ]).then(() => dismiss('storage'), storageFailure)
+async function flush() {
+  try {
+    await Promise.all([
+      set(STORE_KEY, JSON.parse(JSON.stringify(state.conversations))),
+      set(WORKSPACES_KEY, JSON.parse(JSON.stringify(state.workspaces))),
+      set(RUNS_KEY, JSON.parse(JSON.stringify(state.runs))),
+      set(DOCS_KEY, JSON.parse(JSON.stringify(state.docs))),
+    ])
+    dismiss('storage')
+    return true
+  } catch (error) {
+    storageFailure(error)
+    return false
+  }
 }
 
 export function persistNow() {

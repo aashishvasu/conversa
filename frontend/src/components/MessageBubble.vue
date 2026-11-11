@@ -1,7 +1,7 @@
 <script setup>
 import { Bot, Check, ChevronRight, Cog, Copy, FileText, Pencil, Pin, RotateCcw, Trash2, User, X } from '@lucide/vue'
 import { ref } from 'vue'
-import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger, ToolbarRoot } from 'reka-ui'
+import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger, ProgressIndicator, ProgressRoot, ToolbarRoot } from 'reka-ui'
 import { formatTime } from '../utils/format.js'
 import { renderMarkdown } from '../utils/md.js'
 import UiIconButton from './ui/UiIconButton.vue'
@@ -121,6 +121,9 @@ function promote() {
           <div v-if="message.role === 'system'" class="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm" :class="!message.content && 'italic text-muted'">{{ message.content || $t('message.emptySystem') }}</div>
           <div v-else-if="message.content" class="md [overflow-wrap:anywhere]" v-html="renderMarkdown(message.content)"></div>
           <div v-else class="text-muted">…</div>
+          <ProgressRoot v-if="message.turnId" :model-value="null" class="mt-2 h-0.5 overflow-hidden rounded-full bg-edge" :aria-label="$t('chat.replyInProgress')">
+            <ProgressIndicator class="research-progress h-full w-1/3 rounded-full bg-accent" />
+          </ProgressRoot>
           <ToolbarRoot class="absolute -top-3 right-2 hidden gap-0.5 rounded-md border border-edge bg-surface p-0.5 text-muted shadow group-hover:flex" :class="{ '!flex': active }" :aria-label="$t('common.actions')">
             <UiToolbarButton :label="$t('message.regenerate')" @click="emit('regenerate')"><RotateCcw :size="14" /></UiToolbarButton>
             <UiToolbarButton :label="$t('message.edit')" @click="emit('edit')"><Pencil :size="14" /></UiToolbarButton>
