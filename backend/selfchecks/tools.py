@@ -39,7 +39,11 @@ assert json.loads(result.content) != result.trace, "model output and browser tra
 invalid = asyncio.run(execute_tool(lookup_tool, ToolCall("call-2", "lookup", {"count": "2"})))
 assert invalid.error == "invalid_arguments", invalid
 assert json.loads(invalid.content)["error"]["code"] == "invalid_arguments", invalid
-assert invalid.trace == {"status": "error", "code": "invalid_arguments", "message": "count: int_type"}, invalid
+assert invalid.trace is not None, invalid
+invalid_trace = invalid.trace
+assert invalid_trace["status"] == "error" and invalid_trace["code"] == "invalid_arguments", invalid_trace
+#  the message renders pydantic's error record, and its type strings move between library versions. The field name is ours.
+assert "count" in str(invalid_trace["message"]), invalid_trace
 
 extra = asyncio.run(execute_tool(lookup_tool, ToolCall("call-3", "lookup", {"count": 2, "page": 1})))
 assert extra.error == "invalid_arguments", extra

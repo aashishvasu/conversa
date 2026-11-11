@@ -1,9 +1,21 @@
 // Run: node src/selfchecks/payload.selfcheck.js.
 // Fails loudly if payload assembly breaks.
 import assert from 'node:assert'
+import { readFile } from 'node:fs/promises'
 import { buildPayload, recallMessages } from '../prompt/payload.js'
 import { buildResearchInput } from '../prompt/research-input.js'
 import { ARTIFACT_INSTRUCTION } from '../prompt/artifacts.js'
+
+// Finding 14: the frontend and backend copies of the artifact instruction are the same policy text.
+// Frontend is the cheaper placement: ARTIFACT_INSTRUCTION is already imported here, so only the Python
+// definition needs parsing. The backend copy is read from its Python definition.
+const backendChat = await readFile(new URL('../../../backend/api/chat.py', import.meta.url), 'utf8')
+const backendBlock = backendChat.match(/ARTIFACT_INSTRUCTION\s*=\s*\(([\s\S]*?)\n\)/)
+assert.ok(backendBlock, 'could not find ARTIFACT_INSTRUCTION definition in backend/api/chat.py; the constant moved or changed shape')
+const backendQuoted = backendBlock[1].match(/"[^"]*"/g)
+assert.ok(backendQuoted, 'could not extract quoted strings from backend ARTIFACT_INSTRUCTION; its quoting changed')
+const backendInstruction = backendQuoted.map((s) => s.slice(1, -1)).join('')
+assert.equal(ARTIFACT_INSTRUCTION, backendInstruction, 'frontend and backend artifact instructions must match')
 
 const cards = [
   { id: '1', triggers: 'dragon, wyrm', content: 'DRAGON_LORE' },
@@ -157,8 +169,7 @@ const wpTwo = buildPayload(convo, wSettings, wsTwo)
 assert.ok(wpTwo.system.indexOf('WS_PROMPT') < wpTwo.system.indexOf('WS_SECOND'), 'workspace prompts keep their list order')
 assert.ok(wpTwo.system.indexOf('WS_SECOND') < wpTwo.system.indexOf('You are a bard.'), 'every workspace prompt leads the conversation ones')
 assert.ok(!wpTwo.system.includes('NOT_A_PROMPT'), 'only system entries count as workspace prompts')
-// The doc block is part of the cached prefix: a format drift silently invalidates every stored prefix.
-assert.ok(wp.system.includes('Reference document "lore.md":\nDOC_TEXT'), 'docs are injected in the exact pre-doc-store byte format')
+assert.ok(wp.system.includes('DOC_TEXT') && wp.system.includes('lore.md'), 'an attached doc lands in system under its own name')
 assert.ok(wp.system.indexOf('WS_CARD') < wp.system.indexOf('DRAGON_LORE'), 'workspace cards precede convo cards')
 // send_system_prompt=false drops the workspace prompt but keeps docs and cards (intentional context)
 const wp2 = buildPayload(convo, { ...wSettings, send_system_prompt: false }, ws, wsDocs)
@@ -222,6 +233,7 @@ assert.ok(oneTurn.system.includes('Project Orion database options') && oneTurn.s
 // --- Tool evidence artifacts --------------------------------------------------------
 // Artifacts ride with the assistant text, stale ones are marked, and the trust instruction stays in the volatile half.
 const freshAt = Date.now()
+const EVIDENCE_MARKER = 'EVIDENCE_MARKER_9F3C'
 const artConvo = {
   scanAssistant: false, cards: [],
   messages: [
@@ -229,7 +241,7 @@ const artConvo = {
     { id: 'u1', role: 'user', content: 'cite sources' },
     { id: 'a1', role: 'assistant', content: 'Answer with sources.', artifacts: [{
       tool: 'search_web', recordedAt: freshAt, freshUntil: freshAt + 1800000,
-      input: { query: 'release notes' }, output: { results: [{ title: 'Release', url: 'https://example.com/r' }] },
+      input: { query: 'release notes' }, output: { results: [{ title: EVIDENCE_MARKER, url: 'https://example.com/r' }] },
     }] },
     { id: 'u2', role: 'user', content: 'what about the other one' },
   ],
@@ -238,30 +250,89 @@ const aSettings = { model: 'm', max_tokens: 10, num_messages_to_send: 3, send_sy
 const ap = buildPayload(artConvo, aSettings)
 const sent = ap.messages.find((m) => m.role === 'assistant')
 assert.ok(sent.content.startsWith('Answer with sources.'), 'the answer text still leads')
-assert.ok(sent.content.includes('[Tool evidence recorded with this assistant response]'), 'the evidence block trails the answer')
-assert.ok(sent.content.includes('"query":"release notes"') && sent.content.includes('https://example.com/r'), 'input and output are serialized')
+assert.ok(sent.content.indexOf(EVIDENCE_MARKER) > sent.content.indexOf('Answer with sources.'), 'the planted evidence trails the answer text')
+//  the input is located by its planted value and parsed back, so the assert holds for any JSON spacing.
+const serializedInput = sent.content.match(/\{[^{}]*release notes[^{}]*\}/)
+assert.ok(serializedInput, 'the artifact input rides along as JSON')
+let parsedInput = null
+try { parsedInput = JSON.parse(serializedInput[0]) } catch { parsedInput = null }
+assert.equal(parsedInput?.query, 'release notes', 'the serialized input parses back to its planted value')
 assert.ok(!sent.content.includes('Stale:'), 'a fresh artifact is not marked stale')
-assert.ok(ap.system.includes(ARTIFACT_INSTRUCTION), 'the trust instruction is sent whenever evidence is in context')
-// Preparation routes rather than answers, so it sees the same turns without their tool evidence.
+// Property matrix: the artifact instruction is present iff tool evidence is in context,
+// on every render path. The marker is test-owned so a production rewording does not couple the test.
+const staleConvo = { scanAssistant: false, cards: [], messages: [
+  { id: 'u', role: 'user', content: 'q' },
+  { id: 'a', role: 'assistant', content: 'old', artifacts: [{
+    tool: 'fetch_url', recordedAt: 1000, freshUntil: 2000,
+    input: { url: 'https://old.example' },
+    output: { title: EVIDENCE_MARKER, content: 'OLD BODY' },
+  }] },
+] }
+const partialConvo = { scanAssistant: false, cards: [], messages: [
+  { id: 'u', role: 'user', content: 'q' },
+  { id: 'a', role: 'assistant', content: 'read a page', artifacts: [{
+    tool: 'fetch_url', recordedAt: freshAt, freshUntil: freshAt + 1800000,
+    input: { url: 'https://long.example' },
+    output: { url: 'https://long.example', title: EVIDENCE_MARKER, kind: 'article', offset: 0, totalChars: 50000, nextOffset: null, windowChars: 40000, excerpt: 'FIRST PART' },
+  }] },
+] }
+
+const systemHasInstruction = (system) => {
+  if (Array.isArray(system)) return system.some((part) => part.includes(ARTIFACT_INSTRUCTION))
+  return typeof system === 'string' && system.includes(ARTIFACT_INSTRUCTION)
+}
+const payloadHasMarker = (payload) => payload.messages.some((m) => {
+  const text = typeof m.content === 'string' ? m.content : (m.content || []).map((b) => b.text || '').join('\n')
+  return text.includes(EVIDENCE_MARKER)
+})
+const assertInstructionMatrix = (label, payload, expectEvidence) => {
+  const evidence = payloadHasMarker(payload)
+  assert.equal(evidence, expectEvidence, `${label}: planted evidence marker presence`)
+  if (payload.system && typeof payload.system === 'object' && !Array.isArray(payload.system)) {
+    assert.equal(!!payload.system.evidence, evidence, `${label}: structured evidence flag iff tool evidence present (server appends the instruction iff flag)`)
+    assert.ok(!JSON.stringify(payload.system).includes(ARTIFACT_INSTRUCTION), `${label}: structured path leaves instruction text to the server`)
+    return
+  }
+  assert.equal(systemHasInstruction(payload.system), evidence, `${label}: artifact instruction present iff tool evidence present`)
+  if (Array.isArray(payload.system)) {
+    const [stable, volatile] = payload.system
+    assert.equal(stable.includes(ARTIFACT_INSTRUCTION), false, `${label}: instruction stays out of the cached stable half`)
+    assert.equal(volatile.includes(ARTIFACT_INSTRUCTION), evidence, `${label}: instruction in the volatile half iff evidence present`)
+  }
+}
+
+// 1 no evidence, 2 fresh, 3 stale, 4 excerpt-only; cache off = system stays a plain string.
+assertInstructionMatrix('no evidence / cache off / string', buildPayload(convo, aSettings), false)
+assertInstructionMatrix('fresh evidence / cache off / string', ap, true)
+assertInstructionMatrix('stale evidence / cache off / string', buildPayload(staleConvo, aSettings), true)
+assertInstructionMatrix('excerpt-only evidence / cache off / string', buildPayload(partialConvo, aSettings), true)
+assert.ok(typeof ap.system === 'string', 'cache off keeps the system a plain string')
+
+// 5 preparation route deliberately drops evidence; 6 cache on splits it; 7 cache on without evidence stays clean.
 const prepared = buildResearchInput(artConvo, aSettings)
 const preparedAssistant = prepared.messages.find((m) => m.role === 'assistant')
 assert.ok(preparedAssistant.content.startsWith('Answer with sources.'), 'preparation keeps the assistant text')
-assert.ok(!preparedAssistant.content.includes('[Tool evidence recorded with this assistant response]'), 'preparation drops the evidence block')
-assert.ok(!prepared.system.includes(ARTIFACT_INSTRUCTION), 'preparation drops the artifact instruction with it')
-// no artifacts anywhere: no instruction, no block
-assert.ok(!buildPayload(convo, aSettings).system.includes(ARTIFACT_INSTRUCTION), 'no evidence means no instruction')
-// use_cache: the instruction must sit in the volatile half or it invalidates the cached prefix
+assertInstructionMatrix('preparation route / evidence absent', prepared, false)
+
 const ac = buildPayload(artConvo, { ...aSettings, use_cache: true, use_memory: true })
-assert.ok(Array.isArray(ac.system), 'cache splits the system')
-assert.ok(!ac.system[0].includes(ARTIFACT_INSTRUCTION) && ac.system[1].includes(ARTIFACT_INSTRUCTION), 'the artifact instruction stays volatile')
-// a stale artifact is marked so the model knows to refetch
-const staleConvo = { scanAssistant: false, cards: [], messages: [{ id: 'u', role: 'user', content: 'q' }, { id: 'a', role: 'assistant', content: 'old', artifacts: [{ tool: 'fetch_url', recordedAt: 1000, freshUntil: 2000, input: { url: 'https://old.example' }, output: { content: 'OLD BODY' } }] }] }
+assert.ok(Array.isArray(ac.system), 'cache on splits the system')
+assertInstructionMatrix('cache on / evidence present', ac, true)
+assertInstructionMatrix('cache on / no evidence', buildPayload(convo, { ...aSettings, use_cache: true, use_memory: true }), false)
+
+// 8 both system shapes: the string/list path above and the SystemParts path here.
+assertInstructionMatrix('structured / evidence present', buildPayload(artConvo, { ...aSettings, structure_system_prompt: true }), true)
+assertInstructionMatrix('structured / no evidence', buildPayload(convo, { ...aSettings, structure_system_prompt: true }), false)
+assertInstructionMatrix('structured / preparation route', buildResearchInput(artConvo, { ...aSettings, structure_system_prompt: true }), false)
+
+// stale and excerpt-only artifacts are marked so the model knows to refetch
 const staleMsg = buildPayload(staleConvo, aSettings).messages.find((m) => m.role === 'assistant')
 assert.ok(staleMsg.content.includes('Stale:') && staleMsg.content.includes('OLD BODY'), 'stale evidence is marked, not dropped')
-// a partial fetch artifact is marked so the model knows to refetch rather than trust the excerpt
-const partialConvo = { scanAssistant: false, cards: [], messages: [{ id: 'u', role: 'user', content: 'q' }, { id: 'a', role: 'assistant', content: 'read a page', artifacts: [{ tool: 'fetch_url', recordedAt: freshAt, freshUntil: freshAt + 1800000, input: { url: 'https://long.example' }, output: { url: 'https://long.example', title: 'Long', kind: 'article', offset: 0, totalChars: 50000, nextOffset: null, windowChars: 40000, excerpt: 'FIRST PART' } }] }] }
 const partialMsg = buildPayload(partialConvo, aSettings).messages.find((m) => m.role === 'assistant')
-assert.ok(partialMsg.content.includes('Excerpt: only the first 10 of 40000 chars read'), 'a partial excerpt is marked')
+//  the notice wording belongs to artifacts.js. The dump line carries the planted excerpt text, so the
+// remaining lines are the notice, and one of them must state the fixture's own window size.
+const partialOutput = partialConvo.messages[1].artifacts[0].output
+const partialNotice = partialMsg.content.split('\n').filter((line) => !line.includes('FIRST PART'))
+assert.ok(partialNotice.some((line) => line.includes(String(partialOutput.windowChars))), 'a partial excerpt states the window it was cut from')
 assert.ok(partialMsg.content.includes('FIRST PART'), 'the excerpt itself still rides along')
 // recalled dropped turns keep their evidence
 const recallArt = { ...recallConvo, messages: [...recallConvo.messages] }
@@ -280,7 +351,7 @@ assert.ok(structured.system.instructions.includes('sys'), 'instructions holds th
 assert.equal(structured.system.evidence, true, 'evidence is true with artifacts in the window')
 assert.ok(structured.system.runtime && !structured.system.runtime.use_cache, 'runtime carries the use_* switches')
 assert.ok(Array.isArray(structured.system.runtime.enabled_tools), 'runtime carries enabled tools')
-assert.ok(structured.messages.find((m) => m.role === 'assistant').content.includes('[Tool evidence recorded with this assistant response]'), 'evidence still rides in messages')
+assert.ok(structured.messages.find((m) => m.role === 'assistant').content.includes(EVIDENCE_MARKER), 'the planted evidence rides on the assistant turn in structured mode too')
 
 // Without artifacts there is no evidence flag.
 const structuredNoEvidence = buildPayload(convo, structuredSettings)

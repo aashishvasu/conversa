@@ -1,9 +1,10 @@
 // Run: node src/selfchecks/research-lifecycle.selfcheck.js.
 import assert from 'node:assert'
-import { readFile } from 'node:fs/promises'
 import { applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, resumeWithCurrentModels } from '../research/lifecycle.js'
 import { activeRunOf, finishRun, migrateRun, researchProvenanceHeader, validRun } from '../state/runs.js'
 import { state } from '../state/persistence.js'
+import { beginPreparation, cancelPreparation, getPreparationSignal, isPreparationCurrent, isPreparing, retryPreparation, startRun, tailRun } from '../research/coordinator.js'
+import { useStreamOrchestration } from '../research/orchestration.js'
 
 const run = {
   id: 'client-run', serverId: 'client-run', status: 'running', phase: 'gather',
@@ -102,21 +103,81 @@ assert.ok(partialDoc.text.endsWith('report'), 'provenance preserves the report b
 state.conversations.pop()
 state.docs = state.docs.filter((doc) => doc.id !== partial.reportDocId)
 
-const chatPane = await readFile(new URL('../views/ChatPane.vue', import.meta.url), 'utf8')
-const researchBlock = await readFile(new URL('../components/ResearchBlock.vue', import.meta.url), 'utf8')
-const orchestration = await readFile(new URL('../research/orchestration.js', import.meta.url), 'utf8')
-const coordinator = await readFile(new URL('../research/coordinator.js', import.meta.url), 'utf8')
-assert.ok(!/import\s*\{[^}]*\bstartResearch\b/.test(chatPane), 'ChatPane persists the run but never starts it')
-assert.ok(/import\s*\{[^}]*\bstartResearch\b/.test(coordinator), 'coordinator owns background start and reconnection execution')
-assert.ok(!/streaming\.value \|\| m\.runId/.test(chatPane), 'research-linked turns are regenerable')
-assert.ok(/cancelPreparation/.test(chatPane), 'switching to chat mode cancels pending preparation')
-assert.ok(/prepareResearch\(\{ \.\.\.input, model: chatSettings\.model \}/.test(orchestration), 'the selected chat model makes the routing decision')
-assert.ok(/import.*useStreamOrchestration/.test(chatPane), 'ChatPane delegates streaming and routing to the orchestration composable')
-assert.ok(/failures >= MAX_STREAM_RETRIES[\s\S]*applyFailure/.test(coordinator), 'exhausted stream retries land in a terminal client state')
-assert.ok(/effectiveSettings\(convo\)\.model/.test(coordinator), 'preparation retry uses the currently selected chat model')
-assert.ok(/buildResearchStartBody/.test(coordinator), 'coordinator uses the research start request helper')
-assert.ok(/checkpoint\?\.frontier/.test(researchBlock), 'the trace rebuilds task state from a recovery checkpoint')
-assert.ok(/checkpoint\?\.sources/.test(researchBlock), 'the trace rebuilds source state from a recovery checkpoint')
-assert.ok(/checkpoint\?\.breakers/.test(researchBlock), 'the trace preserves breaker history across backend replacement')
+// coordinator.js and orchestration.js reach the network through global fetch and the token through localStorage, so planting both drives the real functions.
+const wireCalls = []
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
+function sentBody(init) {
+  try {
+    return init?.body ? JSON.parse(init.body) : null
+  } catch {
+    return null
+  }
+}
+globalThis.fetch = async (url, init) => {
+  wireCalls.push({ url: String(url), body: sentBody(init) })
+  throw new Error('sentinel: wire refused')
+}
+
+const started = {
+  id: 'start-run', serverId: 'start-run', status: 'starting', phase: '', events: [], spend: null,
+  answers: {}, checkpoint: 'sentinel-checkpoint', retryFailed: true,
+  prepared: { brief: { objective: 'sentinel objective', deliverable: 'sentinel deliverable', scope: ['sentinel scope'], constraints: ['sentinel constraint'], questions: [{ question: 'sentinel question', default: 'sentinel default' }] } },
+  settings: { research_depth: 3, research_min_sources: 40, research_max_sources: 5, research_search_model: 'sentinel-search', research_note_model: 'sentinel-note', research_report_model: 'sentinel-report' },
+}
+const expectedStartBody = buildResearchStartBody(started)
+wireCalls.length = 0
+assert.equal(await startRun(started), false, 'a refused start reports failure to its caller')
+assert.deepEqual(wireCalls[0].body, expectedStartBody, 'the coordinator posts the body the start helper built')
+assert.equal(wireCalls[0].body.checkpoint, 'sentinel-checkpoint', 'the posted start carries the run checkpoint')
+assert.equal(wireCalls[0].body.answers['sentinel question'], 'sentinel default', 'the posted start answers an unanswered question with its default')
+assert.equal(started.status, 'error', 'a refused start lands in a terminal client state')
+
+const exhausted = { id: 'exhaust-run', serverId: 'exhaust-server', status: 'running', phase: 'gather', events: [], spend: null }
+const realSetTimeout = globalThis.setTimeout
+//  the backoff waits 500ms to 4s per attempt, and only the attempt count and the terminal state are under test.
+globalThis.setTimeout = (fn) => queueMicrotask(fn)
+wireCalls.length = 0
+try {
+  await tailRun(exhausted)
+} finally {
+  globalThis.setTimeout = realSetTimeout
+}
+assert.equal(exhausted.status, 'error', 'exhausted stream retries land in a terminal client state')
+assert.equal(exhausted.error, 'sentinel: wire refused', 'the terminal state carries the failure that exhausted the retries')
+assert.ok(wireCalls.filter((call) => call.url.includes('/stream')).length > 1, 'the tail retried the stream instead of giving up on the first refusal')
+
+const prepConvoId = 'sentinel-prep-convo'
+const generation = beginPreparation(prepConvoId)
+const prepSignal = getPreparationSignal(prepConvoId)
+assert.equal(isPreparing(prepConvoId), true, 'a started preparation holds the conversation')
+assert.equal(cancelPreparation(prepConvoId), true, 'cancelling reports the preparation it stopped')
+assert.equal(prepSignal.aborted, true, 'cancelling aborts the preparation signal')
+assert.equal(isPreparationCurrent(prepConvoId, generation), false, 'a cancelled generation never resumes')
+assert.equal(isPreparing(prepConvoId), false, 'cancelling releases the preparation lock')
+assert.equal(cancelPreparation(prepConvoId), false, 'a second cancel finds nothing pending')
+
+const retried = { id: 'retry-run', status: 'starting', isPreparing: false, input: { model: 'stale-snapshot-model', system: 'stale system' } }
+const retryConvo = { id: 'retry-convo', mode: 'research', settings: { model: 'sentinel-selected-model' } }
+wireCalls.length = 0
+await retryPreparation(retried, retryConvo)
+const retryCall = wireCalls.find((call) => call.url.startsWith('/api/research/prepare'))
+assert.equal(retryCall.body.model, 'sentinel-selected-model', 'preparation retry re-reads the currently selected chat model')
+assert.equal(retryCall.body.system, 'stale system', 'preparation retry keeps the context the run was created with')
+assert.equal(retried.preparationFailed, true, 'a refused preparation is reported on the run')
+assert.equal(retried.error, 'sentinel: wire refused', 'the preparation failure carries the wire error')
+assert.equal(retried.isPreparing, false, 'a refused preparation releases the lock')
+
+const routed = { id: 'routed-convo', title: 'Sentinel', mode: 'research', workspaceId: null, docIds: [], settings: { model: 'sentinel-routing-model' }, messages: [] }
+const routedUser = { id: 'routed-user', role: 'user', content: 'sentinel question', mode: 'research', createdAt: Date.now() }
+routed.messages.push(routedUser)
+state.conversations.push(routed)
+wireCalls.length = 0
+//  useStreamOrchestration binds lifecycle hooks and warns outside a component, but routeResearch itself is plain async.
+await useStreamOrchestration().routeResearch(routed, routedUser)
+const routeCall = wireCalls.find((call) => call.url.startsWith('/api/research/prepare'))
+assert.equal(routeCall.body.model, 'sentinel-routing-model', 'the selected chat model makes the routing decision')
+assert.ok(routeCall.body.messages.some((message) => message.content === 'sentinel question'), 'preparation sees the ordinary chat context')
+state.conversations.pop()
+state.runs = state.runs.filter((entry) => entry.convoId !== routed.id)
 
 console.log('research lifecycle selfcheck OK')

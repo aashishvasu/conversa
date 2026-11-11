@@ -18,9 +18,10 @@ Call `watch_dir()` with a path. It fires on every change.
 """
 
 m = match_topic(doc, "watch a directory for changes", 2000)
-assert m.startswith("## Watching a directory"), m
-# HEADING_WEIGHT is what makes this hold: the preamble repeats every term more times, and loses on heading terms.
-assert "Library overview" not in m.split("\n")[0], m
+preamble, _, watching = split_sections(doc)
+# HEADING_WEIGHT is what makes this hold: the preamble repeats "watch" and "directory" more often in body text, and still loses to the section whose heading names them.
+assert preamble.count("watch") > watching.count("watch"), doc
+assert m == watching, m
 
 # An unmatched topic returns None so the caller falls back to the head of the document.
 assert match_topic(doc, "quantum chromodynamics", 2000) is None
@@ -38,6 +39,8 @@ assert len(split_sections("intro text\n\n# One\n\n# Two")) == 3
 flat = "\n\n".join(f"paragraph {i} " + "filler " * 60 for i in range(10))
 assert len(split_sections(flat)) > 1, "headingless text must still split"
 target = flat + "\n\nThe checkpoint starves when a reader never closes."
-assert "checkpoint starves" in match_topic(target, "checkpoint starvation", 1500)
+picked = match_topic(target, "checkpoint starvation", 1500)
+#  the planted sentence alone also passes when match_topic hands back the whole document. "paragraph 0" sits in a block with no topic term, so its absence is what proves selection ran.
+assert picked is not None and "checkpoint starves" in picked and "paragraph 0" not in picked, picked
 
 print("topic selfcheck OK")
