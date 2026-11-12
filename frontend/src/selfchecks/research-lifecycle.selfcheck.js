@@ -1,9 +1,10 @@
 // Run: node src/selfchecks/research-lifecycle.selfcheck.js.
 import assert from 'node:assert'
-import { applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, resumeWithCurrentModels } from '../research/lifecycle.js'
+import { acceptEvent, applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, replayPosition, resumeWithCurrentModels } from '../research/lifecycle.js'
 import { activeRunOf, finishRun, migrateRun, researchProvenanceHeader, validRun } from '../state/runs.js'
-import { state } from '../state/persistence.js'
-import { beginPreparation, cancelPreparation, getPreparationSignal, isPreparationCurrent, isPreparing, retryPreparation, startRun, tailRun } from '../research/coordinator.js'
+import { setLoaded, state } from '../state/persistence.js'
+import { streamResearch } from '../api/client.js'
+import { beginPreparation, cancelPreparation, getPreparationSignal, isPreparationCurrent, isPreparing, retryPreparation, startRun, syncActiveRuns, tailRun } from '../research/coordinator.js'
 import { useStreamOrchestration } from '../research/orchestration.js'
 
 const run = {
@@ -13,14 +14,14 @@ const run = {
 assert.equal(prepareReplacement(run, { code: 'no_such_run' }), true, 'a missing backend run enters persisted recovery')
 assert.equal(run.status, 'recovering')
 assert.equal(run.events.length, 1, 'recovery keeps replay state until the start response identifies a replacement')
-assert.equal(applyStart(run, { id: 'client-run', resumed: false, status: 'running', phase: 'plan' }), true)
+assert.equal(applyStart(run, { id: 'client-run', outcome: 'created', status: 'running', phase: 'plan' }), true)
 assert.deepEqual(run.events, [], 'a replacement backend run clears stale events')
 assert.equal(run.spend, null)
 
 const checkpointed = { serverId: 'run', checkpoint: 'old', prepared: { brief: { objective: 'objective', deliverable: 'report' } }, answers: {}, settings: { research_depth: 4, research_min_sources: 12, research_max_sources: 40, research_search_model: 's', research_note_model: 'n', research_report_model: 'r' } }
-applyStart(checkpointed, { id: 'run', resumed: true, status: 'running', phase: 'researching', checkpoint: 'new' })
+applyStart(checkpointed, { id: 'run', outcome: 'already_running', status: 'running', phase: 'researching', checkpoint: 'new' })
 assert.equal(checkpointed.checkpoint, 'new', 'start adopts a returned checkpoint')
-applyStart(checkpointed, { id: 'run', resumed: true, status: 'running', phase: 'researching' })
+applyStart(checkpointed, { id: 'run', outcome: 'already_running', status: 'running', phase: 'researching' })
 assert.equal(checkpointed.checkpoint, 'new', 'start preserves a checkpoint when the response omits it')
 const startBody = buildResearchStartBody(checkpointed)
 assert.equal(Object.hasOwn(startBody, 'settings'), false, 'research start does not send the redundant settings field')
@@ -40,7 +41,7 @@ resumeWithCurrentModels(checkpointed, {})
 assert.equal(buildResearchStartBody(checkpointed).restart_failed, true, 'explicit recovery reopens evidence-free failed tasks')
 
 const terminal = { id: 'client-run', serverId: 'client-run', status: 'starting', phase: '', events: [{ seq: 2 }], spend: { calls: 1 } }
-assert.equal(applyStart(terminal, { id: 'client-run', resumed: true, status: 'done', phase: 'done' }), false)
+assert.equal(applyStart(terminal, { id: 'client-run', outcome: 'already_finished', status: 'done', phase: 'done' }), false)
 assert.equal(terminal.status, 'done', 'a retained terminal backend run is collected instead of restarted')
 assert.equal(terminal.events.length, 1, 'a retained run keeps its replay position')
 assert.equal(prepareReplacement(terminal, new Error('not found')), false, 'only a machine-readable missing-run error restarts work')
@@ -179,5 +180,78 @@ assert.equal(routeCall.body.model, 'sentinel-routing-model', 'the selected chat 
 assert.ok(routeCall.body.messages.some((message) => message.content === 'sentinel question'), 'preparation sees the ordinary chat context')
 state.conversations.pop()
 state.runs = state.runs.filter((entry) => entry.convoId !== routed.id)
+
+assert.equal(replayPosition({ id: 'pos-run', events: [{ seq: 2 }, { seq: 7 }, { seq: 5 }] }), 7, 'a stored run reconnects after its highest seq')
+assert.equal(replayPosition({ id: 'pos-legacy', events: [{}, {}, {}] }), 3, 'stored events without seq fall back to their count')
+
+const recreated = { id: 'recreated-run', serverId: 'recreated-run', status: 'recovering', events: [{ seq: 9 }], checkpoint: 'cp', spend: { calls: 3 }, spendLedgered: true }
+acceptEvent(recreated, { seq: 12, kind: 'phase' })
+applyStart(recreated, { id: 'recreated-run', outcome: 'resumed_from_checkpoint', resumed: true, status: 'running', phase: 'plan' })
+assert.deepEqual(recreated.events, [], 'a checkpoint resume on a new server log drops the old events')
+assert.equal(replayPosition(recreated), 0, 'a checkpoint resume restarts the replay position')
+const reattached = { id: 'reattached-run', serverId: 'reattached-run', status: 'running', events: [{ seq: 9 }] }
+applyStart(reattached, { id: 'reattached-run', outcome: 'already_running', resumed: true, status: 'running', phase: 'plan' })
+assert.equal(replayPosition(reattached), 9, 'reattaching to a running server log keeps the replay position')
+
+function sseResponse(frames) {
+  return new Response(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(''), { status: 200 })
+}
+const serverLog = [{ seq: 1, kind: 'phase', phase: 'gather' }, { seq: 2, kind: 'wave', wave: 1 }, { seq: 3, kind: 'checkpoint', checkpoint: 'cp-sentinel' }, { seq: 4, kind: 'phase', phase: 'verify' }]
+const streamAfters = []
+globalThis.fetch = async (url) => {
+  const href = String(url)
+  if (href.includes('/stream')) {
+    streamAfters.push(Number(new URL(href, 'http://local').searchParams.get('after')))
+    // The second connection ignores the cursor and replays everything, so only client-side dedup keeps events single.
+    return sseResponse(streamAfters.length === 1 ? serverLog : [...serverLog, { kind: 'final', status: 'cancelled', phase: 'verify', payload: null }])
+  }
+  return new Response('{}', { status: 200 })
+}
+const replayed = { id: 'replay-run', serverId: 'replay-run', status: 'running', phase: '', events: [], spend: null, spendLedgered: true }
+await tailRun(replayed)
+assert.equal(replayed.events.filter((event) => event.kind === 'wave').length, 1, 'a reconnect after phase and checkpoint events applies no event twice')
+assert.equal(streamAfters[1], 4, 'a reconnect within the session resumes after the last phase or checkpoint seq')
+assert.equal(replayed.checkpoint, 'cp-sentinel')
+
+globalThis.fetch = async () => sseResponse([{ seq: 1, kind: 'a' }, { seq: 2, kind: 'b' }])
+const handled = []
+await streamResearch('await-run', 0, async (frame) => {
+  await new Promise((resolve) => realSetTimeout(resolve, 5))
+  handled.push(frame.kind)
+})
+assert.deepEqual(handled, ['a', 'b'], 'the stream awaits each async event callback in order before it resolves')
+await assert.rejects(streamResearch('await-run', 0, async () => { throw new Error('sentinel callback failure') }), /sentinel callback failure/, 'an async callback failure fails the stream')
+
+const ackCalls = []
+let ackStatus = 500
+globalThis.fetch = async (url) => {
+  ackCalls.push(String(url))
+  return new Response('{}', { status: ackStatus })
+}
+const pendingAck = { id: 'ack-run', serverId: 'ack-server', status: 'done', events: [], ackPending: true }
+const settled = { id: 'settled-run', serverId: 'settled-server', status: 'done', events: [] }
+const flush = () => new Promise((resolve) => realSetTimeout(resolve, 20))
+syncActiveRuns([pendingAck, settled])
+await flush()
+assert.equal(pendingAck.ackPending, true, 'a failed ack keeps the pending marker for the next sync')
+ackStatus = 404
+ackCalls.length = 0
+syncActiveRuns([pendingAck, settled])
+await flush()
+assert.equal(pendingAck.ackPending, undefined, 'an ack the server answers, even with 404, clears the pending marker')
+assert.ok(ackCalls.some((call) => call.includes('/ack-server/ack')), 'sync retries a pending ack')
+assert.ok(!ackCalls.some((call) => call.includes('settled-server')), 'a finished run without a pending ack triggers no ack call')
+
+const unsaved = { id: 'unsaved-run', serverId: 'unsaved-server', status: 'done', events: [], ackPending: true }
+ackCalls.length = 0
+setLoaded(true)
+try {
+  syncActiveRuns([unsaved])
+  await flush()
+} finally {
+  setLoaded(false)
+}
+assert.equal(unsaved.ackPending, true, 'a run whose result was not saved keeps its pending ack')
+assert.ok(!ackCalls.some((call) => call.includes('unsaved-server')), 'a run is never acknowledged before its result is saved')
 
 console.log('research lifecycle selfcheck OK')
