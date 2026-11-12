@@ -21,6 +21,10 @@ standards/
 CLAUDE.md
 AGENTS.md
 .mcp.json
+
 # Playwright CLI state and output (may contain credentials)
 .playwright/
 .playwright-cli/
+
+# Generated data
+backend/data
