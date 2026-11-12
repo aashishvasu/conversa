@@ -16,7 +16,7 @@ Technical reference for conversa. See the [README](README.md) for the product ov
 Browser (Vue, IndexedDB)  --HTTPS/SSE-->  FastAPI  --streaming-->  model providers
 ```
 
-The browser owns conversations, templates, workspaces, documents, images, research records, settings, and usage. The backend owns provider access, public-page fetching, and active research and transfer work. Provider API keys come from server configuration.
+The browser owns conversations, templates, workspaces, documents, images, research records, settings, and usage. The backend owns provider access, public-page fetching, chat streams, active research, and transfer work. Provider API keys come from server configuration.
 
 ## Backend
 
@@ -30,18 +30,21 @@ The browser owns conversations, templates, workspaces, documents, images, resear
 | `POST` | `/api/refresh` | Replaces a valid token. |
 | `GET` | `/api/settings` | Returns global defaults and configuration errors. |
 | `GET` | `/api/models` | Returns configured models as `{id, label, provider, supports_cache}`. |
-| `POST` | `/api/chat` | Streams model output, tool traces, usage, and completion frames. |
+| `POST` | `/api/chat` | Starts or attaches to a browser-named chat turn and streams its frames. |
+| `GET` | `/api/chat/{turn_id}/stream` | Replays a chat turn and continues with live frames. |
+| `DELETE` | `/api/chat/{turn_id}` | Cancels and forgets a chat turn, or acknowledges a collected reply. |
 | `POST` | `/api/research/prepare` | Routes a request to chat or returns a structured research brief. |
 | `POST` | `/api/research` | Starts or resumes a browser-named research run. |
 | `GET` | `/api/research/{id}` | Returns current run state. |
 | `GET` | `/api/research/{id}/stream` | Replays events after `?after=<seq>` and tails the run. |
 | `DELETE` | `/api/research/{id}` | Cancels a run. |
+| `POST` | `/api/research/{id}/ack` | Removes a collected terminal run. |
 | `POST` | `/api/transfers` | Stores a conversation or snapshot export for transfer. |
 | `POST` | `/api/transfers/retrieve` | Returns the payload for a live transfer phrase. |
 
 `backend/api/auth.py` handles bearer-token validation. Every route except `/api/login` requires a token carrying `exp`. A 401 clears client authentication. `CORS_ORIGINS` allows the separate Vite origin during development. `LOGIN_RATE_LIMIT` defaults to `5/minute`; the counter is per worker because it lives in process memory. Production serves the SPA and API from one origin.
 
-`backend/api/chat.py` validates chat input, resolves enabled tools once per turn, and streams provider frames. A chat turn can make several provider calls; its final `usage` frame sums tokens, cost, and call count. List-valued `system` content represents stable and volatile blocks. Anthropic can cache the stable block; other dialects join the blocks.
+`backend/api/chat.py` validates chat input, resolves enabled tools once per turn, and runs provider generation independently of its streaming response. A browser-named turn can be reattached to replay its frames, and is removed after collection, expiry, or cancellation. A chat turn can make several provider calls; its final `usage` frame sums tokens, cost, and call count. List-valued `system` content represents stable and volatile blocks. Anthropic can cache the stable block; other dialects join the blocks.
 
 ### Providers
 
@@ -79,7 +82,7 @@ When a local web tool is unavailable, `providers/chat.py` can use the selected m
 | Module | Responsibility |
 |--------|----------------|
 | `backend/api/research.py` | Preparation and run endpoints, event streaming, cancellation, and run limits. |
-| `backend/research/runs.py` | Iterative task frontier, coordinator, budgets, breakers, and terminal results. |
+| `backend/research/runs.py` | Iterative task frontier, coordinator, budgets, breakers, terminal results, and registry-backed runs. |
 | `backend/research/gather.py` | Query generation, candidate selection, page reads, and evidence notes. |
 | `backend/research/report.py` | Report sections, citation validation, and support verification. |
 | `backend/research/state.py` | Checkpoint and run-state representation. |
@@ -89,7 +92,18 @@ Preparation uses the conversation's effective chat model. It either returns `ans
 
 The browser creates and persists a run id, original input, brief, answers, settings, and checkpoint before starting work. Reusing the id is idempotent. A backend restart can recreate work from the browser checkpoint without replaying completed operations. One active run blocks new sends in its conversation. A run can finish `done`, `partial`, or with an error; both report-bearing terminal states save a document.
 
+Research runs use the shared stream registry and event log. The browser reconnects from the highest observed event sequence and ignores duplicates. It retries acknowledgement of a saved terminal result until the server removes it. A recreated run starts a new event sequence; a restarted run continues the existing one.
+
 Gathering runs bounded waves of tasks. The coordinator updates coverage and can redirect work to verify contradictions. Source, task, call, wave, and elapsed-time limits bound the run; defaults live in `backend/research/runs.py` and `backend/api/research.py`. Provider authentication, credit, and invalid-model failures end the run. Fetch failures remain source-local. Report generation rejects unknown evidence ids and performs one report-wide support check.
+
+### Streams
+
+| Module | Responsibility |
+|--------|----------------|
+| `backend/streams/log.py` | `EventLog`: an append-only event list whose tails replay from a sequence number and wake on each append. |
+| `backend/streams/registry.py` | `Registry`: detached tasks keyed by caller-chosen ids, with cancellation, restart on the same log, and eviction of finished streams. |
+
+A stream is one detached `asyncio` task plus its `EventLog`. Starting an existing id returns the existing stream without running the producer again. The registry records `done`, `error` (with the exception), or `cancelled` and closes the log only after the producer has unwound, so a producer can append final events while handling cancellation. Turning an exception into an event is the caller's job. `restart` reopens a finished stream's log and continues its sequence numbers. Readers call `tail(after, idle)`, which yields every event after `after`, yields `(None, None)` after `idle` silent seconds for keepalives, and ends when the log is closed and drained. Disconnecting a reader does not affect the producer or other readers. Finished streams are evicted after the registry's TTL and beyond its `max_finished` cap, oldest first; running streams are never evicted. Streams live in one process's memory and do not survive a restart, so the server runs as a single worker. The package does not import from `api/`, `providers/`, or `research/`.
 
 ### Transfers
 
@@ -163,16 +177,17 @@ Documents are removed after their final conversation or workspace reference is r
 | `state/runs.js`, `usage.js` | Browser research records, finalization, and usage accounting. |
 | `state/settings.js` | Global defaults, per-conversation overrides, and enabled-tool allowlists. |
 | `prompt/` | Request assembly, cards, artifacts, and research preparation input. |
-| `research/orchestration.js`, `lifecycle.js`, `coordinator.js` | Preparation routing, stream lifecycle, and research coordination. |
+| `chat/` | Chat turn frame handling, reconnection, and lifecycle coordination. |
+| `research/orchestration.js`, `lifecycle.js`, `coordinator.js` | Chat request assembly, preparation routing, research lifecycle, replay position, and acknowledgement. |
 | `jobs/` | Memory summaries, titles, and shared utility-model calls. |
 | `views/ChatPane.vue`, `views/Sidebar.vue`, `views/UsagePane.vue` | Main chat, navigation, and usage screens. |
 | `components/` | Message display, settings, context panels, documents, research, notifications, and transfers. |
-| `composables/` | Image attachment, auto-scroll, textarea sizing, and stream guard logic. |
+| `composables/` | Image attachment, auto-scroll, textarea sizing, and chat stream visibility handling. |
 | `utils/` | Markdown, formatting, preferences, confirmation, notifications, themes, and transfer phrases. |
 | `i18n/index.js`, `locales/` | EFIGS interface strings and locale setup. |
 | `styles/style.css` | Theme tokens and shared styles. |
 
-Tool evidence moves from backend artifact frames to assistant-message `artifacts` in `research/orchestration.js`. `prompt/artifacts.js` serializes evidence into later model context and adds the trust instruction when evidence is present. Memory and recall retain the evidence with its message. Editing an assistant message's text or role clears its artifacts; cancelling an edit keeps them.
+Tool evidence moves from backend artifact frames to assistant-message `artifacts` through the chat turn coordinator. `prompt/artifacts.js` serializes evidence into later model context and adds the trust instruction when evidence is present. Memory and recall retain the evidence with its message. Editing an assistant message's text or role clears its artifacts; cancelling an edit keeps them.
 
 `jobs/memory.js` refreshes the summary after assistant replies. It summarizes `summarize_n` turns above the send window and records the covered message count; the request builder sends later turns verbatim.
 
@@ -223,8 +238,6 @@ backend\.venv\Scripts\python.exe tools\settings-drift.py
 ```
 
 The full check runs frontend locale lint and selfchecks, backend selfchecks, then the production frontend build. The selfchecks are split by owning module under `frontend/src/selfchecks/` and `backend/selfchecks/`.
-
-The wake-lock and stall-watchdog check requires a browser: start a streamed reply, background the tab for more than one minute, then return. The partial reply remains and the composer is idle.
 
 ## Container
 
