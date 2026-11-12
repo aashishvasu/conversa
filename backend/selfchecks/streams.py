@@ -55,6 +55,16 @@ async def replay_checks():
         raise AssertionError("append after close must fail")
 
 
+async def supplied_log_checks():
+    registry = Registry(ttl_seconds=60)
+    log = EventLog()
+    log.append({"seed": True})
+    stream, _ = registry.start("seeded", gated_producer(1), log=log)
+    await finished(stream)
+    events = [event for _, event in await collect(stream.log)]
+    assert events == [{"seed": True}, {"n": 0}]
+    assert stream.log.since(1) == events[1:]
+
 async def abandoned_tail_checks():
     registry = Registry(ttl_seconds=60)
     gate = asyncio.Event()
@@ -234,6 +244,7 @@ async def restart_checks():
 
 async def main():
     await replay_checks()
+    await supplied_log_checks()
     await abandoned_tail_checks()
     await wakeup_ordering_checks()
     await idle_checks()

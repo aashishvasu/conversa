@@ -29,12 +29,12 @@ class Registry:
         self._now = now
         self._streams: dict[str, Stream] = {}
 
-    def start(self, stream_id: str, produce: Producer, owner: Any = None) -> tuple[Stream, bool]:
+    def start(self, stream_id: str, produce: Producer, owner: Any = None, log: EventLog | None = None) -> tuple[Stream, bool]:
         self.evict()
         existing = self._streams.get(stream_id)
         if existing is not None:
             return existing, False
-        stream = Stream(id=stream_id, owner=owner)
+        stream = Stream(id=stream_id, owner=owner, log=log if log is not None else EventLog())
         self._streams[stream_id] = stream
         self._launch(stream, produce)
         return stream, True

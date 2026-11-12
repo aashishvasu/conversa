@@ -1,5 +1,5 @@
 import { ackResearch, discardResearch, prepareResearch, startResearch, streamResearch } from '../api/client.js'
-import { applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, resumeWithCurrentModels } from './lifecycle.js'
+import { acceptEvent, applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, replayPosition, resumeWithCurrentModels } from './lifecycle.js'
 import { finishRun } from '../state/runs.js'
 import { persistNow, state } from '../state/persistence.js'
 import { effectiveSettings } from '../state/settings.js'
@@ -57,9 +57,7 @@ export async function startRun(run, answers = null) {
     const body = buildResearchStartBody(run)
     const result = await startResearch(body)
     if (['done', 'partial'].includes(result.status)) {
-      finishRun(run, result)
-      await persistNow()
-      await ackResearch(run.serverId)
+      await finishAndAck(run, result)
       return true
     }
     applyStart(run, result)
@@ -71,6 +69,20 @@ export async function startRun(run, answers = null) {
     await persistNow()
     return false
   }
+}
+
+// ackPending survives a failed ack so syncActiveRuns() can retry it; a stored run without it needs nothing.
+async function finishAndAck(run, frame) {
+  finishRun(run, frame)
+  run.ackPending = true
+  await ackRun(run)
+}
+
+async function ackRun(run) {
+  if ((await persistNow()) === false) return
+  if (!(await ackResearch(run.serverId))) return
+  delete run.ackPending
+  await persistNow()
 }
 
 export async function tailRun(run) {
@@ -85,7 +97,8 @@ export async function tailRun(run) {
   try {
     while (!controller.signal.aborted && ['starting', 'running', 'recovering'].includes(run.status)) {
       try {
-        await streamResearch(run.serverId, run.events.length, async (data) => {
+        await streamResearch(run.serverId, replayPosition(run), async (data) => {
+          if (!acceptEvent(run, data)) return
           if (data.spend) run.spend = data.spend
           if (data.kind === 'tick') {
             run.phase = data.phase
@@ -100,9 +113,7 @@ export async function tailRun(run) {
             return
           }
           if (data.kind === 'final') {
-            finishRun(run, data)
-            await persistNow()
-            await ackResearch(run.serverId)
+            await finishAndAck(run, data)
             return
           }
           run.events.push(data)
@@ -195,7 +206,9 @@ export async function retryPreparation(run, convo, onAnswer) {
 export function syncActiveRuns(runs = state.runs) {
   if (!Array.isArray(runs)) return
   for (const run of runs) {
-    if (run.status === 'starting' && !run.prepared?.brief?.questions?.length) {
+    if (run.ackPending) {
+      void ackRun(run)
+    } else if (run.status === 'starting' && !run.prepared?.brief?.questions?.length) {
       void startRun(run)
     } else if (['running', 'recovering'].includes(run.status)) {
       void tailRun(run)

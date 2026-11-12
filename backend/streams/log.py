@@ -17,6 +17,9 @@ class EventLog:
     def __len__(self) -> int:
         return len(self._events)
 
+    def since(self, after: int = 0) -> list[dict]:
+        return self._events[after:]
+
     @property
     def closed(self) -> bool:
         return self._closed

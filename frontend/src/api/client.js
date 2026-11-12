@@ -146,7 +146,7 @@ export async function fetchSystemPreview(payload, signal) {
   return (await res.json()).system
 }
 
-// Read an SSE body, calling onEvent with each decoded frame.
+// Read an SSE body, calling onEvent with each decoded frame and awaiting it before the next.
 // Both server streams frame the same way.
 async function readSSE(res, onEvent) {
   const reader = res.body.getReader()
@@ -160,7 +160,7 @@ async function readSSE(res, onEvent) {
     while ((idx = buf.indexOf('\n\n')) >= 0) {
       const line = buf.slice(0, idx)
       buf = buf.slice(idx + 2)
-      if (line.startsWith('data: ')) onEvent(JSON.parse(line.slice(6)))
+      if (line.startsWith('data: ')) await onEvent(JSON.parse(line.slice(6)))
     }
   }
 }
@@ -201,12 +201,14 @@ export async function fetchResearchState(id, after = 0) {
   return (await check(res)).json()
 }
 
+// Resolves true once the server no longer holds the run, which includes a run it already forgot.
 export async function ackResearch(id) {
   try {
     const res = await fetch(`/api/research/${id}/ack`, { method: 'POST', headers: authHeaders(false) })
-    return (await check(res)).json()
+    if (res.status !== 404) await check(res)
+    return true
   } catch {
-    return null
+    return false
   }
 }
 

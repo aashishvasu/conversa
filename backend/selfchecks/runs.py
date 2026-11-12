@@ -3,13 +3,13 @@
 import asyncio
 import json
 import time
-from contextlib import suppress
+from collections import defaultdict
 
 from research import gather as g
 from research import parsing
 from research import report
 from research import runs as r
-from research.runs import RUNS, Run
+from research.runs import Run
 from research.state import empty_state, validate_checkpoint
 
 
@@ -63,7 +63,7 @@ async def workflow_checks():
         r.MIN_EVIDENCE = old_min
         g.search, g._page, g.note, g.complete, r.complete, report.complete = real
     assert run.status == "done", (run.status, run.error)
-    checkpoint_events = [event for event in run.events if event["kind"] == "checkpoint"]
+    checkpoint_events = [event for event in run.events.since() if event["kind"] == "checkpoint"]
     assert checkpoint_events and all(isinstance(event["checkpoint"], dict) for event in checkpoint_events)
     resume_data = checkpoint_events[0]["checkpoint"]
     resume_data["frontier"][0]["status"] = "running"
@@ -90,7 +90,7 @@ async def workflow_checks():
     worker_excerpt = worker_context["known_findings"][0]["excerpt"]
     assert 0 < len(worker_excerpt) < len(run.evidence[0]["excerpt"]) and run.evidence[0]["excerpt"].startswith(worker_excerpt), "worker context truncates a long excerpt to a bounded prefix"
     assert run.data["budgets"]["calls"] == run.prior_calls + run.spend.calls + run.data["budgets"].get("fallback_calls", 0)
-    assert any(event["kind"] == "source_reused" for event in run.events), "run-wide URL reuse is visible"
+    assert any(event["kind"] == "source_reused" for event in run.events.since()), "run-wide URL reuse is visible"
 
 
 async def breaker_and_resume_checks():
@@ -117,7 +117,7 @@ async def breaker_and_resume_checks():
     finally:
         g.search, g.complete, r.complete, report.complete = real
     assert run.status == "error" and run.error is not None and "no evidence" in run.error
-    assert any(event["kind"] == "breaker" for event in run.events)
+    assert any(event["kind"] == "breaker" for event in run.events.since())
     assert run.data["breakers"], "breaker history must survive in checkpoints"
 
     r.complete, report.complete = complete, complete
@@ -149,32 +149,102 @@ else:
 source = {"id": "S1", "url": "https://example.test/page"}
 assert report.compile_links("claim [E1]", {"E1": source}) == "claim [E1](https://example.test/page)"
 
-# Retention, ack, and revision checks
-mock_run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
-mock_run.status = "done"
-mock_run.finished_at = 100.0
-r.RUNS[mock_run.id] = mock_run
-assert mock_run.state()["revision"] == 0
-assert not r.ack("nonexistent")
-active_run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
-r.RUNS[active_run.id] = active_run
-assert not r.ack(active_run.id), "active run cannot be acked"
-assert r.ack(mock_run.id)
-assert mock_run.id not in r.RUNS
-r.RUNS[active_run.id] = active_run
-r.forget(active_run.id)
+# Registry lifecycle through the public run API, with a scripted producer in place of _run.
+async def registry_checks():
+    models = {"search": "m", "note": "m", "report": "m"}
+    steps = defaultdict(asyncio.Queue)
 
-old_ttl = r.FINISHED_TTL
-try:
-    r.FINISHED_TTL = 10
-    stale_run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
-    stale_run.status = "done"
-    stale_run.finished_at = 50.0
-    r.RUNS[stale_run.id] = stale_run
-    r.evict()
-    assert stale_run.id not in r.RUNS, "stale finished runs must be evicted past TTL"
-finally:
-    r.FINISHED_TTL = old_ttl
+    async def scripted(run):
+        try:
+            while (step := await steps[run.id].get()) not in ("done", "error"):
+                run.emit(step)
+            run.status = step
+            run.error = "scripted failure" if step == "error" else None
+        finally:
+            run.finished_at = time.time()
+            run.task = None
+
+    async def settle(run, step):
+        task = run.task
+        assert isinstance(task, asyncio.Task), "a started run carries its producer task"
+        steps[run.id].put_nowait(step)
+        await task
+
+    real_run, real_limit, real_ttl = r._run, r.MAX_ACTIVE_RUNS, r.RUNS.ttl_seconds
+    r._run = scripted
+    try:
+        run, outcome = r.start(brief(), models, run_id="registry-finish")
+        assert outcome == "created" and r.get(run.id) is run
+        assert not await r.ack("nonexistent")
+        assert not await r.ack(run.id), "active run cannot be acked"
+        assert r.start(brief(), models, run_id=run.id) == (run, "already_running")
+        await settle(run, "done")
+        assert run.status == "done" and run.state()["revision"] == 0
+        assert r.start(brief(), models, run_id=run.id) == (run, "already_finished")
+        assert await r.ack(run.id) and r.get(run.id) is None
+
+        busy, _ = r.start(brief(), models, run_id="registry-forget")
+        busy_task = busy.task
+        assert isinstance(busy_task, asyncio.Task)
+        await r.forget(busy.id)
+        assert r.get(busy.id) is None and busy_task.cancelled(), "forget cancels the producer and drops the run"
+
+        r.RUNS.ttl_seconds = 3600
+        stale, _ = r.start(brief(), models, run_id="registry-stale")
+        await settle(stale, "done")
+        assert r.get(stale.id) is stale, "a finished run inside the TTL stays readable"
+        r.RUNS.ttl_seconds = -1
+        assert r.get(stale.id) is None, "a finished run past the TTL is evicted"
+        r.RUNS.ttl_seconds = real_ttl
+
+        failed, _ = r.start(brief(), models, run_id="registry-restart")
+        await settle(failed, "error")
+        assert failed.status == "error"
+        r.MAX_ACTIVE_RUNS = 1
+        blocker, _ = r.start(brief(), models, run_id="registry-blocker")
+        events_before = len(failed.events)
+        try:
+            r.start(brief(), models, run_id=failed.id)
+        except r.RunLimitError:
+            pass
+        else:
+            raise AssertionError("restarting an errored run must respect the active-run limit")
+        assert failed.status == "error" and failed.task is None and len(failed.events) == events_before, "a refused restart leaves the errored run untouched"
+        await r.forget(blocker.id)
+        restarted, outcome = r.start(brief(), models, run_id=failed.id)
+        assert restarted is failed and outcome == "restarted" and failed.status == "running"
+        await settle(failed, "done")
+        assert failed.status == "done", "the restarted producer runs to completion"
+        await r.forget(failed.id)
+
+        live, _ = r.start(brief(), models, run_id="registry-tail")
+        stream = r.RUNS.get(live.id)
+        assert stream is not None and stream.owner is live
+        after = len(live.events)
+        arrived = asyncio.Event()
+
+        async def reader():
+            async for _seq, event in stream.log.tail(after):
+                if event and event["kind"] == "probe":
+                    arrived.set()
+                    return
+
+        reader_task = asyncio.create_task(reader())
+        await asyncio.sleep(0)
+        assert not reader_task.done(), "the reader waits on the live log"
+        steps[live.id].put_nowait("probe")
+        await asyncio.wait_for(arrived.wait(), 1)
+        assert [event["kind"] for event in live.events.since(after)] == ["probe"], "the waiting tail sees the event before the producer emits again"
+        await settle(live, "done")
+        await reader_task
+        await r.forget(live.id)
+    finally:
+        r._run, r.MAX_ACTIVE_RUNS, r.RUNS.ttl_seconds = real_run, real_limit, real_ttl
+        for run_id in list(steps):
+            await r.forget(run_id)
+
+
+asyncio.run(registry_checks())
 
 # Coverage gate: premature finish converts to continue once, then passes.
 gate_run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
@@ -182,7 +252,7 @@ gate_run.evidence.append({"id": "E1", "source_id": "S1", "question": "unrelated 
 finish = {"action": "finish", "resolve": [], "prune": [], "add": [], "merge": [], "gaps": []}
 gated = r._coverage_gate(gate_run, finish)
 assert gated["action"] == "continue" and gated["gaps"] and gate_run.data["budgets"]["coverage_override"]
-assert any(event["kind"] == "breaker" and event.get("branch") == "coverage" for event in gate_run.events)
+assert any(event["kind"] == "breaker" and event.get("branch") == "coverage" for event in gate_run.events.since())
 assert r._coverage_gate(gate_run, finish)["action"] == "finish", "one override per run"
 old_min = r.MIN_EVIDENCE
 r.MIN_EVIDENCE = 1
@@ -200,19 +270,7 @@ gist = payload["evidence"][0]["gist"]
 assert 0 < len(gist) < len(gate_run.evidence[0]["excerpt"]) and gate_run.evidence[0]["excerpt"].startswith(gist), "coordinator gists truncate long evidence to a bounded prefix"
 assert isinstance(payload["exhausted_queries"], list) and isinstance(payload["scope_coverage"], dict)
 
-# Outcome strings for terminal and active runs.
 models = {"search": "m", "note": "m", "report": "m"}
-finished_run = Run(brief(), models, depth=1)
-finished_run.status = "done"
-finished_run.finished_at = time.time()
-r.RUNS[finished_run.id] = finished_run
-assert r.start(brief(), models, run_id=finished_run.id)[1] == "already_finished"
-busy_run = Run(brief(), models, depth=1)
-busy_run.status = "running"
-r.RUNS[busy_run.id] = busy_run
-assert r.start(brief(), models, run_id=busy_run.id)[1] == "already_running"
-r.forget(finished_run.id)
-r.forget(busy_run.id)
 
 # Budget derivation and coverage gate with min/max sources
 budget_run = Run(brief(), models, depth=3, min_sources=15, max_sources=50)

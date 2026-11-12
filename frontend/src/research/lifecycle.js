@@ -3,10 +3,32 @@ export function isNoSuchRun(error) {
   return error?.code === 'no_such_run'
 }
 
+// Highest seq applied this page session, per run id.
+// phase and checkpoint events are applied without being stored, so the stored events alone lag behind the server log.
+const seenSeqs = new Map()
+
+export function replayPosition(run) {
+  const stored = run.events.reduce((high, event) => (typeof event.seq === 'number' && event.seq > high ? event.seq : high), 0)
+  const fromEvents = stored || run.events.length
+  return Math.max(fromEvents, seenSeqs.get(run.id) ?? 0)
+}
+
+// Returns false for a replayed event the run already applied. Frames without a seq (tick, final) are always accepted.
+export function acceptEvent(run, event) {
+  if (typeof event.seq !== 'number') return true
+  if (event.seq <= replayPosition(run)) return false
+  seenSeqs.set(run.id, event.seq)
+  return true
+}
+
+// created and resumed_from_checkpoint start a new server log at seq 1; the other outcomes continue the existing one.
 export function applyStart(run, result) {
-  const reset = !result.resumed
+  const freshLog = ['created', 'resumed_from_checkpoint'].includes(result.outcome)
+  const fresh = result.outcome === 'created'
+  if (freshLog) seenSeqs.delete(run.id)
   Object.assign(run, {
-    ...(reset ? { events: [], payload: null, spend: null, spendLedgered: false } : {}),
+    ...(freshLog ? { events: [] } : {}),
+    ...(fresh ? { payload: null, spend: null, spendLedgered: false } : {}),
     ...(result.checkpoint !== undefined ? { checkpoint: result.checkpoint } : {}),
     ...(result.payload !== undefined && result.payload !== null ? { payload: result.payload } : {}),
     retryFailed: false,
@@ -16,7 +38,7 @@ export function applyStart(run, result) {
     error: null,
     updatedAt: Date.now(),
   })
-  return reset
+  return freshLog
 }
 
 export function buildResearchStartBody(current) {
