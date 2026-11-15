@@ -1,5 +1,6 @@
 import { ackResearch, discardResearch, prepareResearch, startResearch, streamResearch } from '../api/client.js'
 import { acceptEvent, applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, replayPosition, resumeWithCurrentModels } from './lifecycle.js'
+import { CHECKPOINT_MS } from '../chat/coordinator.js'
 import { finishRun } from '../state/runs.js'
 import { persistNow, state } from '../state/persistence.js'
 import { effectiveSettings } from '../state/settings.js'
@@ -7,7 +8,24 @@ import { effectiveSettings } from '../state/settings.js'
 const controllers = new Map()
 const activeTails = new Set()
 const preparations = new Map()
+const drains = new Map()
 const MAX_STREAM_RETRIES = 5
+
+// Interval drains are throttled in a hidden tab, and the teardown flush can only save what has reached the watched state. drainAll persists on its own, so it does not matter whether the teardown flush's listener runs before or after it.
+function drainAll() {
+  for (const drain of drains.values()) drain()
+  void persistNow()
+}
+
+let drainFlushInstalled = false
+function installDrainFlush() {
+  if (drainFlushInstalled) return
+  drainFlushInstalled = true
+  globalThis.addEventListener?.('pagehide', drainAll)
+  globalThis.document?.addEventListener('visibilitychange', () => {
+    if (globalThis.document.visibilityState === 'hidden') drainAll()
+  })
+}
 
 export function beginPreparation(convoId) {
   const existing = preparations.get(convoId)
@@ -88,10 +106,35 @@ async function ackRun(run) {
 export async function tailRun(run) {
   if (!run?.serverId || activeTails.has(run.id)) return
   if (!['starting', 'running', 'recovering'].includes(run.status)) return
+  installDrainFlush()
   activeTails.add(run.id)
   controllers.get(run.id)?.abort()
   const controller = new AbortController()
   controllers.set(run.id, controller)
+
+  // Stream data lands in plain locals; only the checkpoint drain mutates the watched run, so a long tail dirties and serializes the runs collection once per interval, not once per event.
+  const buffer = []
+  const pending = {}
+  const drain = () => {
+    if (buffer.length) {
+      run.events.push(...buffer)
+      buffer.length = 0
+    }
+    if ('phase' in pending) {
+      run.phase = pending.phase
+      delete pending.phase
+    }
+    if ('checkpoint' in pending) {
+      run.checkpoint = pending.checkpoint
+      delete pending.checkpoint
+    }
+    if ('spend' in pending) {
+      run.spend = pending.spend
+      delete pending.spend
+    }
+  }
+  drains.set(run.id, drain)
+  const checkpointTimer = setInterval(drain, CHECKPOINT_MS)
 
   let failures = 0
   try {
@@ -99,29 +142,27 @@ export async function tailRun(run) {
       try {
         await streamResearch(run.serverId, replayPosition(run), async (data) => {
           if (!acceptEvent(run, data)) return
-          if (data.spend) run.spend = data.spend
-          if (data.kind === 'tick') {
-            run.phase = data.phase
-            return
-          }
-          if (data.kind === 'phase') {
-            run.phase = data.phase
+          if (data.spend) pending.spend = data.spend
+          if (data.kind === 'tick' || data.kind === 'phase') {
+            pending.phase = data.phase
             return
           }
           if (data.kind === 'checkpoint') {
-            run.checkpoint = data.checkpoint
+            pending.checkpoint = data.checkpoint
             return
           }
           if (data.kind === 'final') {
+            // Terminal frames gate finishRun's rule that the backend run is only forgotten after its report is the app's, so they drain and persist eagerly instead of at cadence.
+            drain()
             await finishAndAck(run, data)
             return
           }
-          run.events.push(data)
-          if (data.seq) await persistNow()
+          buffer.push(data)
         }, controller.signal)
 
         if (run.status !== 'running') break
       } catch (streamError) {
+        drain()
         if (controller.signal.aborted) break
         if (prepareReplacement(run, streamError)) {
           await persistNow()
@@ -148,6 +189,9 @@ export async function tailRun(run) {
       }
     }
   } finally {
+    clearInterval(checkpointTimer)
+    drain()
+    drains.delete(run.id)
     activeTails.delete(run.id)
     if (controllers.get(run.id) === controller) controllers.delete(run.id)
   }
@@ -160,6 +204,8 @@ export async function stopRun(run) {
   try {
     await discardResearch(run.serverId)
   } catch {}
+  // Synchronous drain: the abort path's own drains race this write, and a cancel must store what the throttle held.
+  drains.get(run.id)?.()
   applyCancel(run)
   await persistNow()
 }

@@ -141,7 +141,7 @@ Pinned turns precede the send window, are deduplicated, and bypass `num_messages
 
 ### State and persistence
 
-`frontend/src/state/persistence.js` owns the shared reactive state, IndexedDB keys, and debounced writes. `state/store.js` is the public facade; it owns global settings, model cache, and `initStore()`. User-owned records are exported. The model cache is server-owned and refetched after login; authentication tokens are not part of snapshots.
+`frontend/src/state/persistence.js` owns the shared reactive state, IndexedDB keys, and debounced writes, which also flush best-effort on `pagehide` and whenever the document turns `hidden`; the browser does not guarantee asynchronous IndexedDB writes commit during teardown. `state/store.js` is the public facade; it owns global settings, model cache, and `initStore()`. User-owned records are exported. The model cache is server-owned and refetched after login; authentication tokens are not part of snapshots.
 
 | Record | Shape and ownership |
 |--------|---------------------|
@@ -183,11 +183,11 @@ Documents are removed after their final conversation or workspace reference is r
 | `views/ChatPane.vue`, `views/Sidebar.vue`, `views/UsagePane.vue` | Main chat, navigation, and usage screens. |
 | `components/` | Message display, settings, context panels, documents, research, notifications, and transfers. |
 | `composables/` | Image attachment, auto-scroll, textarea sizing, and chat stream visibility handling. |
-| `utils/` | Markdown, formatting, preferences, confirmation, notifications, themes, and transfer phrases. |
+| `utils/` | Markdown, formatting, preferences, confirmation, notifications, themes, transfer phrases, and the service worker. |
 | `i18n/index.js`, `locales/` | EFIGS interface strings and locale setup. |
 | `styles/style.css` | Theme tokens and shared styles. |
 
-Tool evidence moves from backend artifact frames to assistant-message `artifacts` through the chat turn coordinator. `prompt/artifacts.js` serializes evidence into later model context and adds the trust instruction when evidence is present. Memory and recall retain the evidence with its message. Editing an assistant message's text or role clears its artifacts; cancelling an edit keeps them.
+`prompt/artifacts.js` serializes tool evidence into later model context and adds the trust instruction when evidence is present. The chat turn coordinator moves backend artifact frames onto the assistant message's `artifacts`; memory and recall retain the evidence with that message. Editing an assistant message's text or role clears its artifacts, and cancelling an edit keeps them.
 
 `jobs/memory.js` refreshes the summary after assistant replies. It summarizes `summarize_n` turns above the send window and records the covered message count; the request builder sends later turns verbatim.
 

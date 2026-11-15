@@ -1,13 +1,16 @@
-import { del, get, getMany, keys, set } from 'idb-keyval'
+import { del, get, getMany, keys, set, setMany } from 'idb-keyval'
 import { ref } from 'vue'
 import {
+  CONVO_KEY_PREFIX,
   DOCS_KEY,
   GLOBAL_KEY,
   IMAGE_KEY_PREFIX,
   MODELS_KEY,
+  ORDER_KEY,
   RUNS_KEY,
   STORE_KEY,
   WORKSPACES_KEY,
+  installTeardownFlush,
   isLoaded,
   setDownloadExport,
   setLoaded,
@@ -93,10 +96,35 @@ export function restoreData(data) {
 
 setDownloadExport(downloadExport)
 
+// Items first, then order, then the legacy delete: an interrupted migration is safe in both directions. Before the delete the next boot re-migrates from untouched legacy data to the same result; after it the new layout is already complete.
+async function migrateLegacyConversations(legacy) {
+  const keyed = legacy.filter((c) => c?.id)
+  await setMany(keyed.map((c) => [`${CONVO_KEY_PREFIX}${c.id}`, c]))
+  await set(ORDER_KEY, keyed.map((c) => c.id))
+  await del(STORE_KEY)
+}
+
+async function loadConversations() {
+  const orderIds = (await get(ORDER_KEY)) || []
+  const convoKeys = (await keys()).filter((key) => typeof key === 'string' && key.startsWith(CONVO_KEY_PREFIX))
+  const records = (await getMany(convoKeys)).filter((record) => record?.id)
+  const byId = new Map(records.map((record) => [record.id, record]))
+  const listed = new Set(orderIds)
+  // Existence lives in the item keys; the order key only affects placement, so a lost order write degrades to conversations sitting in the wrong place, never to conversations disappearing.
+  const orphans = records.filter((record) => !listed.has(record.id)).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  return [...orphans, ...orderIds.map((id) => byId.get(id)).filter(Boolean)]
+}
+
 export async function initStore() {
   // IDB is best-effort storage; this asks the browser to exempt the origin from eviction. Denial is fine, export stays the real backup.
   globalThis.navigator?.storage?.persist?.()
-  state.conversations = (await get(STORE_KEY)) || []
+  const legacy = await get(STORE_KEY)
+  if (Array.isArray(legacy)) {
+    await migrateLegacyConversations(legacy)
+    state.conversations = legacy
+  } else {
+    state.conversations = await loadConversations()
+  }
   state.workspaces = (await get(WORKSPACES_KEY)) || []
   state.runs = ((await get(RUNS_KEY)) || []).map(migrateRun).filter(validRun)
   state.docs = (await get(DOCS_KEY)) || []
@@ -112,5 +140,6 @@ export async function initStore() {
   migrateWorkspacePrompts(state.workspaces)
   gcImages()
   setLoaded(true)
+  installTeardownFlush()
   startWatching()
 }

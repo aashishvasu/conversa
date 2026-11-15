@@ -1,6 +1,6 @@
 <script setup>
 import { Bot, Check, ChevronRight, Cog, Copy, FileText, Pencil, Pin, RotateCcw, Trash2, User, X } from '@lucide/vue'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger, ProgressIndicator, ProgressRoot, ToolbarRoot } from 'reka-ui'
 import { formatTime } from '../utils/format.js'
 import { renderMarkdown } from '../utils/md.js'
@@ -14,6 +14,7 @@ const props = defineProps({
   editing: Boolean, // this message is the one being edited; the parent owns which one that is
   active: Boolean, // tapped bubble: shows its action toolbar (mobile has no hover)
   windowStart: Boolean, // first message of the send window: renders the "sent from here" divider
+  live: { type: Object, default: null }, // coordinator turn state; holds the text while it streams, before the stored message receives it
   trace: { type: Array, default: null }, // live thinking/search steps while this message streams
   traceOpen: Boolean,
   images: { type: Array, default: () => [] },
@@ -23,6 +24,9 @@ const emit = defineEmits(['edit', 'cancel-edit', 'done-edit', 'delete', 'regener
 const ROLE_ICON = { user: User, assistant: Bot, system: Cog }
 const copied = ref(false)
 const promoted = ref(false)
+
+// A streaming turn's text lives in coordinator view state until it settles; the stored message lags behind it by up to a checkpoint interval.
+const shownContent = computed(() => props.live?.content ?? props.message.content)
 
 function bubbleClass(role) {
   if (role === 'user') return 'bg-accent text-on-accent'
@@ -47,7 +51,7 @@ function togglePin() {
   props.message.pinned = !props.message.pinned
 }
 async function copyMessage() {
-  await navigator.clipboard.writeText(props.message.content)
+  await navigator.clipboard.writeText(shownContent.value)
   copied.value = true
   setTimeout(() => (copied.value = false), 1200)
 }
@@ -118,8 +122,8 @@ function promote() {
           <div v-if="images.length" class="mb-2 flex gap-2 overflow-x-auto">
             <img v-for="image in images" :key="image.id" :src="`data:${image.media_type};base64,${image.data}`" class="h-20 w-20 rounded object-cover" />
           </div>
-          <div v-if="message.role === 'system'" class="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm" :class="!message.content && 'italic text-muted'">{{ message.content || $t('message.emptySystem') }}</div>
-          <div v-else-if="message.content" class="md [overflow-wrap:anywhere]" v-html="renderMarkdown(message.content)"></div>
+          <div v-if="message.role === 'system'" class="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm" :class="!shownContent && 'italic text-muted'">{{ shownContent || $t('message.emptySystem') }}</div>
+          <div v-else-if="shownContent" class="md [overflow-wrap:anywhere]" v-html="renderMarkdown(shownContent)"></div>
           <div v-else class="text-muted">…</div>
           <ProgressRoot v-if="message.turnId" :model-value="null" class="mt-2 h-0.5 overflow-hidden rounded-full bg-edge" :aria-label="$t('chat.replyInProgress')">
             <ProgressIndicator class="research-progress h-full w-1/3 rounded-full bg-accent" />
@@ -128,7 +132,7 @@ function promote() {
             <UiToolbarButton :label="$t('message.regenerate')" @click="emit('regenerate')"><RotateCcw :size="14" /></UiToolbarButton>
             <UiToolbarButton :label="$t('message.edit')" @click="emit('edit')"><Pencil :size="14" /></UiToolbarButton>
             <UiToolbarButton v-if="message.role !== 'system'" :label="message.pinned ? $t('message.unpin') : $t('message.pin')" :active="message.pinned" @click="togglePin"><Pin :size="14" :class="message.pinned && 'fill-current'" /></UiToolbarButton>
-            <UiToolbarButton v-if="message.role === 'assistant' && message.content" :label="$t('message.saveDoc')" @click="promote">
+            <UiToolbarButton v-if="message.role === 'assistant' && shownContent" :label="$t('message.saveDoc')" @click="promote">
               <Check v-if="promoted" :size="14" class="text-success" />
               <FileText v-else :size="14" />
             </UiToolbarButton>

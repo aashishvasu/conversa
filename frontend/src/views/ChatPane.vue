@@ -139,8 +139,9 @@ async function confirmRemoveMessage(id) {
 // Promote a reply into the doc store, where any conversation or workspace can attach it (ContextPanel, WorkspacePanel).
 // Deliberately not attached here: the text is already in this transcript, and attaching would resend it with every request.
 function promoteToDoc(m) {
-  const name = m.content.match(/^#+\s+(.+)$/m)?.[1] || convo.value.title
-  createDoc({ name, text: m.content, source: { kind: 'chat', convoId: convo.value.id, messageId: m.id } })
+  const text = turnState(m.id)?.content ?? m.content
+  const name = text.match(/^#+\s+(.+)$/m)?.[1] || convo.value.title
+  createDoc({ name, text, source: { kind: 'chat', convoId: convo.value.id, messageId: m.id } })
 }
 
 // Delegated handler for every code-block Copy button (markdown is v-html).
@@ -287,6 +288,7 @@ async function regenTitle() {
             :editing="editingId === m.id"
             :active="activeId === m.id"
             :window-start="windowStartId === m.id"
+            :live="turnState(m.id)"
             :trace="showTrace ? turnState(m.id)?.trace ?? null : null"
             :trace-open="liveOpen"
             :images="imagesOf(m)"

@@ -2,7 +2,7 @@
 import assert from 'node:assert'
 import { acceptEvent, applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, replayPosition, resumeWithCurrentModels } from '../research/lifecycle.js'
 import { activeRunOf, finishRun, migrateRun, researchProvenanceHeader, validRun } from '../state/runs.js'
-import { setLoaded, state } from '../state/persistence.js'
+import { setLoaded, startWatching, state } from '../state/persistence.js'
 import { streamResearch } from '../api/client.js'
 import { beginPreparation, cancelPreparation, getPreparationSignal, isPreparationCurrent, isPreparing, retryPreparation, startRun, syncActiveRuns, tailRun } from '../research/coordinator.js'
 import { useStreamOrchestration } from '../research/orchestration.js'
@@ -244,8 +244,12 @@ assert.ok(!ackCalls.some((call) => call.includes('settled-server')), 'a finished
 
 const unsaved = { id: 'unsaved-run', serverId: 'unsaved-server', status: 'done', events: [], ackPending: true }
 ackCalls.length = 0
+state.runs.push(unsaved)
+startWatching()
 setLoaded(true)
 try {
+  // An unsaved edit to the stored run; the save attempt fails because bare node has no IndexedDB.
+  state.runs.find((r) => r.id === 'unsaved-run').payload = { report: 'unsent' }
   syncActiveRuns([unsaved])
   await flush()
 } finally {
