@@ -3,15 +3,20 @@ import { attachChatTurn, discardChatTurn, getToken, startChatTurn } from '../api
 import { generateTitle } from '../jobs/titles.js'
 import { refreshMemory } from '../jobs/memory.js'
 import { tr } from '../i18n/index.js'
-import { persistNow, state } from '../state/persistence.js'
+import { persistNow, readStoredConversation, state } from '../state/persistence.js'
 import { effectiveSettings } from '../state/settings.js'
 import { addConvoUsage, recordUsage } from '../state/usage.js'
 import { notify } from '../utils/notify.js'
 import { applyFrame, newDraft, settleMessage, turnStillWanted } from './turn.js'
 
 const connections = new Map()
+const streams = new Map()
 const turns = reactive(new Map())
 const MAX_FAILURES = 5
+
+// A live turn copies its draft into the stored message at this cadence, bounding what a crashed tab loses.
+// The mutation is itself the save trigger: the conversation's watcher marks it dirty and the ordinary debounce writes one record.
+export const CHECKPOINT_MS = 2000
 
 export function turnState(messageId) {
   return turns.get(messageId)
@@ -25,9 +30,108 @@ function memory(convo, settings) {
   refreshMemory(convo, settings).catch((error) => notify({ key: 'utility:memory', severity: 'warning', text: tr('chat.memoryFailed', { error: error.message }) }))
 }
 
+function nextFrame(fn) {
+  return globalThis.requestAnimationFrame ? globalThis.requestAnimationFrame(fn) : setTimeout(fn, 16)
+}
+
+function dropFrame(handle) {
+  if (globalThis.requestAnimationFrame) globalThis.cancelAnimationFrame(handle)
+  else clearTimeout(handle)
+}
+
+// rAF does not fire in a hidden tab, so buffered frames would never reach the view state.
+globalThis.document?.addEventListener('visibilitychange', () => {
+  for (const stream of streams.values()) stream.drain()
+})
+
+// Frames pile into a buffer and are applied at most once per animation frame.
+// While a turn is live the text renders from the unwatched `turns` view state, so streaming never dirties the stored message and never walks the conversation.
+// A replay stays invisible, showing the stored partial, until a live frame or the settle proves the draft current.
+function createLiveStream({ convo, message, turnId, draft, view, controller, replay, onContent }) {
+  const buffer = []
+  let visible = !replay
+  let scheduled = 0
+  if (visible) view.trace = draft.trace
+
+  const promote = () => {
+    visible = true
+    view.trace = draft.trace
+    view.content = draft.content
+    view.artifacts = [...draft.artifacts]
+  }
+  const applyBuffered = () => {
+    let touched = false
+    for (const frame of buffer.splice(0)) {
+      if (!stillWanted(convo, message, turnId)) {
+        controller.abort()
+        void discardChatTurn(turnId)
+        return
+      }
+      view.lastFrameAt = Date.now()
+      if (!frame.live) onContent()
+      applyFrame(draft, frame)
+      if (!visible && (frame.live || draft.done || draft.error)) promote()
+      else if (visible && !frame.live) touched = true
+    }
+    if (touched) {
+      view.connection = 'live'
+      view.content = draft.content
+      view.artifacts = [...draft.artifacts]
+    }
+  }
+  return {
+    push(frame) {
+      buffer.push(frame)
+      if (!scheduled) scheduled = nextFrame(() => { scheduled = 0; applyBuffered() })
+    },
+    // The tail of a stream can still sit in the buffer when the read resolves or the tab hides; apply it before the draft's done/error are consulted, or the settle loses it.
+    drain() {
+      if (scheduled) {
+        dropFrame(scheduled)
+        scheduled = 0
+      }
+      applyBuffered()
+    },
+    checkpoint() {
+      // settleMessage releases the turnId, so a late tick can never undo a settled write.
+      if (!visible || message.turnId !== turnId) return
+      message.content = draft.content
+      if (draft.artifacts.length) message.artifacts = [...draft.artifacts]
+    },
+  }
+}
+
+// A 404 on reattach also happens when another tab finished the turn and discarded it server-side.
+// The stored record is the arbiter: its message no longer carrying this turnId means the turn was settled elsewhere, and adopting it preserves the complete reply instead of overwriting it with this tab's partial text.
+// A missing or unreadable record leaves the ordinary gone settle in charge.
+async function adoptIfSettled(convo, message, turnId) {
+  if (message.turnId !== turnId) return false
+  let storedMessage
+  try {
+    const stored = await readStoredConversation(convo.id)
+    storedMessage = stored?.messages?.find((m) => m.id === message.id)
+  } catch {
+    return false
+  }
+  if (!storedMessage || storedMessage.turnId === turnId) return false
+  delete message.turnId
+  Object.assign(message, storedMessage)
+  const view = turns.get(message.id)
+  if (view) {
+    view.content = null
+    view.artifacts = null
+  }
+  return true
+}
+
 async function finish(convo, message, turnId, draft, outcome, settings) {
   if (!stillWanted(convo, message, turnId)) return
   settleMessage(message, draft, outcome)
+  const view = turns.get(message.id)
+  if (view) {
+    view.content = null
+    view.artifacts = null
+  }
   if (outcome === 'done') addConvoUsage(convo, draft.usage)
   const saved = await persistNow()
   if (outcome === 'done') recordUsage('chat', draft.usage)
@@ -65,34 +169,14 @@ async function run(convo, message, turnId, payload, settings, controller, view) 
   while (!controller.signal.aborted && getToken() && stillWanted(convo, message, turnId)) {
     const replay = !first
     const draft = reactive(newDraft())
-    let visible = !replay
-    if (visible) view.trace = draft.trace
     view.connection = replay ? 'reconnecting' : 'live'
-    const promote = () => {
-      visible = true
-      view.trace = draft.trace
-      message.content = draft.content
-      message.artifacts = [...draft.artifacts]
-    }
-    const onFrame = (frame) => {
-      if (!stillWanted(convo, message, turnId)) {
-        controller.abort()
-        void discardChatTurn(turnId)
-        return
-      }
-      view.lastFrameAt = Date.now()
-      if (!frame.live) received = true
-      applyFrame(draft, frame)
-      if (!visible && (frame.live || draft.done || draft.error)) promote()
-      if (visible && !frame.live) {
-        view.connection = 'live'
-        message.content = draft.content
-        message.artifacts = [...draft.artifacts]
-      }
-    }
+    const stream = createLiveStream({ convo, message, turnId, draft, view, controller, replay, onContent: () => { received = true } })
+    streams.set(message.id, stream)
+    const checkpointTimer = setInterval(stream.checkpoint, CHECKPOINT_MS)
     try {
-      if (first) await startChatTurn(turnId, payload, onFrame, controller.signal)
-      else await attachChatTurn(turnId, onFrame, controller.signal)
+      if (first) await startChatTurn(turnId, payload, stream.push, controller.signal)
+      else await attachChatTurn(turnId, stream.push, controller.signal)
+      stream.drain()
       if (controller.signal.aborted) break
       if (draft.done || draft.error) {
         await finish(convo, message, turnId, draft, draft.error ? 'error' : 'done', settings)
@@ -100,11 +184,13 @@ async function run(convo, message, turnId, payload, settings, controller, view) 
       }
       failures++
     } catch (error) {
+      stream.drain()
       if (controller.signal.aborted || !getToken()) break
       if (!first && error.status === 404) {
+        if (await adoptIfSettled(convo, message, turnId)) return
         const partial = reactive(newDraft())
-        partial.content = message.content || ''
-        partial.artifacts = [...(message.artifacts || [])]
+        partial.content = view.content ?? message.content ?? ''
+        partial.artifacts = [...(view.artifacts ?? message.artifacts ?? [])]
         partial.error = originalError?.message || error.message
         await finish(convo, message, turnId, partial, received ? 'gone' : 'error', settings)
         return
@@ -116,6 +202,9 @@ async function run(convo, message, turnId, payload, settings, controller, view) 
       }
       originalError ||= error
       failures++
+    } finally {
+      clearInterval(checkpointTimer)
+      streams.delete(message.id)
     }
     first = false
     if (failures >= MAX_FAILURES) break
@@ -134,7 +223,7 @@ async function connect(convo, message, payload, settings) {
     if (!stillWanted(convo, message, turnId)) return
   }
   const controller = new AbortController()
-  const view = turns.get(message.id) || reactive({ trace: [], connection: 'idle', lastFrameAt: 0 })
+  const view = turns.get(message.id) || reactive({ trace: [], connection: 'idle', lastFrameAt: 0, content: null, artifacts: null })
   turns.set(message.id, view)
   const entry = { controller, promise: null }
   connections.set(turnId, entry)
@@ -170,9 +259,10 @@ export async function cancelTurn(convo, message) {
   const connection = connections.get(turnId)
   connection?.controller.abort()
   if (connection) await connection.promise
+  const view = turns.get(message.id)
   const draft = newDraft()
-  draft.content = message.content || ''
-  draft.artifacts = [...(message.artifacts || [])]
+  draft.content = view?.content ?? message.content ?? ''
+  draft.artifacts = [...(view?.artifacts ?? message.artifacts ?? [])]
   await finish(convo, message, turnId, draft, 'stopped', effectiveSettings(convo))
 }
 
