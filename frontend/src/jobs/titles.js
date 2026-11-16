@@ -1,4 +1,4 @@
-import { utilityCall } from './utility.js'
+import { utilityComplete } from './utility.js'
 
 // Generate a short title from recent turns, seeded with the existing title on refresh.
 export async function generateTitle(convo, model) {
@@ -14,7 +14,7 @@ export async function generateTitle(convo, model) {
     ? `Current title: ${existing}\n\nRecent messages:\n${recent}\n\nGive an updated 3-6 word title reflecting where the conversation is now.`
     : `Recent messages:\n${recent}\n\nGive a 3-6 word title.`
 
-  const out = await utilityCall(convo, {
+  const out = await utilityComplete(convo, {
     model,
     max_tokens: 20,
     effort: '',

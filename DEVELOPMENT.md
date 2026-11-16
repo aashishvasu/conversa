@@ -33,6 +33,7 @@ The browser owns conversations, templates, workspaces, documents, images, resear
 | `POST` | `/api/chat` | Starts or attaches to a browser-named chat turn and streams its frames. |
 | `GET` | `/api/chat/{turn_id}/stream` | Replays a chat turn and continues with live frames. |
 | `DELETE` | `/api/chat/{turn_id}` | Cancels and forgets a chat turn, or acknowledges a collected reply. |
+| `POST` | `/api/complete` | Runs a chat payload to completion in the request and returns `{text, usage}`. |
 | `POST` | `/api/research/prepare` | Routes a request to chat or returns a structured research brief. |
 | `POST` | `/api/research` | Starts or resumes a browser-named research run. |
 | `GET` | `/api/research/{id}` | Returns current run state. |
@@ -43,8 +44,6 @@ The browser owns conversations, templates, workspaces, documents, images, resear
 | `POST` | `/api/transfers/retrieve` | Returns the payload for a live transfer phrase. |
 
 `backend/api/auth.py` handles bearer-token validation. Every route except `/api/login` requires a token carrying `exp`. A 401 clears client authentication. `CORS_ORIGINS` allows the separate Vite origin during development. `LOGIN_RATE_LIMIT` defaults to `5/minute`; the counter is per worker because it lives in process memory. Production serves the SPA and API from one origin.
-
-`backend/api/chat.py` validates chat input, resolves enabled tools once per turn, and runs provider generation independently of its streaming response. A browser-named turn can be reattached to replay its frames, and is removed after collection, expiry, or cancellation. A chat turn can make several provider calls; its final `usage` frame sums tokens, cost, and call count. List-valued `system` content represents stable and volatile blocks. Anthropic can cache the stable block; other dialects join the blocks.
 
 ### Providers
 

@@ -132,6 +132,14 @@ export async function discardChatTurn(turnId) {
   } catch { /* left to the server TTL */ }
 }
 
+// One-shot reply for short utility calls: no turn id, no stream, resolves with { text, usage }.
+export async function completeChat(payload, signal) {
+  const res = await check(
+    await fetch('/api/complete', { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal }),
+  )
+  return res.json()
+}
+
 // Fetch the server-rendered system prompt for a chat payload without calling a provider.
 // Returns a string or a [stable, volatile] list when cache mode is on.
 export async function fetchSystemPreview(payload, signal) {
