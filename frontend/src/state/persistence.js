@@ -1,5 +1,5 @@
 import { delMany, get, set, setMany } from 'idb-keyval'
-import { reactive, toRaw, watch } from 'vue'
+import { reactive, watch } from 'vue'
 import { dismiss, notify } from '../utils/notify.js'
 import { tr } from '../i18n/index.js'
 
@@ -126,6 +126,11 @@ function sameIds(a, b) {
   return a.length === b.length && a.every((id, i) => id === b[i])
 }
 
+// Nested values can stay reactive proxies (toRaw only unwraps the top level), and structuredClone throws on them; JSON reads through the proxies.
+function plainCopy(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
 async function runFlush() {
   const ids = state.conversations.map((c) => c.id)
   const present = new Set(ids)
@@ -138,10 +143,9 @@ async function runFlush() {
   dirtyCollections.clear()
   if (!convos.length && !removed.length && !collections.length && !orderChanged) return true
   try {
-    // toRaw yields the plain target whose nested objects were never proxy-wrapped, so one structuredClone snapshots the item without dropping values JSON cannot represent.
-    if (convos.length) await setMany(convos.map((id) => [convoKey(id), structuredClone(toRaw(state.conversations.find((c) => c.id === id)))]))
+    if (convos.length) await setMany(convos.map((id) => [convoKey(id), plainCopy(state.conversations.find((c) => c.id === id))]))
     if (removed.length) await delMany(removed.map(convoKey))
-    for (const name of collections) await set(COLLECTION_KEYS[name], structuredClone(toRaw(state[name])))
+    for (const name of collections) await set(COLLECTION_KEYS[name], plainCopy(state[name]))
     if (orderChanged) {
       await set(ORDER_KEY, ids)
       lastOrder = ids

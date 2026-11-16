@@ -35,14 +35,9 @@ export function applyFrame(draft, frame) {
 }
 
 // outcome is done, error, stopped, or gone. Every outcome keeps the draft's text and releases the turn.
-// Stored artifacts must be plain data: a reactive draft's elements are proxies, which structuredClone cannot write to IndexedDB.
-export function plainArtifacts(list) {
-  return JSON.parse(JSON.stringify(list))
-}
-
 export function settleMessage(message, draft, outcome) {
   message.content = draft.content
-  if (draft.artifacts.length) message.artifacts = plainArtifacts(draft.artifacts)
+  if (draft.artifacts.length) message.artifacts = [...draft.artifacts]
   if (outcome === 'error') {
     message.content += `${message.content ? '\n\n' : ''}> ⚠️ **Error:** ${draft.error}`
   }
