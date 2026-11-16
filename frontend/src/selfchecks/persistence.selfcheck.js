@@ -75,6 +75,12 @@ const reloadedTool = byId('a').messages.find((m) => m.id === 'a-tool')
 assert.equal(reloadedTool?.content, 'TOOL-REPLY', 'a reply from a turn that ran a tool survives a reload')
 assert.equal(reloadedTool?.artifacts?.[0]?.tool, 'web_search', 'a tool artifact survives a reload')
 
+// --- A reactive value nested inside a conversation saves and reloads ---
+// toRaw unwraps only the top level, so a proxy stored below it must still be copied as plain data.
+byId('a').messages.push({ id: 'a-deep', role: 'user', content: 'DEEP-SENTINEL', createdAt: 500, meta: reactive({ note: 'DEEP-NOTE' }) })
+await saveAndReload()
+assert.equal(byId('a').messages.find((m) => m.id === 'a-deep')?.meta?.note, 'DEEP-NOTE', 'a reactive value nested below the conversation survives a reload')
+
 // --- Delete removes ---
 deleteConversation('c')
 await saveAndReload()
