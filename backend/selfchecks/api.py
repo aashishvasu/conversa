@@ -308,11 +308,44 @@ async def detached_checks() -> None:
 
 asyncio.run(detached_checks())
 
-# All three turn endpoints refuse a request without a token.
+
+async def complete_fails(frames: list[dict]) -> dict:
+    global stub_frames, stub_gate
+    stub_frames, stub_gate = frames, asyncio.Event()
+    stub_gate.set()
+    try:
+        await chat_api.complete(chat_api.ChatRequest(messages=[]))
+    except HTTPException as error:
+        assert error.status_code == 502
+        return cast(dict, error.detail)
+    raise AssertionError("complete returned a reply for a failed stream")
+
+
+async def complete_checks() -> None:
+    global stub_frames, stub_gate
+    # One-shot completion: text joined in order and trimmed, the turn's usage handed back for spend.
+    usage = {"calls": 1}
+    stub_frames, stub_gate = [{"text": " alpha"}, {"think": "omega"}, {"text": "-beta "}, {"usage": usage}, {"done": True}], asyncio.Event()
+    stub_gate.set()
+    result = await chat_api.complete(chat_api.ChatRequest(messages=[]))
+    assert result["text"] == "alpha-beta", "text frames are joined in order, trimmed, and nothing else leaks in"
+    assert result["usage"] is usage
+    # A provider error fails the request even after partial text, and its message reaches the client.
+    detail = await complete_fails([{"text": "partial"}, {"error": "sentinel-provider-error"}, {"done": True}])
+    assert detail["code"] == "completion_failed" and "sentinel-provider-error" in detail["message"]
+    # A stream that stops without done is not a reply.
+    assert (await complete_fails([{"text": "partial"}]))["code"] == "completion_failed"
+
+
+asyncio.run(complete_checks())
+
+
+# All endpoints refuse a request without a token.
 unauthed = TestClient(FastAPI(routes=chat_api.router.routes))
 assert unauthed.post("/api/chat", json={"messages": [], "turn_id": "t-auth"}).status_code == 401
 assert unauthed.get("/api/chat/t-auth/stream").status_code == 401
 assert unauthed.delete("/api/chat/t-auth").status_code == 401
+assert unauthed.post("/api/complete", json={"messages": []}).status_code == 401
 # turn_id is required on POST.
 try:
     chat_api.ChatTurnRequest.model_validate({"messages": []})

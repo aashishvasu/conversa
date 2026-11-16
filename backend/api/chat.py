@@ -248,6 +248,28 @@ def resolve_next_system(req: ChatRequest):
     return provider, model, selected_tools, system
 
 
+def chat_events(req: ChatRequest) -> AsyncIterator[dict]:
+    """Validate a chat payload and return its unstarted frame stream. Shared by /api/chat and /api/complete."""
+    max_tokens = req.max_tokens or DEFAULT_MAX_TOKENS
+    effort = req.effort if req.effort is not None else DEFAULT_EFFORT
+    if effort and effort not in EFFORT_VALUES:
+        raise HTTPException(400, {"code": "unknown_effort", "message": f"unknown effort level: {effort}", "effort": effort})
+    provider, model, selected_tools, system = resolve_next_system(req)
+    return stream_chat(
+        provider,
+        model,
+        [message.model_dump() for message in req.messages],
+        system,
+        max_tokens,
+        effort,
+        req.temperature if req.temperature is not None else DEFAULT_TEMPERATURE,
+        tools=selected_tools if selected_tools else None,
+        max_tool_rounds=req.tool_max_rounds or DEFAULT_TOOL_MAX_ROUNDS,
+        max_tool_calls=req.tool_max_calls or DEFAULT_TOOL_MAX_CALLS,
+        allow_hosted_tools=True,
+    )
+
+
 class ChatTurnRequest(ChatRequest):
     # Browser-chosen id of the detached reply; a repeated id attaches instead of generating again.
     turn_id: str = Field(min_length=1)
@@ -255,26 +277,9 @@ class ChatTurnRequest(ChatRequest):
 
 @router.post("/api/chat")
 async def chat(req: ChatTurnRequest, _=Depends(require_auth)):
-    max_tokens = req.max_tokens or DEFAULT_MAX_TOKENS
-    effort = req.effort if req.effort is not None else DEFAULT_EFFORT
-    if effort and effort not in EFFORT_VALUES:
-        raise HTTPException(400, {"code": "unknown_effort", "message": f"unknown effort level: {effort}", "effort": effort})
-    provider, model, selected_tools, system = resolve_next_system(req)
+    events = chat_events(req)
 
     async def produce(log: EventLog) -> None:
-        events = stream_chat(
-            provider,
-            model,
-            [message.model_dump() for message in req.messages],
-            system,
-            max_tokens,
-            effort,
-            req.temperature if req.temperature is not None else DEFAULT_TEMPERATURE,
-            tools=selected_tools if selected_tools else None,
-            max_tool_rounds=req.tool_max_rounds or DEFAULT_TOOL_MAX_ROUNDS,
-            max_tool_calls=req.tool_max_calls or DEFAULT_TOOL_MAX_CALLS,
-            allow_hosted_tools=True,
-        )
         try:
             async for frame in events:
                 log.append(frame)
@@ -299,6 +304,22 @@ async def chat_stream(turn_id: str, _=Depends(require_auth)):
 async def chat_discard(turn_id: str, _=Depends(require_auth)):
     await CHAT_STREAMS.forget(turn_id)
     return {"status": "forgotten"}
+
+
+@router.post("/api/complete")
+async def complete(req: ChatRequest, _=Depends(require_auth)):
+    """Run a chat payload to completion inside this request and return `{text, usage}`; nothing survives a disconnect."""
+    text, usage = [], None
+    async for frame in chat_events(req):
+        if "error" in frame:
+            raise HTTPException(502, {"code": "completion_failed", "message": frame["error"]})
+        if "text" in frame:
+            text.append(frame["text"])
+        elif "usage" in frame:
+            usage = frame["usage"]
+        elif frame.get("done"):
+            return {"text": "".join(text).strip(), "usage": usage}
+    raise HTTPException(502, {"code": "completion_failed", "message": "reply ended before completion"})
 
 
 async def tail_frames(log: EventLog, live_after: int | None = None) -> AsyncIterator[str]:
