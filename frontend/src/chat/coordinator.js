@@ -7,7 +7,7 @@ import { persistNow, readStoredConversation, state } from '../state/persistence.
 import { effectiveSettings } from '../state/settings.js'
 import { addConvoUsage, recordUsage } from '../state/usage.js'
 import { notify } from '../utils/notify.js'
-import { applyFrame, newDraft, plainArtifacts, settleMessage, turnStillWanted } from './turn.js'
+import { applyFrame, newDraft, settleMessage, turnStillWanted } from './turn.js'
 
 const connections = new Map()
 const streams = new Map()
@@ -96,7 +96,7 @@ function createLiveStream({ convo, message, turnId, draft, view, controller, rep
       // settleMessage releases the turnId, so a late tick can never undo a settled write.
       if (!visible || message.turnId !== turnId) return
       message.content = draft.content
-      if (draft.artifacts.length) message.artifacts = plainArtifacts(draft.artifacts)
+      if (draft.artifacts.length) message.artifacts = [...draft.artifacts]
     },
   }
 }
@@ -190,7 +190,7 @@ async function run(convo, message, turnId, payload, settings, controller, view) 
         if (await adoptIfSettled(convo, message, turnId)) return
         const partial = reactive(newDraft())
         partial.content = view.content ?? message.content ?? ''
-        partial.artifacts = plainArtifacts(view.artifacts ?? message.artifacts ?? [])
+        partial.artifacts = [...(view.artifacts ?? message.artifacts ?? [])]
         partial.error = originalError?.message || error.message
         await finish(convo, message, turnId, partial, received ? 'gone' : 'error', settings)
         return
