@@ -10,6 +10,8 @@ from copy import deepcopy
 from urllib.parse import urlsplit
 
 from providers import Spend, complete
+from streams.log import EventLog
+from streams.registry import Registry
 from tools.fetch import canonicalize
 from .gather import gather_task
 from .parsing import object_from_text
@@ -17,12 +19,13 @@ from .prompts import COORDINATOR, PROMPTS
 from .report import payload as report_payload, verify_and_correct, write as write_report
 from .state import checkpoint, empty_state, validate_checkpoint
 
-RUNS = {}
 FINISHED_TTL = int(os.environ.get("RESEARCH_RESULT_TTL", "3600"))
+RUNS = Registry(ttl_seconds=FINISHED_TTL)
 MAX_ACTIVE_RUNS = int(os.environ.get("MAX_ACTIVE_RUNS", "2"))
 MAX_WAVES = int(os.environ.get("RESEARCH_MAX_WAVES", "8"))
 MAX_TASKS = int(os.environ.get("RESEARCH_MAX_TASKS", "18"))
-DEFAULT_MAX_CALLS = int(os.environ.get("RESEARCH_MAX_CALLS", "48"))
+_MAX_CALLS = os.environ.get("RESEARCH_MAX_CALLS", "").strip()
+DEFAULT_MAX_CALLS = int(_MAX_CALLS) if _MAX_CALLS else None
 DEFAULT_MAX_SOURCES = int(os.environ.get("RESEARCH_MAX_SOURCES", "24"))
 DEFAULT_MIN_SOURCES = int(os.environ.get("RESEARCH_MIN_SOURCES", "8"))
 DEFAULT_MAX_SECONDS = float(os.environ.get("RESEARCH_MAX_SECONDS", "900"))
@@ -30,6 +33,10 @@ MIN_EVIDENCE = int(os.environ.get("RESEARCH_MIN_EVIDENCE", "8"))
 DEFAULT_RESEARCH_DEPTH = int(os.environ.get("DEFAULT_RESEARCH_DEPTH", "5"))
 
 REPORT_RESERVE = 2
+
+
+def _max_calls_for(max_sources):
+    return DEFAULT_MAX_CALLS if DEFAULT_MAX_CALLS is not None else max_sources * 2 + MAX_TASKS + MAX_WAVES + 4
 
 
 class RunLimitError(Exception):
@@ -68,19 +75,17 @@ class Run:
         raw_max = max_sources if max_sources is not None else DEFAULT_MAX_SOURCES
         self.min_sources = max(MIN_EVIDENCE, raw_min) if min_sources is not None else MIN_EVIDENCE
         self.max_sources = max(self.min_sources, min(raw_max, 300))
-        # calls ~= sources*2 + tasks + waves + report sections (each wave has coordinator call, report has write + verify)
-        # default report sections/passes ~ 4
-        self.max_calls = max_calls if max_calls is not None else (self.max_sources * 2 + MAX_TASKS + MAX_WAVES + 4)
+        self.max_calls = max_calls if max_calls is not None else _max_calls_for(self.max_sources)
         self.max_elapsed = max_elapsed if max_elapsed is not None else max(DEFAULT_MAX_SECONDS, self.max_sources * 15.0)
         self.prompts = {**PROMPTS, **(prompts or {})}
         self.status = "running"
         self.phase = "researching"
-        self.events = []
+        self.events = EventLog()
         self.spend = Spend()
-        self.payload = None
-        self.error = None
-        self.finished_at = None
-        self.task = None
+        self.payload: dict | None = None
+        self.error: str | None = None
+        self.finished_at: float | None = None
+        self.task: asyncio.Task | None = None
         self.started_at = time.monotonic()
         broad = {"id": "T1", "question": self.brief.get("objective", "Explore the requested subject"), "reason": "broad initial exploration"}
         resumed_from_checkpoint = checkpoint_data is not None
@@ -119,7 +124,7 @@ class Run:
         return budget["calls"]
 
     def state(self, after=0):
-        return {"id": self.id, "revision": self.data.get("revision", 0), "status": self.status, "phase": self.phase, "spend": self.spend.as_dict(), "events": self.events[after:], "payload": self.payload, "error": self.error, "checkpoint": deepcopy(self.data), "evidence": self.evidence, "sources": list(self.sources.values()), "gaps": self.data["gaps"], "decisions": self.data["decisions"], "breakers": self.data["breakers"]}
+        return {"id": self.id, "revision": self.data.get("revision", 0), "status": self.status, "phase": self.phase, "spend": self.spend.as_dict(), "events": self.events.since(after), "payload": self.payload, "error": self.error, "checkpoint": deepcopy(self.data), "evidence": self.evidence, "sources": list(self.sources.values()), "gaps": self.data["gaps"], "decisions": self.data["decisions"], "breakers": self.data["breakers"]}
 
 
 def _valid_coord(value):
@@ -322,7 +327,7 @@ def _apply_coord(run, decision, wave=0):
     # Contradiction-forced redirection: at most one per wave, subject to MAX_TASKS
     forced_task = None
     has_contra, v_question, v_reason = _detect_contradiction(run, run.data.get("theory"))
-    if has_contra and len(run.frontier) < MAX_TASKS:
+    if has_contra and isinstance(v_question, str) and len(run.frontier) < MAX_TASKS:
         norm_v = " ".join(v_question.split())
         if norm_v.lower() not in questions:
             task = {"id": f"T{len(run.frontier) + 1}", "question": norm_v, "reason": v_reason, "status": "pending", "attempts": 0}
@@ -483,6 +488,7 @@ async def _run(run):
                 run.data["gaps"].append(f"coordinator stopped gathering: {error}")
                 break
             decision = _coverage_gate(run, decision)
+            assert decision is not None
             _apply_coord(run, decision, wave=wave + 1)
             if decision["action"] == "finish":
                 break
@@ -518,12 +524,18 @@ async def _run(run):
         run.task = None
 
 
+def get(run_id):
+    stream = RUNS.get(run_id)
+    return stream.owner if stream else None
+
+
 def start(brief, models, depth=DEFAULT_RESEARCH_DEPTH, title=None, prompts=None, run_id=None, checkpoint_data=None, restart_failed=False, min_sources=DEFAULT_MIN_SOURCES, max_sources=DEFAULT_MAX_SOURCES):
-    """Start or reattach a run. Returns (run, outcome) where outcome is one of
-    created, resumed_from_checkpoint, restarted, already_running, already_finished."""
-    evict()
-    if run_id and (existing := RUNS.get(run_id)):
+    """Start or reattach a run and return its outcome."""
+    existing = get(run_id) if run_id else None
+    if existing:
         if existing.status == "error" and existing.task is None:
+            if RUNS.active_count() >= MAX_ACTIVE_RUNS:
+                raise RunLimitError(f"at most {MAX_ACTIVE_RUNS} research runs at once")
             existing.models = models
             existing.brief = _brief(brief)
             existing.title = title or existing.brief.get("objective", existing.title)
@@ -536,43 +548,54 @@ def start(brief, models, depth=DEFAULT_RESEARCH_DEPTH, title=None, prompts=None,
                 _reopen_failed_tasks(existing.data)
             existing.min_sources = max(MIN_EVIDENCE, min_sources)
             existing.max_sources = max(existing.min_sources, min(max_sources, 300))
-            existing.max_calls = existing.max_sources * 2 + MAX_TASKS + MAX_WAVES + 4
+            existing.max_calls = _max_calls_for(existing.max_sources)
             existing.max_elapsed = max(DEFAULT_MAX_SECONDS, existing.max_sources * 15.0)
             existing.status = "running"
             existing.phase = "researching"
             existing.error = None
             existing.started_at = time.monotonic()
             existing.finished_at = None
+            stream = RUNS.restart(existing.id, lambda _log: _run(existing))
+            existing.task = stream.task
             existing.emit("resumed", outcome="restarted")
-            existing.task = asyncio.create_task(_run(existing))
             return existing, "restarted"
         if existing.status == "running":
             return existing, "already_running"
         return existing, "already_finished"
-    if sum(run.status == "running" for run in RUNS.values()) >= MAX_ACTIVE_RUNS:
+    if RUNS.active_count() >= MAX_ACTIVE_RUNS:
         raise RunLimitError(f"at most {MAX_ACTIVE_RUNS} research runs at once")
     run = Run(brief, models, depth, title, prompts, run_id, checkpoint_data, restart_failed, min_sources=min_sources, max_sources=max_sources)
-    RUNS[run.id] = run
     if checkpoint_data is not None:
         run.emit("resumed", outcome="resumed_from_checkpoint")
-    run.task = asyncio.create_task(_run(run))
+    stream, _created = RUNS.start(run.id, lambda _log: _run(run), owner=run, log=run.events)
+    run.task = stream.task
     return run, "resumed_from_checkpoint" if checkpoint_data is not None else "created"
 
 
-def ack(run_id):
-    run = RUNS.get(run_id)
+async def cancel(run_id):
+    run = get(run_id)
+    if not run:
+        return
+    await RUNS.cancel(run_id)
+    if run.status == "running":
+        run.status = "cancelled"
+        run.phase = "cancelled"
+        run.finished_at = time.time()
+        run.task = None
+
+
+async def ack(run_id):
+    run = get(run_id)
     if not run or run.status == "running":
         return False
-    RUNS.pop(run_id, None)
+    await RUNS.forget(run_id)
     return True
 
 
-def forget(run_id):
-    RUNS.pop(run_id, None)
-    evict()
+async def forget(run_id):
+    await RUNS.forget(run_id)
+    RUNS.evict()
 
 
 def evict():
-    cutoff = time.time() - FINISHED_TTL
-    for run_id in [key for key, run in RUNS.items() if run.finished_at and run.finished_at < cutoff]:
-        del RUNS[run_id]
+    RUNS.evict()

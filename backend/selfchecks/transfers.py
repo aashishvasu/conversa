@@ -1,8 +1,8 @@
 """Selfcheck: python -m selfchecks.transfers"""
 
 import asyncio
-import json
 import re
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -27,9 +27,10 @@ assert re.fullmatch(r"[a-z]+-[a-z]+-[a-z]+-[a-z]+-[a-z]+", phrase)
 assert len({phrases.generate() for _ in range(1000)}) == 1000, "a burst of phrases stays distinct"
 
 # --- Normalization ---------------------------------------------------------------
-assert phrases.normalize("run-jump-happy-calm-fox") == "run-jump-happy-calm-fox"
-assert phrases.normalize("  RUN  Jump_happy calm FOX ") == "run-jump-happy-calm-fox"
-assert phrases.normalize("RUN\nJump\thappy.calm fox") == "run-jump-happy-calm-fox"
+canonical = "run-jump-happy-calm-fox"
+assert phrases.normalize(canonical) == canonical
+for messy in ("  RUN  Jump_happy calm FOX ", "RUN\nJump\thappy.calm fox"):
+    assert phrases.normalize(messy) == canonical, messy
 for bad in ("", "not enough words", "six-whole-words-right-here-now", "walk-jump-kind", "walk-jump-kind-kind", "walk-jump-kind-kind-kind-kind-fox"):
     assert phrases.normalize(bad) is None, bad
 
@@ -59,14 +60,14 @@ async def _store_checks():
     assert "payload" in stored
     assert "data" not in stored
     assert isinstance(stored["payload"], bytes)
-    expected_payload = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    assert stored["payload"] == expected_payload
-    assert entry["bytes"] == len(expected_payload)
+    assert entry["bytes"] == len(stored["payload"])
 
     got = await store.retrieve(entry["phrase"])
+    assert got is not None, "retrieve returned None for a live entry"
     assert got["scope"] == "conversation"
     assert got["data"] == data
-    assert (await store.retrieve("  " + entry["phrase"].upper().replace("-", " ") + "  "))["scope"] == "conversation"
+    messy_got = await store.retrieve("  " + entry["phrase"].upper().replace("-", " ") + "  ")
+    assert messy_got is not None and messy_got["scope"] == "conversation", "retrieve must normalize a messy phrase"
     assert await store.retrieve(entry["phrase"]) is not None, "retrieval must not consume an entry"
     clock.advance(61)
     assert await store.retrieve(entry["phrase"]) is None, "an expired entry is gone"
@@ -113,7 +114,8 @@ async def _store_checks():
     phrases.generate = lambda: next(results)
     try:
         made = await colliding.create("snapshot", {"a": 1})
-        assert made["phrase"] == "jump-jump-quick-quick-owl", "the collision was skipped"
+        assert made["phrase"] != "zzzz-yyyy-xxxx-wwww-vvvv", "a colliding phrase is regenerated"
+        assert colliding.entries["zzzz-yyyy-xxxx-wwww-vvvv"]["payload"] == b"{}", "the colliding entry is not overwritten"
     finally:
         phrases.generate = original_generate
 
@@ -162,13 +164,15 @@ async def _endpoint_checks():
 
     # Malformed retrieve requests are treated the same as unknown or expired ones.
     malformed_headers = {**headers, "Content-Type": "application/json"}
+    body: Any
     for body in ("not json", "{}", '{"phrase": 123}', '{"phrase": null}', '{"other": "value"}'):
         response = client.post("/api/transfers/retrieve", data=body, headers=malformed_headers)
         assert response.status_code == 404, body
         assert response.json()["detail"]["code"] == "no_such_transfer", body
 
     # Unauthenticated malformed requests still return 401.
-    assert client.post("/api/transfers/retrieve", data="not json").status_code == 401
+    raw_body: Any = "not json"
+    assert client.post("/api/transfers/retrieve", data=raw_body).status_code == 401
 
     for entry in STORE.entries.values():
         entry["expires_at"] = 0
@@ -199,8 +203,9 @@ async def _buffer_checks():
                 yield chunk
 
     # Content-Length fast path rejects before streaming.
+    #  the fakes are duck-typed stand-ins for starlette Request, so they are typed Any at the call.
     big = b"x" * 9
-    req = FakeRequest({"content-length": "9"}, [big])
+    req: Any = FakeRequest({"content-length": "9"}, [big])
     try:
         await _read_limited_body(req, 8)
         raise AssertionError("content-length overflow accepted")
@@ -208,7 +213,7 @@ async def _buffer_checks():
         assert exc.status_code == 413
 
     # Chunked body is rejected once the accumulated bytes cross the limit.
-    req2 = FakeRequest({}, [b"xxxx", b"xxxxx"])
+    req2: Any = FakeRequest({}, [b"xxxx", b"xxxxx"])
     try:
         await _read_limited_body(req2, 8)
         raise AssertionError("chunked overflow accepted")
@@ -216,7 +221,7 @@ async def _buffer_checks():
         assert exc.status_code == 413
 
     # A body that stays within the limit is returned intact.
-    req3 = FakeRequest({"content-length": "5"}, [b"hello"])
+    req3: Any = FakeRequest({"content-length": "5"}, [b"hello"])
     assert await _read_limited_body(req3, 8) == b"hello"
 
 

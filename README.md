@@ -4,54 +4,52 @@
 
 # conversa
 
-*The small, private, multi-provider, chat assistant for **you.***
+*The small, private, multi-provider chat assistant for **you.***
 
-All conversation data lives in the browser.
+**Multiple providers**: Conversa lets you chat with models from Anthropic, OpenAI, DeepSeek, and any other OpenAI completions API-compatible services in one place. Bring your own API key, choose a model, and keep your conversations in your browser, not the server.
 
-All you need are provider API keys (currently Anthropic, OpenAI and DeepSeek are supported), and set a password. The server sets up the frontend, streams chats, relays model streams, fetches pages, and keeps research runs going after the browser closes. Everything else lands in your browser, gets stored locally.
+**Small != barebones**: Add images and documents, search the web, or ask for a research report. A reply or research run can keep going while your browser is closed, ready for you to pick up when you return.
 
 Want to create a shortcut on mobile devices? You can do that too.
 
-Who ends up holding what:
+## Your data
+
+The server sends all the data it generates to your browser. Your conversations, images, settings, and other saved data stay browser-side. They will never automatically appear on your other devices, use export or transfer to move them.
+
+Your messages and attachments are sent to the model provider you choose when you hit send.
 
 | What | In your browser | On the server |
 |------|-----------------|---------------|
-| Every chat transcript and image | ✔️ | ❌ |
-| Cards, workspaces, documents, templates | ✔️ | ❌ |
-| A finished research report | ✔️ | 🟡 (Until collected, eviction, or restart) |
-| Your provider API key | ❌ | ✔️ (This is the whole reason it exists) |
-| The public pages chat and research read | ❌ | 🟡 (Up to `FETCH_CACHE_TTL_SECONDS`, size eviction, or restart) |
-| Your password | ❌ | ✔️ |
+| Every chat transcript and image | `✔️` | `❌` |
+| Cards, workspaces, documents, templates | `✔️` | `❌` |
+| A normal chat reply | `✔️` | `🟡` Until fully sent to browser, expiry, or server restart |
+| A finished research report | `✔️` | `🟡` Until collected by browser, eviction, or server restart |
+| Your provider API key | `❌` | `✔️` |
+| Websites that chat or research searched/fetched | `❌` | `🟡` Until cache expiry, eviction, or server restart |
+| Your password | `❌` | `✔️` |
 
-
+The server can also temporarily hold data during device to device chat transfers.
 
 ## Run it
 
-The whole app ships as a single container image (built with Podman or Docker):
+Conversa runs as a container. You need Podman or Docker (I prefer podman), a password of your choice, and at least one model provider's API key. For example, with Podman and Anthropic:
 
 ```sh
+git clone https://github.com/aashishvasu/conversa.git
+cd conversa
 podman build -t conversa -f Containerfile .
 podman run -p 8000:8000 \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  -e OPENAI_API_KEY=sk-... \
   -e APP_PASSWORD=your-password \
+  --name conversa \
   conversa
 ```
 
-Open **http://localhost:8000** and unlock with your password.
+Open **http://localhost:8000** and unlock it with your password. You can configure more than one provider and choose between their models in each conversation.
 
-Any configured provider is enough.
-Set several to pick between their models per conversation.
-The model picker contains models from configured providers. A `MODELS` entry with incomplete provider configuration produces a banner on first load.
+### Run it as a systemd service (via Podman Quadlet)
 
-Conversa supports Anthropic's Messages API, OpenAI's Responses API, and DeepSeek's Responses API.
-The `compatible` entry serves one chat.completions endpoint at a time. Set its key and base URL, then list models with the `compatible/` prefix. It sends text and image messages, and reads text plus `reasoning_content`. Research through this entry uses Exa, Brave, or SearXNG.
-
-Attach images from the picker, clipboard, or a drag-drop. Conversa keeps them in your browser, and sends them with the chat turn.
-
-### Run it as a systemd service (Podman Quadlet)
-
-To have systemd start and supervise the container, first store your secrets with `podman secret` so they stay out of the unit file:
+Build the image first, then store your secrets with `podman secret` so they stay out of the unit file. Configure at least one provider key:
 
 ```sh
 printf 'sk-ant-...' | podman secret create conversa_api_key -
@@ -59,7 +57,7 @@ printf 'sk-...' | podman secret create conversa_openai_key -
 printf 'your-password' | podman secret create conversa_password -
 ```
 
-Then drop a `.container` quadlet file at `~/.config/containers/systemd/conversa.container`:
+Create `~/.config/containers/systemd/conversa.container`:
 
 ```ini
 [Unit]
@@ -79,23 +77,82 @@ Restart=always
 WantedBy=default.target
 ```
 
-Then reload and start it:
+Remove a provider's `Secret` line if you haven't configured its key. Then reload and start the service:
 
 ```sh
 systemctl --user daemon-reload
 systemctl --user start conversa
 ```
 
-> Build the image first (`podman build -t conversa -f Containerfile .`) so `localhost/conversa:latest` exists.
+For local development, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
-> Want to run the frontend and backend separately for development?
-> See [DEVELOPMENT.md](DEVELOPMENT.md).
+### Configuration
+
+Set environment variables on the backend container. The full list is in [Environment Variables](docs/Environment%20Variables.md), and a template is in `backend/.env.example`.
+
+| Variable | Required | Default | What it does |
+|----------|----------|---------|--------------|
+| `ANTHROPIC_API_KEY` | one provider | _(none)_ | Anthropic key. |
+| `OPENAI_API_KEY` | one provider | _(none)_ | OpenAI key. |
+| `DEEPSEEK_API_KEY` | one provider | _(none)_ | DeepSeek key. |
+| `APP_PASSWORD` | yes | _(none)_ | Password used to log in. |
+| `EXA_API_KEY` | no | _(none)_ | Exa key for web search. |
+| `DEFAULT_MODEL` | no | `claude-sonnet-5` | Model new conversations start with. |
+
+## Features
+
+### Chat and providers
+
+Choose a model for each conversation. Add images from the picker, clipboard, or by dragging and dropping them. Attach documents to give the model more context.
+
+### Tools
+
+Choose which tools the model can use in **Global settings > Tools**, with per-conversation overrides in **Conversation settings > Tools**. Changes apply to your next message. Generic compatible models do not support tools.
+
+| Tool | What it does |
+|------|--------------|
+| Web search | Finds current sources and returns links. |
+| Read URLs | Reads pages you provide or a search finds. |
+| Date and time | Works with dates, times, and time zones. |
+| Calculator and unit conversion | Evaluates expressions and converts units. |
+| Random selection | Generates numbers, samples items, or shuffles a list. |
+
+### Cards, memory, recall, and templates
+
+Four ways to bring context back without retyping it:
+
+| Feature | What it does |
+|---------|--------------|
+| Cards | Add instructions when a conversation mentions your chosen trigger phrases. Use commas for any-of triggers and `&` for phrases that must appear together. |
+| Memory | Keeps a summary of earlier turns available to the model. |
+| Recall | Finds relevant earlier turns and sends them with your message. |
+| Templates | Copy a conversation, including its cards, messages, and documents, as a starting point. |
+
+### Research
+
+Ask a question and Conversa can search the web, read sources, and prepare a report saved with your conversation. It may ask you to clarify the request before starting. You can close the browser and return while the run is in progress or after it finishes. The research stays on the server only during progress and while it's waiting to be shown in the browser. After its stored in your browser session, its removed from the server.
+
+### Workspaces
+
+Group conversations around shared instructions, cards, and documents. Each conversation can turn shared cards on or off without changing them for the rest of the workspace.
+
+### Import, export, and transfer
+
+| Action | What it does |
+|--------|--------------|
+| Export | Download a backup of everything or a single conversation. |
+| Import | Add an export to your browser without replacing existing items with the same IDs. |
+| Restore | Replace your browser's saved data with a snapshot, after confirmation. |
+| Transfer | Use a five-word phrase to move data to another browser within one hour. |
+
+Conversa also imports chat histories and mask templates from [NextChat](https://github.com/ChatGPTNextWeb/NextChat) backups. Imports run in your browser and ignore API keys and access codes set for NextChat in the backup.
+
+> [!WARNING]
+> Clearing browser data or cache clears Conversa storage. Keep regular backups of conversations that are important. Similarly, because the server does not store any chats permanently, if it restarts during an operation (research, chat), that operation is lost.
 
 ## Updating
 
-Pull the latest code, rebuild the image, and restart the container.
-
-If you run it under systemd (Quadlet):
+For the podman quadlet/systemd service, pull the latest code, rebuild the image, and restart it:
 
 ```sh
 git pull
@@ -103,141 +160,19 @@ podman build -t conversa -f Containerfile .
 systemctl --user restart conversa
 ```
 
-If you started it with plain `podman run`, stop the old container and start a new one from the rebuilt image:
+For the plain Podman setup above, replace the container:
 
 ```sh
 git pull
 podman build -t conversa -f Containerfile .
-podman rm -f conversa 2>/dev/null
+podman rm -f conversa
 podman run -p 8000:8000 \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  -e OPENAI_API_KEY=sk-... \
   -e APP_PASSWORD=your-password \
   --name conversa \
   conversa
 ```
 
-Your conversations, settings, cards, workspaces, documents, and templates live in the browser, so an update leaves all of them intact.
+Use the same provider keys and password as before. Your saved conversations and settings stay in your browser during the update.
 
-## Configuration
-
-Set these as environment variables when you start the container.
-
-| Variable | Required | Default | What it does |
-|----------|----------|---------|--------------|
-| `ANTHROPIC_API_KEY` | one key | _(none)_ | Your Anthropic key. Stays on the server. |
-| `OPENAI_API_KEY` | one key | _(none)_ | Your OpenAI key. Stays on the server. |
-| `DEEPSEEK_API_KEY` | one key | _(none)_ | Your OpenAI key. Stays on the server. |
-| `OPENAI_COMPATIBLE_API_KEY` | one key | _(none)_ | Key for one generic chat.completions endpoint. Requires `OPENAI_COMPATIBLE_BASE_URL`. |
-| `OPENAI_COMPATIBLE_BASE_URL` | with compatible key | _(none)_ | Base URL for that endpoint, for example `https://api.moonshot.ai/v1`. |
-| `APP_PASSWORD` | **yes** | _(none)_ | The password used to log in. |
-| `JWT_SECRET` | no | random | Signs login tokens. A fixed value keeps sessions valid across restarts; the random default gives each process a new signing key. |
-| `TOKEN_TTL_SECONDS` | no | `604800` | How long a login lasts (default 7 days). |
-| `DEFAULT_MODEL` | no | `claude-sonnet-5` | Model new conversations start with. |
-| `DEFAULT_TEMPERATURE` | no | `1.0` | Creativity, 0 to 1. Claude 4.6+ and Responses reasoning models receive no temperature; older Claude models receive it when thinking is off. |
-| `DEFAULT_NUM_MESSAGES` | no | `20` | How many recent messages are sent each turn. |
-| `DEFAULT_SEND_SYSTEM_PROMPT` | no | `true` | Whether system messages are sent. |
-| `DEFAULT_MAX_TOKENS` | no | `4096` | Cap on reply length. |
-| `DEFAULT_EFFORT` | no | *(off)* | Thinking effort new conversations start with: empty, `low`, `medium`, or `high`. |
-| `DEFAULT_UTILITY_MODEL` | no | `claude-haiku-4-5` | Cheap model used for auto-titling and memory. |
-| `DEFAULT_USE_MEMORY` | no | `false` | Whether older turns get summarized into memory. |
-| `DEFAULT_SUMMARIZE_N` | no | `20` | How many turns just above the send window get summarized into memory. |
-| `DEFAULT_USE_RECALL` | no | `false` | Whether relevant dropped turns get resent verbatim. |
-| `DEFAULT_USE_CACHE` | no | `false` | Whether the stable part of the prompt is cached by the provider. Off by default because it only pays back in long conversations with a large shared context. |
-| `DEFAULT_TOOLS_ENABLED` | no | `true` | Master switch for the model-callable tools below. Off omits all of them from the provider schema. |
-| `DEFAULT_TOOL_WEB_SEARCH` | no | `true` | Whether `search_web` is offered. |
-| `DEFAULT_TOOL_FETCH_URL` | no | `true` | Whether `fetch_url` is offered. |
-| `DEFAULT_TOOL_DATETIME` | no | `true` | Whether `datetime` is offered. |
-| `DEFAULT_TOOL_CALCULATOR` | no | `true` | Whether `calculator` is offered. |
-| `DEFAULT_TOOL_RANDOM` | no | `true` | Whether `random` is offered. |
-| `MODELS` | no | _(none)_ | **Extra** models to offer, as `provider/id:Label,id:Label`, appended to the built-in list. The label is optional. The provider is optional and defaults to `anthropic`, so `claude-opus-5` and `anthropic/claude-opus-5` mean the same model; every other provider's ids need its prefix (`openai/`, `deepseek/`, `compatible/`). Models older than Claude 4.6 use an earlier thinking format, so add their id to `LEGACY_MODELS` in `backend/providers/anthropic.py`. |
-| `WEB_SEARCH_TOOL_VERSION` | no | `web_search_20250305` | Anthropic hosted-search version used when app search is unavailable. Set empty to disable that fallback. |
-| `WEB_FETCH_TOOL_VERSION` | no | `web_fetch_20250910` | Anthropic hosted-fetch version used when app fetching is unavailable. Set empty to disable that fallback. |
-| `WEB_FETCH_BETA` | no | `web-fetch-2025-09-10` | Beta header the hosted-fetch fallback requires. |
-| `EXA_API_KEY` | no | _(none)_ | [Exa](https://exa.ai) key. Chat and research searches try Exa first. |
-| `BRAVE_API_KEY` | no | _(none)_ | [Brave Search](https://brave.com/search/api/) key. Used when Exa is absent or fails. |
-| `SEARXNG_URL` | no | _(none)_ | Base URL of a self-hosted SearXNG instance (`format=json` must be enabled in its settings.yml). Used after Exa and Brave. |
-| `FETCH_CACHE_TTL_SECONDS` | no | `1800` | How long an extracted public page stays in the bounded process-local cache. Zero disables caching. |
-| `DEFAULT_RESEARCH_SEARCH_MODEL` | no | `DEFAULT_MODEL` | Model that runs the searches in a research run when no app search key above is set, and the fallback when one fails. |
-| `DEFAULT_RESEARCH_NOTE_MODEL` | no | `DEFAULT_UTILITY_MODEL` | Model that reads pages and takes notes. Around 78% of a run's input tokens, so a cheap model belongs here. |
-| `DEFAULT_RESEARCH_REPORT_MODEL` | no | `DEFAULT_MODEL` | Model that plans the subquestions and writes the report. |
-| `DEFAULT_RESEARCH_DEPTH` | no | `5` | Sources read per subquestion. |
-| `API_MAX_RETRIES` | no | `5` | Provider retries on 429, 5xx and connection errors. A research run makes about 30 model calls. |
-| `OPENAI_WEB_SEARCH_TOOL` | no | `web_search` | OpenAI's hosted search and page-opening tool. Set empty to disable OpenAI hosted search. |
-
-Change any of them globally (in **Global settings**) or per conversation (in **Conversation settings**).
-
-## Features
-
-Conversa is a chat app at its core. Pick a model and start talking. Conversations can include images and documents, search the web, and keep the context that matters from older turns.
-
-### Local first
-
-Every conversation transcript, image, card, workspace, document, template, setting, and usage record lives in IndexedDB in your browser. The server only holds your provider keys, your password, active research runs, and transfer payloads, all of which are ephemeral. The rule of thumb is: 
-
->*"If its something durable to be stored, the client stores it."*
-
-### Providers
-
-Every conversation picks its own model from the providers you configure. Set one key or several, and the picker shows what is on offer.
-
-| Dialect | Providers | API |
-|---------|-----------|-----|
-| `anthropic` | Anthropic | Messages |
-| `responses` | OpenAI, DeepSeek | Responses |
-| `chat_completions` | `compatible` | Chat Completions |
-
-### Tools
-
-Choose which tools the model can use in **Global settings > Tools**. Each conversation can override those choices in **Conversation settings > Tools**. Turning tools off keeps your individual choices for later, and changes apply to your next message.
-
-| Tool | What it does |
-|------|--------------|
-| Web search | Finds current sources and returns links. |
-| Read URLs | Reads the relevant sections of a page you provide or a search finds. |
-| Date and time | Gets the current time in a named time zone, adds calendar or elapsed time, and compares dates. |
-| Calculator and unit conversion | Evaluates bounded mathematical expressions and converts common units. |
-| Random selection | Generates integers, samples items, or shuffles a list. An optional seed makes a result repeatable. |
-
-Web search and URL reading can use a matching tool from the selected provider if conversa's own service is unavailable. A URL rejected by conversa's network policy does not fall back. Generic compatible models do not support tools.
-
-### Cards, memory, recall, and templates
-
-Four ways to bring context back without retyping it. Cards flip open at the right moment, memory keeps the gist, recall finds the old turn that matters now, and templates copy a whole conversation as a starting point.
-
-| Feature | What it does |
-|---------|--------------|
-| Cards | Think flash cards for the model. Write a trigger phrase, and when the chat mentions it the card flips open and adds its instructions to the prompt. List triggers with commas for any-of, and `&` for phrases that must appear together. |
-| Memory | A running summary the model keeps seeing, like a sticky note holding the gist of turns that have scrolled out of view. |
-| Recall | Flips back through dropped turns and resends the few that matter now, up to three, picked by how closely they match what you just asked. |
-| Templates | Copies a conversation with its cards, messages, and documents so you can start a new one from it or keep it to reuse later. |
-
-### Research
-
-Hand the model a question and it plays research assistant: breaks it into subquestions, searches the web, reads the pages, takes notes, and comes back with a report saved with the conversation. The run lives on the server, so it keeps going after you close the browser, and you return to a finished report.
-
-| Phase | What happens |
-|------|--------------|
-| plan | Turn the goal into a list of subquestions. |
-| gather | Search the web, read pages, and take notes for each subquestion. |
-| gap | Plan again to fill any gaps the notes leave. |
-| report | Write the report and save it as a document on the conversation. |
-
-### Workspaces
-
-A workspace is a shared notebook of instructions, cards, and documents that every conversation in a group reads from. Each conversation can still turn one shared card on or off for itself without touching the others.
-
-### Import, export, and transfer
-
-Pack up your data as JSON files or short-lived phrase codes.
-
-| Action | What it does |
-|--------|--------------|
-| Export | Download a JSON file with everything, or just one conversation. |
-| Import | Merge an export into your browser, keeping what you already have when ids collide. |
-| Restore | Replace everything in your browser with a snapshot, after you confirm. |
-| Transfer | Create a five-word phrase code another browser can retrieve within one hour. |
-
-Conversa also imports backups from [NextChat](https://github.com/ChatGPTNextWeb/NextChat) (formerly ChatGPT-Next-Web), bringing over your chat histories and mask templates. Imports run locally in your browser and ignore any API keys or access codes the backup contains.
-
-[MIT licensed](LICENSE). Built with Vue and FastAPI. See [DEVELOPMENT.md](DEVELOPMENT.md) for the architecture and local development setup.
+[MIT licensed](LICENSE). Built with Vue and FastAPI.

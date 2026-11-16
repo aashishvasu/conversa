@@ -1,6 +1,5 @@
 """Research preparation and run endpoints."""
 
-import asyncio
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from api.auth import require_auth
-from api.chat import Msg
+from api.chat import Msg, SystemParts, render_system
 from api.sse import sse
 from providers import DEFAULT_MODEL, complete_messages
 from research import runs
@@ -95,7 +94,8 @@ def prepare_system(system):
 @router.post("/api/research/prepare", response_model=PrepareResponse)
 async def research_prepare(req: "PrepareRequest", _=Depends(require_auth)):
     try:
-        text = await complete_messages(req.model or DEFAULT_MODEL, prepare_system(req.system), [message.model_dump() for message in req.messages], max_tokens=1400)
+        system = render_system(req.system, req.model or DEFAULT_MODEL, [])
+        text = await complete_messages(req.model or DEFAULT_MODEL, prepare_system(system), [message.model_dump() for message in req.messages], max_tokens=1400)
         return parse_prepare_response(text)
     except ValueError as error:
         raise HTTPException(502, {"code": "research_prepare_failed", "message": str(error)}) from error
@@ -106,7 +106,7 @@ async def research_prepare(req: "PrepareRequest", _=Depends(require_auth)):
 
 class PrepareRequest(BaseModel):
     messages: list[Msg]
-    system: str | list[str] | None = None
+    system: str | list[str] | SystemParts | None = None
     model: str | None = None
 
 
@@ -176,7 +176,7 @@ async def research_start(req: ResearchRequest, _=Depends(require_auth)):
 @router.get("/api/research/{run_id}")
 async def research_state(run_id: str, after: int = 0, _=Depends(require_auth)):
     runs.evict()
-    run = runs.RUNS.get(run_id)
+    run = runs.get(run_id)
     if not run:
         raise HTTPException(404, {"code": "no_such_run", "message": "no such run, or it ended before you came back"})
     return run.state(after)
@@ -184,46 +184,40 @@ async def research_state(run_id: str, after: int = 0, _=Depends(require_auth)):
 
 @router.get("/api/research/{run_id}/stream")
 async def research_stream(run_id: str, after: int = 0, _=Depends(require_auth)):
-    run = runs.RUNS.get(run_id)
+    run = runs.get(run_id)
     if not run:
         raise HTTPException(404, {"code": "no_such_run", "message": "no such run, or it ended before you came back"})
 
     async def tail():
-        seen = after
-        while True:
-            if len(run.events) > seen:
-                for event in run.events[seen:]:
-                    yield sse(**event, spend=run.spend.as_dict())
-                seen = len(run.events)
-            if run.status != "running":
-                yield sse(kind="final", **run.state(len(run.events)))
-                return
-            yield sse(kind="tick", phase=run.phase, revision=run.data.get("revision", 0), spend=run.spend.as_dict())
-            await asyncio.sleep(1)
+        async for _seq, event in run.events.tail(after, idle=1):
+            if event is None:
+                yield sse(kind="tick", phase=run.phase, revision=run.data.get("revision", 0), spend=run.spend.as_dict())
+            else:
+                yield sse(**event, spend=run.spend.as_dict())
+        yield sse(kind="final", **run.state(len(run.events)))
 
     return StreamingResponse(tail(), media_type="text/event-stream")
 
 
 @router.delete("/api/research/{run_id}")
 async def research_discard(run_id: str, _=Depends(require_auth)):
-    run = runs.RUNS.get(run_id)
+    run = runs.get(run_id)
     if not run:
         raise HTTPException(404, {"code": "no_such_run", "message": "no such run"})
     if run.status == "running":
-        if run.task:
-            run.task.cancel()
+        await runs.cancel(run_id)
         return {"status": "cancelling"}
-    runs.forget(run_id)
+    await runs.forget(run_id)
     return {"status": "forgotten"}
 
 
 @router.post("/api/research/{run_id}/ack")
 async def research_ack(run_id: str, _=Depends(require_auth)):
-    run = runs.RUNS.get(run_id)
+    run = runs.get(run_id)
     if not run:
         return {"status": "already_removed"}
     if run.status == "running":
         raise HTTPException(400, {"code": "run_still_active", "message": "cannot ack an active run"})
-    runs.forget(run_id)
+    await runs.forget(run_id)
     return {"status": "acknowledged"}
 

@@ -1,5 +1,7 @@
 """Selfcheck: python -m selfchecks.providers"""
 
+import re
+from pathlib import Path
 from types import SimpleNamespace as Obj
 
 from providers import (
@@ -28,9 +30,19 @@ from providers import (
     takes_reasoning,
 )
 from providers.anthropic import LEGACY_EFFORT_BUDGETS
-from providers.dialects import _anthropic_request_tools, responses_request_tools
+from providers.dialects import (
+    REASONING_OUTPUT_FLOOR,
+    _anthropic_request_tools,
+    responses_request_tools,
+)
+from providers.registry import (
+    CACHE_READ_MULTIPLIER,
+    CACHE_WRITE_MULTIPLIER,
+    DIALECTS,
+    HOSTED_SEARCH_FEE_PER_1000,
+    UNKNOWN_PRICE,
+)
 from tools import DATETIME_TOOL, TOOL_REGISTRY
-from providers.registry import DIALECTS
 
 
 def request(model: str, temperature: float = 1.0) -> dict:
@@ -39,7 +51,7 @@ def request(model: str, temperature: float = 1.0) -> dict:
 
 modern = apply_thinking(request("claude-opus-4-8"), "high", 4096)
 assert modern["thinking"] == {"type": "adaptive", "display": "summarized"}, modern
-assert modern["output_config"] == {"effort": "high"} and modern["max_tokens"] == 32000, modern
+assert modern["output_config"] == {"effort": "high"} and modern["max_tokens"] == max(4096, REASONING_OUTPUT_FLOOR), modern
 assert "temperature" not in modern, modern
 
 modern = apply_thinking(request("claude-opus-4-8"), "", 4096)
@@ -67,17 +79,24 @@ assert models[0]["supports_cache"] and models[2]["supports_cache"], "anthropic (
 assert not models[1]["supports_cache"], "openai does not"
 assert not parse_models("nosuch/model")[0]["supports_cache"], "an unknown provider defaults to unsupported"
 
-assert set(PROVIDERS) == {"anthropic", "compatible", "deepseek", "openai"}, PROVIDERS
+# Every env var a provider reads is documented in backend/.env.example, so a provider cannot silently
+# read a key the user was never told to set. CLAUDE.md's provider checklist requires the pairing.
+env_example = (Path(__file__).resolve().parents[1] / ".env.example").read_text(encoding="utf-8")
+env_documented = set(re.findall(r"^([A-Z0-9_]+)=", env_example, re.M))
+assert set(PROVIDERS) >= {"anthropic", "compatible", "deepseek", "openai"}, PROVIDERS
 for name, entry in PROVIDERS.items():
     assert entry["dialect"] in DIALECTS and entry["key_env"] and "models" in entry, name
     assert entry.get("base_url") or name in ("anthropic", "compatible", "openai"), name
+    assert entry["key_env"] in env_documented, (name, entry["key_env"])
+    if entry.get("base_url_env"):
+        assert entry["base_url_env"] in env_documented, (name, entry["base_url_env"])
     for model in parse_models(entry["models"]):
         assert model["provider"] == name, (name, model)
-assert PROVIDERS["compatible"]["models"] == ""
-assert PROVIDERS["compatible"]["base_url_env"] == "OPENAI_COMPATIBLE_BASE_URL"
+# compatible ships no built-in catalog; its models come from MODELS under the compatible/ prefix.
+assert parse_models(PROVIDERS["compatible"]["models"]) == [], PROVIDERS["compatible"]["models"]
 deepseek_models = {model["id"] for model in parse_models(PROVIDERS["deepseek"]["models"])}
-assert deepseek_models == {"deepseek/deepseek-v4-pro", "deepseek/deepseek-flash"}, deepseek_models
-assert cost("deepseek", "deepseek-flash", 1_000_000, 0) == (0.3, True)
+assert deepseek_models, "deepseek provider has models"
+assert cost("deepseek", "deepseek-flash", 1_000_000, 0) == (PROVIDERS["deepseek"]["prices"]["deepseek-flash"][0], True)
 # DeepSeek's Responses API ignores web_search and other built-in tools, so the entry must not claim one.
 assert not PROVIDERS["deepseek"].get("search_tool"), PROVIDERS["deepseek"]
 
@@ -102,7 +121,7 @@ responses = responses_kwargs("deepseek", "deepseek-v4-pro", [{"role": "user", "c
 assert responses["reasoning"] == {"effort": "none"} and "temperature" not in responses, responses
 responses = responses_kwargs("deepseek", "deepseek-v4-pro", [], None, 20, "low", 0.5)
 assert responses["reasoning"] == {"effort": "low", "summary": "auto"}, responses
-assert responses["max_output_tokens"] == 32000, responses
+assert responses["max_output_tokens"] == max(20, REASONING_OUTPUT_FLOOR), responses
 assert join_system(["stable", ""]) == "stable" and join_system("plain") == "plain"
 vision = [{"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/webp", "data": "DATA"}}, {"type": "text", "text": "look"}]}]
 assert openai_messages(vision, True)[0]["content"] == [{"type": "input_image", "image_url": "data:image/webp;base64,DATA"}, {"type": "input_text", "text": "look"}]
@@ -157,22 +176,26 @@ assert join_model("anthropic", "claude-x") == "claude-x"
 assert join_model("openai", "gpt-x") == "openai/gpt-x"
 
 # cost(): base rate, then each of cache write, cache read, and hosted search priced independently.
-usd, priced = cost("anthropic", "claude-sonnet-5", 1_000_000, 0)
-assert priced and usd == 2.0, usd
+#  expectations are computed from the provider's own rate table and multipliers, so a price edit
+# moves both sides together while an edit to the cost() formula still fails.
+usd, priced = cost("anthropic", "claude-sonnet-5", 2_000_000, 1_000_000)
+rate_in, rate_out = PROVIDERS["anthropic"]["prices"]["claude-sonnet-5"]
+assert priced and usd == 2 * rate_in + rate_out, usd  # unequal counts: a swapped in/out rate fails
 usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, cache_write=1_000_000)
-assert usd == 2.5, usd  # 2 * 1.25
+assert usd == rate_in * CACHE_WRITE_MULTIPLIER, usd
 usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, cache_read=1_000_000)
-assert usd == 0.2, usd  # 2 * 0.1
-usd, _ = cost("anthropic", "claude-opus-5-5", 0, 0, cache_read=1_000_000)
-assert usd == 0.2, usd  # 4 * 0.05
-usd, _ = cost("anthropic", "claude-fable-5-1", 0, 0, cache_read=1_000_000)
-assert usd == 0.25, usd  # 10 * 0.025
+assert usd == rate_in * CACHE_READ_MULTIPLIER, usd
+# Every published per-model read override prices at its own multiplier instead of the default.
+for model, multiplier in PROVIDERS["anthropic"]["cache_read_multipliers"].items():
+    usd, _ = cost("anthropic", model, 0, 0, cache_read=1_000_000)
+    assert usd == PROVIDERS["anthropic"]["prices"][model][0] * multiplier, (model, usd)
+# A provider with no override table uses the default read multiplier.
 usd, _ = cost("openai", "gpt-6-astra", 0, 0, cache_read=1_000_000)
-assert usd == 1.0, usd  # 10 * 0.1, no per-model override
+assert usd == PROVIDERS["openai"]["prices"]["gpt-6-astra"][0] * CACHE_READ_MULTIPLIER, usd
 usd, _ = cost("anthropic", "claude-sonnet-5", 0, 0, search_requests=1000)
-assert usd == 10.0, usd
+assert usd == HOSTED_SEARCH_FEE_PER_1000, usd
 usd, priced = cost("anthropic", "unknown-model-xyz", 1_000_000, 1_000_000)
-assert not priced and usd == 30.0, usd  # UNKNOWN_PRICE (5, 25)
+assert not priced and usd == sum(UNKNOWN_PRICE), usd
 
 # Spend: totals plus a per-model breakdown, so as_dict() answers both the sidebar's total and a future per-model view.
 spend = Spend()

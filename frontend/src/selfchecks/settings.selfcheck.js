@@ -1,9 +1,9 @@
 // Run: node src/selfchecks/settings.selfcheck.js.
 // Covers the settings surface: key registration, the tool switch -> enabled_tools mapping, and the payload contract.
 import assert from 'node:assert'
-import { readFile } from 'node:fs/promises'
 import { globalSettings } from '../state/store.js'
 import { effectiveSettings, enabledTools, SETTING_KEYS, TOOL_FIELDS } from '../state/settings.js'
+import { chatRequest, utilityRequest } from '../prompt/request.js'
 
 // Every tool switch is a registered setting, and the backend schema names are fixed.
 assert.deepEqual(TOOL_FIELDS.map((f) => f.key), ['tool_web_search', 'tool_fetch_url', 'tool_datetime', 'tool_calculator', 'tool_random'])
@@ -41,12 +41,17 @@ globalSettings.value = { model: 'm' }
 assert.deepEqual(enabledTools(effectiveSettings({ settings: {} })), [], 'no tool keys anywhere sends nothing')
 
 // Payload contract: the chat turn fixes its tool selection at assembly time; utility jobs stay tool-free.
-const orchestration = await readFile(new URL('../research/orchestration.js', import.meta.url), 'utf8')
-assert.ok(/enabled_tools: enabledTools\(settings\)/.test(orchestration), 'the chat payload carries enabledTools read once at assembly')
-assert.ok(!/allow_tools/.test(orchestration), 'the legacy allow_tools flag is gone from chat sends')
-const utility = await readFile(new URL('../jobs/utility.js', import.meta.url), 'utf8')
-assert.ok(/enabled_tools: \[\]/.test(utility), 'utility jobs send an empty tool list')
-assert.ok(!/allow_tools/.test(utility), 'the legacy allow_tools flag is gone from utility sends')
+// Behavioral assertions on the pure request builders replace source greps.
+const convo = { messages: [{ role: 'user', content: 'hello' }] }
+const base = { model: 'm', temperature: 1, max_tokens: 10, num_messages_to_send: 1, send_system_prompt: true }
+const chat = chatRequest(convo, { ...base, ...allOn })
+assert.deepEqual(chat.enabled_tools, ['search_web', 'fetch_url', 'datetime', 'calculator', 'random'], 'the chat payload carries the enabled tool list read once at assembly')
+assert.ok(!('allow_tools' in chat), 'the legacy allow_tools flag is gone from chat sends')
+const chatOff = chatRequest(convo, { ...base, ...allOn, tools_enabled: false })
+assert.deepEqual(chatOff.enabled_tools, [], 'the master switch empties the chat tool list')
+const util = utilityRequest({ model: 'm', messages: [] })
+assert.deepEqual(util.enabled_tools, [], 'utility jobs send an empty tool list')
+assert.ok(!('allow_tools' in util), 'the legacy allow_tools flag is gone from utility sends')
 
 assert.ok(SETTING_KEYS.includes('research_min_sources'), 'research_min_sources must be in SETTING_KEYS')
 assert.ok(SETTING_KEYS.includes('research_max_sources'), 'research_max_sources must be in SETTING_KEYS')

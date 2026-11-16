@@ -18,6 +18,7 @@ export const SETTING_KEYS = [
   'temperature',
   'num_messages_to_send',
   'send_system_prompt',
+  'structure_system_prompt',
   'max_tokens',
   'effort',
   'utility_model',

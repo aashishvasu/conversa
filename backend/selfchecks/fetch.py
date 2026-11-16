@@ -63,7 +63,8 @@ async def _cache_checks():
         cache.get("https://example.com/page/?a=1&b=2"),
     )
     assert len(calls) == 1, calls
-    assert alpha["content"].startswith("# Alpha") and alpha == beta == again
+    content = alpha["content"]
+    assert isinstance(content, str) and content.startswith("# Alpha") and alpha == beta == again
     assert cache.inflight == {}, cache.inflight
 
     raw = await cache.get("https://example.com/page?a=1&b=2", True)
@@ -76,14 +77,17 @@ async def _cache_checks():
     async def sized_fetch(url, raw):
         return {"url": url, "title": None, "kind": "text", "content": url[-1] * 10}
 
-    lru = PageCache(sized_fetch, ttl=100, max_chars=25)
+    max_chars = 25
+    lru = PageCache(sized_fetch, ttl=100, max_chars=max_chars)
     await lru.get("https://example.com/a")
     await lru.get("https://example.com/b")
     await lru.get("https://example.com/a")
     await lru.get("https://example.com/c")
     assert ("https://example.com/a", False) in lru.pages, lru.pages
     assert ("https://example.com/b", False) not in lru.pages, lru.pages
-    assert lru.size <= 25, lru.size
+    assert lru.size <= max_chars, lru.size
+    # Size is the eviction budget's only input, so it has to equal what is stored. The cap check alone also passes for a cache that counts nothing.
+    assert lru.size == sum(len(str(stored["content"])) for stored, _ in lru.pages.values()), (lru.size, lru.pages)
 
     oversized_calls = 0
 
@@ -130,7 +134,9 @@ first = view(page, None, False, 0, budget=120)
 assert first["offset"] == 0 and first["totalChars"] == len(page["content"]) and first["nextOffset"] == 120, first
 rest = view(page, None, False, 120, budget=1000)
 assert rest["nextOffset"] is None and rest["content"] == page["content"][120:], rest
-assert view(page, "beta", False, 0)["content"] == "# Beta\n" + "y" * 100, view(page, "beta", False, 0)
+beta_window = str(view(page, "beta", False, 0)["content"])
+# "x" occurs only in the fixture's Alpha section, so its absence is what proves topic selection dropped that section instead of returning the page.
+assert beta_window.startswith("# Beta") and "x" not in beta_window, beta_window
 assert view(page, "beta", True, 0)["content"] == page["content"], "raw ignores topic"
 
 print("fetch selfcheck OK")

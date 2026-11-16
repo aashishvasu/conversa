@@ -43,6 +43,8 @@ export function cloneWithNewIds(convo) {
   const c = JSON.parse(JSON.stringify(convo))
   c.id = crypto.randomUUID()
   c.messages = c.messages.map((m) => ({ ...m, id: crypto.randomUUID() }))
+  // A copy never claims the original's pending turn.
+  for (const m of c.messages) delete m.turnId
   c.cards = (c.cards || []).map((cd) => ({ ...cd, id: crypto.randomUUID() }))
   return c
 }

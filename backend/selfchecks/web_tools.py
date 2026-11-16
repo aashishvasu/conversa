@@ -22,10 +22,12 @@ async def checks():
         assert url == "https://example.com/release" and topic == "release date" and raw is False and offset == 0
         return {"url": url, "title": "Release", "kind": "article", "content": "PRIVATE PAGE BODY" * 500, "offset": 0, "totalChars": 8500, "nextOffset": None}
 
+    search_arguments = {"query": "current release", "limit": 2}
+    fetch_arguments: dict[str, object] = {"url": "https://example.com/release", "topic": "release date"}
     search.search, fetch.fetch = fake_search, fake_fetch
     try:
-        found = await execute_tool(tools["search_web"], ToolCall("s1", "search_web", {"query": "current release", "limit": 2}))
-        page = await execute_tool(tools["fetch_url"], ToolCall("f1", "fetch_url", {"url": "https://example.com/release", "topic": "release date"}))
+        found = await execute_tool(tools["search_web"], ToolCall("s1", "search_web", search_arguments))
+        page = await execute_tool(tools["fetch_url"], ToolCall("f1", "fetch_url", fetch_arguments))
     finally:
         search.search, fetch.fetch = real_search, real_fetch
 
@@ -35,12 +37,21 @@ async def checks():
     assert page.trace == {"url": "https://example.com/release", "title": "Release", "kind": "article"}, page
     assert "PRIVATE PAGE BODY" not in str(page.trace), page
     # The durable artifact is the client-safe provenance record: query and hits, or an excerpted page with window metadata.
-    assert found.artifact == {"input": {"query": "current release", "limit": 2}, "output": {"results": [{"title": "Release", "url": "https://example.com/release"}]}}, found
-    assert page.artifact == {"input": {"url": "https://example.com/release", "topic": "release date", "raw": False, "offset": 0}, "output": {"url": "https://example.com/release", "title": "Release", "kind": "article", "offset": 0, "totalChars": 8500, "nextOffset": None, "windowChars": 8500, "excerpt": ("PRIVATE PAGE BODY" * 500)[:web.ARTIFACT_EXCERPT_CHARS]}}, page
+    assert found.artifact == {"input": search_arguments, "output": {"results": json.loads(found.content)["results"]}}, found.artifact
+    # Omitted arguments are recorded as the defaults they resolved to, so a later turn can replay the same call.
+    model_page = json.loads(page.content)
+    window_metadata = {key: model_page[key] for key in ("url", "title", "kind", "offset", "totalChars", "nextOffset")}
+    assert page.artifact == {
+        "input": {**fetch_arguments, "raw": False, "offset": 0},
+        "output": {**window_metadata, "windowChars": len(model_page["content"]), "excerpt": model_page["content"][:web.ARTIFACT_EXCERPT_CHARS]},
+    }, page.artifact
     # The invariant: the model sees the full window as the tool result, later turns only see provenance with a bounded excerpt.
     assert len(page.artifact["output"]["excerpt"]) == web.ARTIFACT_EXCERPT_CHARS, page.artifact
     assert len(json.loads(page.content)["content"]) > web.ARTIFACT_EXCERPT_CHARS, page
-    assert tools["search_web"].artifact_fresh_for == 1800 and tools["fetch_url"].artifact_fresh_for == 1800
+    #  ARTIFACT_FRESH_SECONDS tracks the FETCH_CACHE_TTL_SECONDS env var, so a literal 1800 fails
+    # the run on correct behavior the moment that var is set. Both tools must read the shared constant.
+    assert tools["search_web"].artifact_fresh_for == web.ARTIFACT_FRESH_SECONDS, tools["search_web"]
+    assert tools["fetch_url"].artifact_fresh_for == web.ARTIFACT_FRESH_SECONDS, tools["fetch_url"]
 
     seen = []
 
