@@ -4,11 +4,14 @@ import assert from 'node:assert'
 import { cp, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { nextTick } from 'vue'
+import { nextTick, reactive } from 'vue'
+import { applyFrame, newDraft, settleMessage } from '../chat/turn.js'
 import { set } from 'idb-keyval'
 import { STORE_KEY } from '../state/persistence.js'
 import { SNAPSHOT_VERSION } from '../state/snapshot.js'
 import { conversations, deleteConversation, exportData, initStore, persistNow, restoreData } from '../state/store.js'
+import { setDownloadExport, storageFailure } from '../state/persistence.js'
+import { dismiss, notifications } from '../utils/notify.js'
 
 function convo(id, title, createdAt) {
   return {
@@ -57,6 +60,20 @@ byId('a').messages.push({ id: 'a-m1', role: 'user', content: 'SENTINEL-RELOAD', 
 await saveAndReload()
 assert.equal(byId('a').title, 'Alpha-edited', 'an edited title survives a reload')
 assert.ok(byId('a').messages.some((m) => m.content === 'SENTINEL-RELOAD'), 'a pushed message survives a reload')
+
+// --- A turn that ran a tool saves and reloads ---
+// The draft is reactive, as in the live coordinator, so its artifacts reach storage through the same copy the stream uses.
+const toolMessage = { id: 'a-tool', role: 'assistant', content: '', turnId: 'turn-a-tool', createdAt: 400 }
+byId('a').messages.push(toolMessage)
+const toolDraft = reactive(newDraft())
+applyFrame(toolDraft, { text: 'TOOL-REPLY' })
+applyFrame(toolDraft, { artifact: { tool: 'web_search', output: { hits: 2 } } })
+applyFrame(toolDraft, { done: true })
+settleMessage(toolMessage, toolDraft, 'done')
+await saveAndReload()
+const reloadedTool = byId('a').messages.find((m) => m.id === 'a-tool')
+assert.equal(reloadedTool?.content, 'TOOL-REPLY', 'a reply from a turn that ran a tool survives a reload')
+assert.equal(reloadedTool?.artifacts?.[0]?.tool, 'web_search', 'a tool artifact survives a reload')
 
 // --- Delete removes ---
 deleteConversation('c')
@@ -159,4 +176,14 @@ await initStore()
 assert.equal(byId('live1').messages.find((m) => m.id === 'live1-m1').content, 'COMPLETE-SENTINEL-8', "the settled reply survives the stale tab's 404 in storage")
 await rm(tmpDir2, { recursive: true, force: true })
 
+
+// --- The storage banner's backup action runs the export with no arguments ---
+// The notification is rendered as a button, so the action receives the click event; the export must not treat it as a conversation id.
+let exportArgs = null
+setDownloadExport((...args) => { exportArgs = args })
+storageFailure(new Error('storage down'))
+const banner = notifications.value.find((n) => n.key === 'storage')
+banner.action.fn({ type: 'click' })
+assert.ok(exportArgs && exportArgs.length === 0, 'the backup action exports the full archive when a click event reaches it')
+dismiss('storage')
 console.log('persistence selfcheck OK')
