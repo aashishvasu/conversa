@@ -16,7 +16,7 @@ const tabs = [
       v-for="tab in tabs"
       :key="tab.value"
       :value="tab.value"
-      class="flex h-9 items-center gap-2 rounded-md border-l-2 border-transparent px-2 text-muted outline-none transition-colors hover:bg-surface2 focus-visible:ring-2 focus-visible:ring-focus data-[state=active]:border-accent data-[state=active]:bg-accent/10 data-[state=active]:text-base"
+      class="flex h-9 items-center gap-2 rounded-md px-2 text-muted outline-none transition-colors hover:bg-surface2 focus-visible:ring-2 focus-visible:ring-focus data-[state=active]:bg-accent/10 data-[state=active]:text-base"
     >
       <component :is="tab.icon" :size="14" /> {{ $t(`sidebar.${tab.value}`) }}
     </TabsTrigger>
