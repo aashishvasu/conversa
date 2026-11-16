@@ -31,7 +31,7 @@ export function storageFailure(e) {
     sticky: true,
     text: tr('notification.storage'),
     detail: String(e?.stack || e),
-    action: { label: tr('notification.downloadBackup'), fn: _downloadExportFn },
+    action: { label: tr('notification.downloadBackup'), fn: () => _downloadExportFn?.() },
   })
 }
 
