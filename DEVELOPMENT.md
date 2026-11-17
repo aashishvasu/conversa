@@ -224,19 +224,7 @@ pnpm --dir frontend build
 
 ## Checks
 
-Run the full repository check from the root:
-
-```powershell
-backend\.venv\Scripts\python.exe tools\check.py
-```
-
-Use `--no-build` to skip the frontend production build. Run the settings drift check separately with:
-
-```powershell
-backend\.venv\Scripts\python.exe tools\settings-drift.py
-```
-
-The full check runs frontend locale lint and selfchecks, backend selfchecks, then the production frontend build. The selfchecks are split by owning module under `frontend/src/selfchecks/` and `backend/selfchecks/`.
+Selfchecks are split by owning module under `frontend/src/selfchecks/` and `backend/selfchecks/`.
 
 ## Container
 
