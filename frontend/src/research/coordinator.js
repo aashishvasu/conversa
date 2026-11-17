@@ -2,7 +2,7 @@ import { ackResearch, discardResearch, prepareResearch, startResearch, streamRes
 import { acceptEvent, applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, replayPosition, resumeWithCurrentModels } from './lifecycle.js'
 import { CHECKPOINT_MS } from '../chat/coordinator.js'
 import { finishRun } from '../state/runs.js'
-import { persistNow, state } from '../state/persistence.js'
+import { ensureLoaded, persistNow, state } from '../state/persistence.js'
 import { effectiveSettings } from '../state/settings.js'
 
 const controllers = new Map()
@@ -91,6 +91,8 @@ export async function startRun(run, answers = null) {
 
 // ackPending survives a failed ack so syncActiveRuns() can retry it; a stored run without it needs nothing.
 async function finishAndAck(run, frame) {
+  // The run may finish for a conversation that is not the open one; finishRun writes its report into that conversation's messages, so the row must load first.
+  await ensureLoaded(state.conversations.find((c) => c.id === run.convoId))
   finishRun(run, frame)
   run.ackPending = true
   await ackRun(run)

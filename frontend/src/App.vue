@@ -6,7 +6,6 @@ import { authed, fetchModels, fetchSettings, getToken, logout } from './api/clie
 import { activePane, cacheModels, initStore, setGlobalSettings } from './state/store.js'
 import { syncPendingTurns } from './chat/coordinator.js'
 import { syncActiveRuns } from './research/coordinator.js'
-import { initUsage } from './state/usage.js'
 import { dismiss, notify } from './utils/notify.js'
 import ConfirmModal from './components/ConfirmModal.vue'
 import UiButton from './components/ui/UiButton.vue'
@@ -25,7 +24,7 @@ const serverErrorMessage = ref('')
 
 onMounted(async () => {
   try {
-    await Promise.all([initStore(), initUsage()])
+    await initStore()
   } catch (e) {
     bootErrorMessage.value = String(e?.stack || e)
     bootState.value = 'bootError'
