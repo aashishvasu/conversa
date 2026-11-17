@@ -1,5 +1,3 @@
-// Research preparation uses the normal request context before an assistant placeholder exists.
-// The preparer routes the request instead of answering it.
 import { buildPayload } from './payload.js'
 
 // Preparation sends the turns without their tool evidence.
@@ -8,34 +6,8 @@ function withoutArtifacts(convo) {
   return { ...convo, messages: (convo.messages || []).map((message) => (message.artifacts ? { ...message, artifacts: undefined } : message)) }
 }
 
-function pendingPreparation(convo) {
-  // Only the latest assistant reply can leave a clarification pending; old exchanges stay history.
-  const latestAssistant = convo.messages.findLast((message) => message.role === 'assistant')
-  return latestAssistant?.researchPreparation ? latestAssistant : null
-}
-
-function continuation(preparation) {
-  const { goal, questions = [] } = preparation.researchPreparation
-  return [
-    'Pending research preparation:',
-    `Standalone goal: ${goal}`,
-    questions.length ? `Questions awaiting an answer:\n${questions.map((question) => `- ${question}`).join('\n')}` : '',
-  ].filter(Boolean).join('\n\n')
-}
-
 export function buildResearchInput(convo, settings, workspace = null, docs = [], images = []) {
   const scoped = withoutArtifacts(convo)
   const payload = buildPayload(scoped, settings, workspace, docs, images)
-  const pending = pendingPreparation(scoped)
-  if (!pending) return { system: payload.system, messages: payload.messages }
-  const context = continuation(pending)
-  let system
-  if (payload.system && typeof payload.system === 'object' && !Array.isArray(payload.system)) {
-    system = { ...payload.system, preparation: context }
-  } else if (Array.isArray(payload.system)) {
-    system = [payload.system[0], [payload.system[1], context].filter(Boolean).join('\n\n')]
-  } else {
-    system = [payload.system, context].filter(Boolean).join('\n\n')
-  }
-  return { system, messages: payload.messages }
+  return { system: payload.system, messages: payload.messages }
 }
