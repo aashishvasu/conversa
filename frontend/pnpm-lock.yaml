@@ -11,15 +11,15 @@ importers:
       '@lucide/vue':
         specifier: ^1.41.0
         version: 1.41.0(vue@3.5.42(typescript@6.0.3))
+      dexie:
+        specifier: ^4.4.7
+        version: 4.4.7
       dompurify:
         specifier: ^3.4.14
         version: 3.4.14
       highlight.js:
         specifier: ^11.12.0
         version: 11.12.0
-      idb-keyval:
-        specifier: ^6.3.0
-        version: 6.3.0
       marked:
         specifier: ^18.0.11
         version: 18.0.11
@@ -1644,6 +1644,9 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
+  dexie@4.4.7:
+    resolution: {integrity: sha512-wemFiCl3DTCnfzyqepUTX1ugbYbkTrw3aEZOG7YjAOUoEQB5g5PrEywPzk5JpbX/SxqQ9IvjUpxCDIEjoOWEfA==}
+
   dompurify@3.4.14:
     resolution: {integrity: sha512-dVoH9z+MY+C9IilgGCk3YfFqjLi3fChm2OiKJMzh6axrJ5qwxqWaZamgmHrpv22CN/KdbZJuGEGgfQoL00LTdg==}
 
@@ -1966,9 +1969,6 @@ packages:
   highlight.js@11.12.0:
     resolution: {integrity: sha512-nbfWpyRMcMrPMmDwJB+dhX/eiaPKtc2RB+0QZskqJ3WjRA/FDS0e9hZrx8EC/lbEv8gXy98FcDbNa/dspAaJMg==}
     engines: {node: '>=12.0.0'}
-
-  idb-keyval@6.3.0:
-    resolution: {integrity: sha512-um+2dgAWmYsu615EXpWVwSmapJhON0G43t3Ka/EVaohzPQXSMqKEqeDK/oIW3Ow+BXaF2PvSc+oBTFp793A5Ow==}
 
   idb@7.1.1:
     resolution: {integrity: sha512-gchesWBzyvGHRO9W8tzUWFDycow5gwjvFKfyV9FF32Y7F50yZMp7mP+T2mJIWFx49zicqyC4uefHM17o6xKIVQ==}
@@ -4602,6 +4602,8 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
+  dexie@4.4.7: {}
+
   dompurify@3.4.14:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
@@ -5028,8 +5030,6 @@ snapshots:
       function-bind: 1.1.2
 
   highlight.js@11.12.0: {}
-
-  idb-keyval@6.3.0: {}
 
   idb@7.1.1: {}
 

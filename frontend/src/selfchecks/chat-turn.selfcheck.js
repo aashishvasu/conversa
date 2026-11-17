@@ -1,4 +1,5 @@
 // Run: node src/selfchecks/chat-turn.selfcheck.js.
+import 'fake-indexeddb/auto'
 import assert from 'node:assert'
 import { applyFrame, newDraft, settleMessage, turnStillWanted } from '../chat/turn.js'
 import { cloneWithNewIds } from '../state/conversations.js'
@@ -58,7 +59,7 @@ assert.ok(copy.messages.length && copy.messages.every((m) => !Object.hasOwn(m, '
 assert.equal(pending.messages[0].turnId, 'T', 'copying leaves the original turn in place')
 
 await importData([pending])
-const exported = exportData().conversations
+const exported = (await exportData()).conversations
 assert.ok(exported.every((c) => c.messages.every((m) => !Object.hasOwn(m, 'turnId'))), 'export carries no turnId')
 assert.equal(conversations.value.find((c) => c.id === 'pc').messages[0].turnId, 'T', 'exporting leaves the stored turn in place')
 

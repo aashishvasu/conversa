@@ -1,7 +1,7 @@
 // Run: node src/selfchecks/research-lifecycle.selfcheck.js.
 import assert from 'node:assert'
 import { acceptEvent, applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, replayPosition, resumeWithCurrentModels } from '../research/lifecycle.js'
-import { activeRunOf, finishRun, migrateRun, researchProvenanceHeader, validRun } from '../state/runs.js'
+import { activeRunOf, createRun, finishRun, researchProvenanceHeader } from '../state/runs.js'
 import { setLoaded, startWatching, state } from '../state/persistence.js'
 import { streamResearch } from '../api/client.js'
 import { beginPreparation, cancelPreparation, getPreparationSignal, isPreparationCurrent, isPreparing, retryPreparation, startRun, syncActiveRuns, tailRun } from '../research/coordinator.js'
@@ -66,11 +66,16 @@ state.runs.push(blocked)
 assert.equal(activeRunOf('clarify-convo')?.id, blocked.id, 'waiting clarification blocks a second turn')
 state.runs.pop()
 
-const old = { id: 'old', convoId: 'c', input: {}, prepared: { goal: 'legacy', questions: [] }, settings: {} }
-const migrated = migrateRun(old)
-assert.ok(migrated.prepared.brief && migrated.prepared.brief.objective === 'legacy', 'old runs migrate to a brief')
-assert.equal(validRun(old), true, 'old runs remain valid after migration')
-assert.equal(old.prepared.brief, undefined, 'run migration does not mutate the source object')
+const briefConvo = { id: 'brief-convo', mode: 'chat', workspaceId: null }
+const briefPrepared = { brief: { objective: 'OBJECTIVE_SENTINEL', deliverable: 'deliverable', scope: [], constraints: [], questions: [] }, answers: {} }
+const briefRun = createRun(briefConvo, 'pm', 'rh', { system: '', messages: [] }, briefPrepared, { research_depth: 4 })
+assert.equal(briefRun.prepared.brief.objective, 'OBJECTIVE_SENTINEL', 'createRun keeps a pre-built research brief')
+briefPrepared.brief.objective = 'CHANGED'
+assert.equal(briefRun.prepared.brief.objective, 'OBJECTIVE_SENTINEL', 'a later edit to the source prepared object does not reach the run')
+const barePrepared = { goal: 'BARE_SENTINEL', questions: [] }
+const bareRun = createRun(briefConvo, 'pm2', 'rh2', { system: '', messages: [] }, barePrepared, { research_depth: 4 })
+assert.equal(bareRun.prepared.brief.goal, 'BARE_SENTINEL', 'createRun folds a bare prepared object into prepared.brief')
+state.runs = state.runs.filter((entry) => entry.convoId !== briefConvo.id)
 
 const completedAt = new Date('2025-01-02T03:04:05.000Z')
 const provenanceRun = { events: [{ kind: 'wave' }, { kind: 'wave' }] }

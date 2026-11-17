@@ -1,9 +1,13 @@
 // Run: node src/selfchecks/research-persistence.selfcheck.js.
+// Run events are append-only rows in db.runEvents, so every assertion here counts or reads those rows per run instead of assuming the run row carries its events.
 import 'fake-indexeddb/auto'
 import assert from 'node:assert'
 import { CHECKPOINT_MS } from '../chat/coordinator.js'
 import { stopRun, syncActiveRuns, tailRun } from '../research/coordinator.js'
+import { applyStart } from '../research/lifecycle.js'
 import { persistNow, state } from '../state/persistence.js'
+import { removeRun } from '../state/runs.js'
+import { db } from '../state/db.js'
 import { initStore } from '../state/store.js'
 
 // Stands in for the browser document and window event target before initStore, so the teardown flush and, on the first tail, the coordinator's drain listeners register against something the test can dispatch real events to, in production registration order.
@@ -18,17 +22,13 @@ globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 
 await initStore()
 
-let storedWrites = 0
-let failWrites = false
-let lastRunsPut = null
-let lastDocsPut = null
-const realPut = globalThis.IDBObjectStore.prototype.put
-globalThis.IDBObjectStore.prototype.put = function (...args) {
-  if (failWrites) throw new Error('sentinel: write refused')
-  storedWrites++
-  if (Array.isArray(args[0]) && args[0].some((entry) => entry && typeof entry === 'object' && 'serverId' in entry)) lastRunsPut = args[0]
-  if (Array.isArray(args[0]) && args[0].some((entry) => entry && typeof entry === 'object' && typeof entry.text === 'string' && typeof entry.name === 'string')) lastDocsPut = args[0]
-  return realPut.apply(this, args)
+async function eventRows(runId) {
+  return db.runEvents.where('runId').equals(runId).sortBy('key')
+}
+
+function tailFixture(id) {
+  state.runs.push({ id, serverId: `${id}-server`, convoId: `${id}-convo`, status: 'running', phase: '', events: [], spend: null, checkpoint: null, spendLedgered: true, input: {}, settings: {} })
+  return state.runs.find((r) => r.id === id)
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 20))
@@ -59,19 +59,74 @@ function sseResponse(frames) {
   return new Response(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(''), { status: 200 })
 }
 
-function tailFixture(id) {
-  state.runs.push({ id, serverId: `${id}-server`, convoId: `${id}-convo`, status: 'running', phase: '', events: [], spend: null, checkpoint: null, spendLedgered: true, input: {}, settings: {} })
-  return state.runs.find((r) => r.id === id)
-}
+// --- A stored run row carries no events array, and a drain appends only the rows that are new ---
+const runA = tailFixture('seq-run')
+await persistNow()
+const storedRow = await db.runs.get('seq-run')
+assert.ok(!Object.hasOwn(storedRow, 'events'), 'a stored run row carries no events array')
 
-// --- A burst of events persists at checkpoint cadence, not per event ---
+const SENTINEL_ORDER = ['ARRIVAL-A', 'ARRIVAL-B', 'ARRIVAL-C']
+const SENTINEL_SEQS = [1, 2, 3]
+runA.events.push(...SENTINEL_SEQS.map((seq, i) => ({ seq, kind: 'note', text: SENTINEL_ORDER[i] })))
+await persistNow()
+assert.equal((await eventRows('seq-run')).length, 3, 'a drain appends one runEvents row per event')
+const rowsBefore = (await eventRows('seq-run')).length
+runA.events.push({ seq: 4, kind: 'note', text: 'ARRIVAL-D' })
+await persistNow()
+const rowsAfter = (await eventRows('seq-run')).length
+assert.equal(rowsAfter - rowsBefore, 1, 'a flush with one new event writes exactly one new row')
+await persistNow()
+assert.equal((await eventRows('seq-run')).length, rowsAfter, 'a flush with no new events appends nothing')
+
+const back = await eventRows('seq-run')
+assert.deepEqual(back.map((e) => e.seq), [...SENTINEL_SEQS, 4], 'events keep their server-assigned seq, not an array index')
+assert.deepEqual(back.map((e) => e.text), [...SENTINEL_ORDER, 'ARRIVAL-D'], 'events come back in arrival order')
+
+// --- A retry reset clears the run's old rows, then re-appends the new incarnation ---
+applyStart(runA, { outcome: 'created', status: 'starting', phase: '', id: runA.serverId })
+await persistNow()
+assert.equal((await eventRows('seq-run')).length, 0, 'a retry reset clears the run\'s stale event rows')
+runA.events.push({ seq: 1, kind: 'note', text: 'RESET-SENTINEL' })
+await persistNow()
+const resetBack = await eventRows('seq-run')
+assert.equal(resetBack.length, 1, 'the reset re-appends the new incarnation\'s events')
+assert.equal(resetBack[0].text, 'RESET-SENTINEL', 'only the new incarnation\'s events survive the reset')
+assert.equal(resetBack[0].seq, 1, 'the re-appended event keeps its own seq')
+
+// --- Removing a run deletes its event rows too ---
+removeRun('seq-run')
+await persistNow()
+assert.equal(await db.runs.get('seq-run'), undefined, 'the deleted run\'s row is gone')
+assert.equal((await eventRows('seq-run')).length, 0, 'deleting a run deletes its event rows')
+
+// --- A drain rewrites only the drained run's row, not every run ---
+const untouchedRun = tailFixture('untouched-run')
+const drainedRun = tailFixture('drained-run')
+await persistNow()
+let runPuts = []
+const runsBulkPut = db.runs.bulkPut
+db.runs.bulkPut = async (rows) => { runPuts.push(...rows.map((r) => r.id)); return runsBulkPut.call(db.runs, rows) }
+try {
+  drainedRun.phase = 'gather'
+  drainedRun.events.push({ seq: 1, kind: 'note', text: 'DRAINED-ONLY' })
+  await persistNow()
+} finally {
+  db.runs.bulkPut = runsBulkPut
+}
+assert.equal(runPuts.filter((id) => id === 'drained-run').length, 1, 'a research drain writes exactly the drained run row')
+assert.ok(!runPuts.includes('untouched-run'), 'a research drain leaves every other run row unwritten')
+assert.deepEqual((await eventRows('drained-run')).map((e) => e.text), ['DRAINED-ONLY'], 'the drain appends only the new event row')
+assert.equal((await eventRows('untouched-run')).length, 0, 'the untouched run gains no event rows')
+// A run dropped from the array without removeRun still leaves the table.
+state.runs = state.runs.filter((r) => r.id !== 'untouched-run')
+await persistNow()
+assert.equal(await db.runs.get('untouched-run'), undefined, 'a run dropped from the array without removeRun still leaves the table')
+// --- A burst of events persists as rows at checkpoint cadence, not per event ---
 const EVENT_COUNT = 60
 const THROTTLE_SENTINEL = 'sentinel-throttle-42'
 const live = tailFixture('throttle-run')
-storedWrites = 0
 assert.equal(await persistNow(), true, 'a dirty run saves against working storage')
-assert.ok(storedWrites > 0, 'the successful save reached storage')
-storedWrites = 0
+assert.ok(await db.runs.get('throttle-run'), 'the successful save reached storage')
 
 const stream = liveStream()
 const tail = tailRun(live)
@@ -79,37 +134,36 @@ await flush()
 stream.send(Array.from({ length: EVENT_COUNT }, (_, i) => ({ seq: i + 1, kind: 'note', text: i === EVENT_COUNT - 1 ? THROTTLE_SENTINEL : `note-${i}` })))
 await flush()
 assert.equal(live.events.length, 0, 'events applied between checkpoints stay out of the watched record')
-assert.equal(storedWrites, 0, 'events applied between checkpoints trigger no write')
+assert.equal((await eventRows('throttle-run')).length, 0, 'events applied between checkpoints trigger no row')
 await new Promise((resolve) => setTimeout(resolve, CHECKPOINT_MS + 900))
 assert.ok(live.events.some((event) => event.text === THROTTLE_SENTINEL), 'the checkpoint drain copies the buffered events into the run')
-assert.ok(storedWrites > 0, 'the checkpoint drain reached storage')
-assert.ok(storedWrites * 4 < EVENT_COUNT, 'a burst of events writes far fewer times than there are events')
+assert.equal((await eventRows('throttle-run')).length, EVENT_COUNT, 'the checkpoint drain stores one row per event, not per flush')
 
 // --- A terminal write drains eagerly what the throttle still held ---
 const LATE_SENTINEL = 'sentinel-late-43'
+const lateBefore = (await eventRows('throttle-run')).length
 stream.send([{ seq: EVENT_COUNT + 1, kind: 'note', text: LATE_SENTINEL }])
 await flush()
-storedWrites = 0
-lastRunsPut = null
 await stopRun(live)
-const storedAtCancel = lastRunsPut?.find((entry) => entry.id === 'throttle-run')
-assert.ok(storedAtCancel?.events.some((event) => event.text === LATE_SENTINEL), 'the cancelled run is stored complete, with the events the throttle had not yet written')
+const storedLate = await eventRows('throttle-run')
+assert.ok(storedLate.some((row) => row.text === LATE_SENTINEL), 'the cancelled run stores the events the throttle had not yet written')
+assert.equal(storedLate.length, lateBefore + 1, 'the terminal drain appends only the single held event')
 await tail
 assert.equal(live.status, 'cancelled', 'stopping still lands the terminal state')
 assert.ok(live.events.some((event) => event.text === LATE_SENTINEL), 'the terminal write drains events that never reached a checkpoint')
-assert.ok(storedWrites > 0, 'the terminal write is eager, not held for the next checkpoint')
 
 await initStore()
 const reloaded = state.runs.find((r) => r.id === 'throttle-run')
-assert.ok(reloaded?.events.some((event) => event.text === THROTTLE_SENTINEL), 'throttled events reach storage and survive a reload')
+assert.ok(reloaded?.events.some((event) => event.text === THROTTLE_SENTINEL), 'throttled events reach storage as rows and survive a reload')
 assert.ok(reloaded?.events.some((event) => event.text === LATE_SENTINEL), 'the terminally drained event survives a reload')
 assert.equal(reloaded?.status, 'cancelled', 'the terminal status survives a reload')
+assert.ok(reloaded?.events.every((event) => !('runId' in event) && !('key' in event)), 'stored-only fields stay off the in-memory events')
 
 // --- A final frame persists eagerly and the backend run is only forgotten after the save ---
 const FINAL_SENTINEL = 'sentinel-final-44'
 const ackUrls = []
-let savedRunAtAck = null
-let savedDocsAtAck = null
+let savedEventsAtAck = 0
+let savedDocAtAck = false
 globalThis.fetch = async (url) => {
   const href = String(url)
   if (href.includes('/stream')) {
@@ -122,8 +176,8 @@ globalThis.fetch = async (url) => {
   if (href.includes('/ack')) {
     ackUrls.push(href)
     if (href.includes('/final-run-server/ack')) {
-      savedRunAtAck = lastRunsPut?.find((entry) => entry.id === 'final-run') ?? null
-      savedDocsAtAck = lastDocsPut
+      savedEventsAtAck = (await eventRows('final-run')).length
+      savedDocAtAck = (await db.docs.toArray()).some((doc) => doc.text.includes('sentinel report body'))
     }
   }
   return new Response('{}', { status: 200 })
@@ -131,22 +185,21 @@ globalThis.fetch = async (url) => {
 
 const finalLive = tailFixture('final-run')
 await persistNow()
-lastRunsPut = null
-lastDocsPut = null
 await tailRun(finalLive)
 assert.equal(finalLive.ackPending, undefined, 'a final frame whose save succeeded clears the pending marker')
-assert.ok(savedRunAtAck?.events.some((event) => event.text === FINAL_SENTINEL), 'the run is stored complete before the backend run is acknowledged')
-assert.ok(savedDocsAtAck?.some((doc) => doc.text.includes('sentinel report body')), 'the report document is stored before the backend run is acknowledged')
+assert.ok(savedEventsAtAck > 0, 'the run\'s drained events are stored before the backend run is acknowledged')
+assert.ok(savedDocAtAck, 'the report document is stored before the backend run is acknowledged')
 
 const refusedLive = tailFixture('refused-run')
 await persistNow()
 ackUrls.length = 0
-failWrites = true
+// An uncloneable function in the run row makes the flush fail loudly, as a poisoned write boundary does.
+refusedLive.__poison = () => {}
 await tailRun(refusedLive)
 assert.equal(refusedLive.ackPending, true, 'a refused terminal save keeps the run recoverable')
 assert.equal(ackUrls.length, 0, 'the backend run is not forgotten before its report is saved')
 
-failWrites = false
+delete refusedLive.__poison
 syncActiveRuns([refusedLive])
 await flush()
 assert.equal(refusedLive.ackPending, undefined, 'the next sync retries the ack once the save succeeds')
@@ -170,20 +223,18 @@ await flush()
 hiddenStream.send([{ seq: 1, kind: 'note', text: HIDDEN_SENTINEL }])
 await flush()
 assert.equal(hiddenLive.events.length, 0, 'the buffered event waits for its checkpoint')
-let writesBefore = storedWrites
 fakeDocument.visibilityState = 'hidden'
 fakeDocument.dispatchEvent(new Event('visibilitychange'))
 await flush()
 assert.ok(hiddenLive.events.some((event) => event.text === HIDDEN_SENTINEL), 'hiding the tab drains the buffer instead of waiting for the interval')
-assert.ok(storedWrites > writesBefore, 'the hidden drain reaches storage')
+assert.ok((await eventRows('hidden-run')).some((row) => row.text === HIDDEN_SENTINEL), 'the hidden drain stores the buffered event as a row')
 
 hiddenStream.send([{ seq: 2, kind: 'note', text: PAGEHIDE_SENTINEL }])
 fakeDocument.visibilityState = 'visible'
 await flush()
-writesBefore = storedWrites
 globalThis.dispatchEvent(new Event('pagehide'))
 await flush()
-assert.ok(storedWrites > writesBefore, 'pagehide flushes the buffered research state')
+assert.ok((await eventRows('hidden-run')).some((row) => row.text === PAGEHIDE_SENTINEL), 'pagehide flushes the buffered research state')
 
 await stopRun(hiddenLive)
 await hiddenTail
