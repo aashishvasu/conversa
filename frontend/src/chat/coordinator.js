@@ -3,7 +3,7 @@ import { attachChatTurn, discardChatTurn, getToken, startChatTurn } from '../api
 import { generateTitle } from '../jobs/titles.js'
 import { refreshMemory } from '../jobs/memory.js'
 import { tr } from '../i18n/index.js'
-import { persistNow, readStoredConversation, state } from '../state/persistence.js'
+import { ensureLoaded, persistNow, readPendingTurnMessages, readStoredMessage, state } from '../state/persistence.js'
 import { effectiveSettings } from '../state/settings.js'
 import { addConvoUsage, recordUsage } from '../state/usage.js'
 import { notify } from '../utils/notify.js'
@@ -104,12 +104,11 @@ function createLiveStream({ convo, message, turnId, draft, view, controller, rep
 // A 404 on reattach also happens when another tab finished the turn and discarded it server-side.
 // The stored record is the arbiter: its message no longer carrying this turnId means the turn was settled elsewhere, and adopting it preserves the complete reply instead of overwriting it with this tab's partial text.
 // A missing or unreadable record leaves the ordinary gone settle in charge.
-async function adoptIfSettled(convo, message, turnId) {
+async function adoptIfSettled(_convo, message, turnId) {
   if (message.turnId !== turnId) return false
   let storedMessage
   try {
-    const stored = await readStoredConversation(convo.id)
-    storedMessage = stored?.messages?.find((m) => m.id === message.id)
+    storedMessage = await readStoredMessage(message.id)
   } catch {
     return false
   }
@@ -266,11 +265,21 @@ export async function cancelTurn(convo, message) {
   await finish(convo, message, turnId, draft, 'stopped', effectiveSettings(convo))
 }
 
-export function syncPendingTurns() {
+// Reattach live turns without loading every conversation: the turnId index lists the rows still awaiting a turn, each conversation loads on demand so the in-memory message the turn attaches to is the real one. A failure here is best-effort (the online and visibilitychange listeners retry).
+export async function syncPendingTurns() {
   if (!getToken()) return
-  for (const convo of state.conversations) {
-    for (const message of convo.messages) {
-      if (message.turnId && !connections.has(message.turnId)) void attachTurn(convo, message)
-    }
+  try {
+    const rows = await readPendingTurnMessages()
+    await Promise.all(rows.map(async (message) => {
+      const turnId = message.turnId
+      if (!turnId || connections.has(turnId)) return
+      const convo = state.conversations.find((c) => c.id === message.convoId)
+      if (!convo) return
+      await ensureLoaded(convo)
+      const live = convo.messages.find((m) => m.id === message.id)
+      if (live?.turnId && !connections.has(turnId)) await attachTurn(convo, live)
+    }))
+  } catch {
+    // A background reattach may fail on a stale stored turn or a storage read error; the listeners retry it later.
   }
 }

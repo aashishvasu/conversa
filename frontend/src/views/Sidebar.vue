@@ -15,6 +15,7 @@ import {
   deleteConversation,
   deleteWorkspace,
   downloadExport,
+  ensureLoaded,
   persistNow,
   saveAsTemplate,
   selectConversation,
@@ -118,12 +119,17 @@ const unassigned = computed(() => conversations.value.filter((c) => !workspaceOf
 const researchConvos = computed(() => conversations.value.filter((c) => c.mode === 'research'))
 const membersOf = (w) => conversations.value.filter((c) => c.workspaceId === w.id)
 
-function pick(id) {
+// Selecting a conversation awaits its lazy load so the pane renders from messages, not an empty list.
+async function pick(id) {
+  const target = conversations.value.find((c) => c.id === id)
+  if (target) await ensureLoaded(target)
   selectConversation(id)
   sidebarOpen.value = false
 }
 // Selecting from the Workspaces or Research list keeps that tab active; the main pane shows the conversation either way.
-function pickInPlace(id) {
+async function pickInPlace(id) {
+  const target = conversations.value.find((c) => c.id === id)
+  if (target) await ensureLoaded(target)
   currentId.value = id
   sidebarOpen.value = false
 }

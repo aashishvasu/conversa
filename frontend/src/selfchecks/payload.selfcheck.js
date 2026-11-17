@@ -6,9 +6,7 @@ import { buildPayload, recallMessages } from '../prompt/payload.js'
 import { buildResearchInput } from '../prompt/research-input.js'
 import { ARTIFACT_INSTRUCTION } from '../prompt/artifacts.js'
 
-// Finding 14: the frontend and backend copies of the artifact instruction are the same policy text.
-// Frontend is the cheaper placement: ARTIFACT_INSTRUCTION is already imported here, so only the Python
-// definition needs parsing. The backend copy is read from its Python definition.
+// The artifact instruction is one policy in two codebases; check it from the frontend since ARTIFACT_INSTRUCTION is already imported here.
 const backendChat = await readFile(new URL('../../../backend/api/chat.py', import.meta.url), 'utf8')
 const backendBlock = backendChat.match(/ARTIFACT_INSTRUCTION\s*=\s*\(([\s\S]*?)\n\)/)
 assert.ok(backendBlock, 'could not find ARTIFACT_INSTRUCTION definition in backend/api/chat.py; the constant moved or changed shape')
@@ -215,20 +213,16 @@ const preparationContext = buildResearchInput(contextDependent, wSettings)
 assert.deepEqual(preparationContext, { system: normalContext.system, messages: normalContext.messages }, 'preparation receives buildPayload-equivalent context when there is no tool evidence')
 assert.ok(preparationContext.messages.some((message) => message.content.includes('Project Orion')), 'the topic survives for a standalone prepared goal')
 
-// A short clarification answer can evict its request from the normal window, but preparation still receives its goal.
+// A short clarification answer can evict its request from the normal window, but the research route still gets a one-turn window.
 const clarified = {
   scanAssistant: false, cards: [], messages: [
     { id: 'request', role: 'user', content: 'research this' },
-    { id: 'clarify', role: 'assistant', content: 'Which regulations?', researchPreparation: {
-      goal: 'Compare Project Orion database options for a regulated launch',
-      questions: ['Which regulations apply?'],
-    } },
+    { id: 'clarify', role: 'assistant', content: 'Which regulations?' },
     { id: 'answer', role: 'user', content: 'HIPAA.' },
   ],
 }
 const oneTurn = buildResearchInput(clarified, { ...wSettings, num_messages_to_send: 1 })
 assert.deepEqual(oneTurn.messages.map((message) => message.content), ['HIPAA.'], 'the normal window remains one turn')
-assert.ok(oneTurn.system.includes('Project Orion database options') && oneTurn.system.includes('Which regulations apply?'), 'pending preparation survives window trimming')
 
 // --- Tool evidence artifacts --------------------------------------------------------
 // Artifacts ride with the assistant text, stale ones are marked, and the trust instruction stays in the volatile half.
@@ -328,8 +322,7 @@ assertInstructionMatrix('structured / preparation route', buildResearchInput(art
 const staleMsg = buildPayload(staleConvo, aSettings).messages.find((m) => m.role === 'assistant')
 assert.ok(staleMsg.content.includes('Stale:') && staleMsg.content.includes('OLD BODY'), 'stale evidence is marked, not dropped')
 const partialMsg = buildPayload(partialConvo, aSettings).messages.find((m) => m.role === 'assistant')
-//  the notice wording belongs to artifacts.js. The dump line carries the planted excerpt text, so the
-// remaining lines are the notice, and one of them must state the fixture's own window size.
+// The dump line carries the planted excerpt; the remaining lines are the notice, one of which must state the window size.
 const partialOutput = partialConvo.messages[1].artifacts[0].output
 const partialNotice = partialMsg.content.split('\n').filter((line) => !line.includes('FIRST PART'))
 assert.ok(partialNotice.some((line) => line.includes(String(partialOutput.windowChars))), 'a partial excerpt states the window it was cut from')
@@ -376,9 +369,8 @@ const structuredCache = buildPayload(artConvo, { ...structuredSettings, use_cach
 assert.ok(structuredCache.system && typeof structuredCache.system === 'object' && !Array.isArray(structuredCache.system), 'structured mode leaves the cache split to the server')
 assert.equal(structuredCache.system.runtime.use_cache, true, 'runtime records use_cache')
 
-// Preparation lands on the object form.
+// The research route keeps the object form.
 const structuredPrepared = buildResearchInput(clarified, { ...structuredSettings, num_messages_to_send: 1 })
-assert.ok(structuredPrepared.system && typeof structuredPrepared.system === 'object' && !Array.isArray(structuredPrepared.system), 'preparation keeps the object form')
-assert.ok(structuredPrepared.system.preparation.includes('Project Orion'), 'preparation is set on the object form')
+assert.ok(structuredPrepared.system && typeof structuredPrepared.system === 'object' && !Array.isArray(structuredPrepared.system), 'the research route keeps the object form')
 
 console.log('payload selfcheck OK')

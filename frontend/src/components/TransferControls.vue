@@ -1,9 +1,8 @@
 <script setup>
 import { ref } from 'vue'
-import { createTransfer, retrieveTransfer } from '../api/client.js'
-import { exportData, importData, restoreData, snapshotInfo } from '../state/store.js'
-import { locale, restorePrefs } from '../utils/prefs.js'
-import { restoreTheme } from '../utils/theme.js'
+import { retrieveTransfer } from '../api/client.js'
+import { createTransferExport, importData, restoreSnapshot, snapshotInfo } from '../state/store.js'
+import { locale } from '../utils/prefs.js'
 import { confirmDelete } from '../utils/confirm.js'
 import { normalizePhrase } from '../utils/phrase.js'
 import { tr } from '../i18n/index.js'
@@ -28,8 +27,7 @@ async function onCreate() {
   msg.value = ''
   phrase.value = ''
   try {
-    const data = props.scope === 'conversation' ? exportData(props.convoId) : exportData()
-    const result = await createTransfer(props.scope, data)
+    const result = await createTransferExport(props.scope, props.convoId)
     phrase.value = result.phrase
     expiry.value = new Date(result.expires_at).toLocaleString(locale.value)
   } catch (err) {
@@ -54,9 +52,7 @@ async function onRetrieve() {
       if (!info) throw new Error(tr('transfer.notSnapshot'))
       const date = info.exportedAt ? new Date(info.exportedAt).toLocaleString(locale.value) : tr('import.unknownDate')
       if (!await confirmDelete(tr('confirm.restore', { ...info, date }), tr('common.restore'))) return
-      const prefs = await restoreData(result.data)
-      restorePrefs(prefs)
-      restoreTheme(prefs.theme)
+      await restoreSnapshot(result.data)
       msg.value = tr('import.snapshotRestored')
     } else {
       const added = await importData(result.data)

@@ -14,4 +14,24 @@ export default [
     files: ['src/views/ChatPane.vue'],
     rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/api/client*'], importNames: ['startResearch'], message: 'start research through research/coordinator.js' }] }] },
   },
+  {
+    // Enforced by tools/check.py through pnpm lint:i18n, which lints .js too despite its --ext .vue.
+    files: ['src/**/*.{js,vue}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { group: ['dexie', 'dexie-react-hooks'], message: 'import dexie only through state/db.js' },
+          { regex: '(^|/)state/db', message: 'import state/db.js only from within state/' },
+        ],
+      }],
+    },
+  },
+  {
+    files: ['src/selfchecks/**/*.js'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['dexie', 'dexie-react-hooks'], message: 'import dexie only through state/db.js' }] }] },
+  },
+  {
+    files: ['src/state/db.js'],
+    rules: { 'no-restricted-imports': 'off' },
+  },
 ]

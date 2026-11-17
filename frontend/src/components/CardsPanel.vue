@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import { ToggleGroupItem, ToggleGroupRoot } from 'reka-ui'
 import { utilityCall } from '../jobs/utility.js'
 import { CARDGEN_SYSTEM, effectiveCards, matchedCardIds, parseGeneratedCards } from '../prompt/cards.js'
+import { addCard, cardOverrideOf, insertGeneratedCards, reorderCard, removeCard as removeCardOp, setCardForce, setCardOverride } from '../prompt/cardMutations.js'
 import { effectiveSettings } from '../state/settings.js'
 import { workspaceOf } from '../state/store.js'
 import { confirmDelete } from '../utils/confirm.js'
@@ -28,14 +29,6 @@ const active = computed(() => {
 })
 
 // Per-convo override of a shared workspace card: same tri-state as force, stored on the convo (cardOverrides), so it applies to this conversation alone.
-function overrideOf(id) {
-  return props.convo.cardOverrides?.[id] || null
-}
-function setOverride(id, mode) {
-  const overrides = (props.convo.cardOverrides ||= {})
-  if (mode) overrides[id] = mode
-  else delete overrides[id]
-}
 
 // Cards grouped by their (display-only) folder path.
 // Named folders first in first-appearance order, ungrouped cards last.
@@ -91,18 +84,7 @@ function onPointerUp() {
   const target = overId.value
   dragId.value = overId.value = null
   if (!id || !target || id === target) return
-  const cards = props.convo.cards
-  const moved = cards.splice(cards.findIndex((c) => c.id === id), 1)[0]
-  moved.path = cards.find((c) => c.id === target)?.path || ''
-  cards.splice(cards.findIndex((c) => c.id === target), 0, moved)
-}
-
-function setForce(card, mode) {
-  card.force = mode || null
-}
-
-function addCard() {
-  props.convo.cards.push({ id: crypto.randomUUID(), triggers: '', content: '' })
+  reorderCard(props.convo, id, target)
 }
 
 // Card builder: utility model decomposes pasted text into trigger cards, appended here for review.
@@ -135,9 +117,7 @@ async function generate() {
       system: CARDGEN_SYSTEM,
       messages: [{ role: 'user', content }],
     })
-    for (const c of parseGeneratedCards(out)) {
-      props.convo.cards.push({ id: crypto.randomUUID(), ...c })
-    }
+    insertGeneratedCards(props.convo, parseGeneratedCards(out))
     genText.value = ''
   } catch (e) {
     const key = { card_list_missing: 'cards.errorNoList', cards_unusable: 'cards.errorNoUsable' }[e?.message]
@@ -147,9 +127,7 @@ async function generate() {
   }
 }
 async function removeCard(id) {
-  if (await confirmDelete(tr('confirm.deleteCard'))) {
-    props.convo.cards = props.convo.cards.filter((c) => c.id !== id)
-  }
+  if (await confirmDelete(tr('confirm.deleteCard'))) removeCardOp(props.convo, id)
 }
 </script>
 
@@ -161,13 +139,13 @@ async function removeCard(id) {
     <template v-if="ws">
       <p class="px-1 text-xs uppercase text-muted">{{ $t('cards.workspaceCards', { name: ws.name }) }}</p>
       <p v-if="!ws.cards.length" class="px-1 text-xs italic text-muted">{{ $t('cards.noWorkspaceCards') }}</p>
-      <UiDisclosure v-for="c in ws.cards" :key="c.id" :class="overrideOf(c.id) === 'skip' ? '!border-warning' : active.has(c.id) ? '!border-success' : ''">
+      <UiDisclosure v-for="c in ws.cards" :key="c.id" :class="cardOverrideOf(convo, c.id) === 'skip' ? '!border-warning' : active.has(c.id) ? '!border-success' : ''">
         <template #title>
           <UiTooltip :content="active.has(c.id) ? $t('cards.active') : $t('common.inactive')"><span class="size-2 shrink-0 rounded-full" :class="active.has(c.id) ? 'bg-success' : 'bg-muted'"></span></UiTooltip>
           <span class="truncate text-muted">{{ c.triggers || $t('cards.noTriggers') }}</span>
         </template>
         <template #actions>
-          <ToggleGroupRoot type="single" :model-value="overrideOf(c.id) || ''" class="flex" @update:model-value="setOverride(c.id, $event)">
+          <ToggleGroupRoot type="single" :model-value="cardOverrideOf(convo, c.id) || ''" class="flex" @update:model-value="setCardOverride(convo, c.id, $event)">
             <!-- The wrapping UiTooltip's trigger overwrites the toggle's data-state with the tooltip's closed/open -->
             <UiTooltip :content="$t('cards.alwaysConversation')"><ToggleGroupItem value="include" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-success aria-pressed:text-success focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.alwaysConversation')"><CircleCheck :size="14" /></ToggleGroupItem></UiTooltip>
             <UiTooltip :content="$t('cards.excludeConversation')"><ToggleGroupItem value="skip" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-warning aria-pressed:text-warning focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.excludeConversation')"><Ban :size="14" /></ToggleGroupItem></UiTooltip>
@@ -193,7 +171,7 @@ async function removeCard(id) {
           <span class="truncate text-muted">{{ row.card.triggers || $t('cards.noTriggers') }}</span>
         </template>
         <template #actions>
-          <ToggleGroupRoot type="single" :model-value="row.card.force || ''" class="flex" @update:model-value="setForce(row.card, $event)">
+          <ToggleGroupRoot type="single" :model-value="row.card.force || ''" class="flex" @update:model-value="setCardForce(row.card, $event)">
             <UiTooltip :content="$t('cards.always')"><ToggleGroupItem value="include" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-success aria-pressed:text-success focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.always')"><CircleCheck :size="14" /></ToggleGroupItem></UiTooltip>
             <UiTooltip :content="$t('cards.exclude')"><ToggleGroupItem value="skip" class="rounded p-1.5 text-muted outline-none hover:bg-surface2 hover:text-warning aria-pressed:text-warning focus-visible:ring-2 focus-visible:ring-focus" :aria-label="$t('cards.exclude')"><Ban :size="14" /></ToggleGroupItem></UiTooltip>
           </ToggleGroupRoot>
@@ -207,7 +185,7 @@ async function removeCard(id) {
       </UiDisclosure>
     </template>
 
-    <UiButton class="w-full" @click="addCard()">{{ $t('cards.add') }}</UiButton>
+    <UiButton class="w-full" @click="addCard(convo)">{{ $t('cards.add') }}</UiButton>
 
     <UiDisclosure>
       <template #title><span class="text-muted">{{ $t('cards.generateHeading') }}</span></template>

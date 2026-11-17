@@ -2,10 +2,10 @@
 import 'fake-indexeddb/auto'
 import assert from 'node:assert'
 import { ref } from 'vue'
-import { set } from 'idb-keyval'
-import { attachTurn, cancelTurn, CHECKPOINT_MS, startTurn, turnState } from '../chat/coordinator.js'
+import { cancelTurn, CHECKPOINT_MS, startTurn, syncPendingTurns, turnState } from '../chat/coordinator.js'
 import { useAutoScroll } from '../composables/useAutoScroll.js'
-import { CONVO_KEY_PREFIX, state } from '../state/persistence.js'
+import { state } from '../state/persistence.js'
+import { db } from '../state/db.js'
 
 let token = 'token'
 globalThis.localStorage = { getItem: () => token, removeItem: () => { token = '' } }
@@ -146,14 +146,16 @@ function pushConvo(id, messageId) {
 }
 
 {
-  // The stored record still carries the turnId, so nothing else has settled this turn.
+  // A summary conversation has no in-memory messages and its pending turn lives only as a stored row; index discovery must load the conversation before the turn can reattach, and a 404 with the turn still in storage settles as gone.
   const STORED = 'genuine-gone-sentinel-11'
   globalThis.fetch = async () => new Response(JSON.stringify({ detail: { code: 'no_such_turn', message: 'no such turn' } }), { status: 404, headers: { 'Content-Type': 'application/json' } })
-  state.conversations.push({ id: 'c-gone2', title: 'named', messages: [{ id: 'm-gone2', role: 'assistant', content: STORED, turnId: 'turn-c-gone2', createdAt: Date.now() }] })
+  state.conversations.push({ id: 'c-gone2', title: 'named', messageIds: ['m-gone2'], createdAt: Date.now() })
   const convo = state.conversations.at(-1)
-  const message = convo.messages.at(-1)
-  await set(`${CONVO_KEY_PREFIX}c-gone2`, { id: 'c-gone2', title: 'named', messages: [{ id: 'm-gone2', role: 'assistant', content: STORED, turnId: 'turn-c-gone2', createdAt: Date.now() }] })
-  await attachTurn(convo, message)
+  await db.messages.put({ id: 'm-gone2', convoId: 'c-gone2', role: 'assistant', content: STORED, turnId: 'turn-c-gone2', createdAt: Date.now() })
+  await syncPendingTurns()
+  assert.ok(convo.messages, 'the pending turn loads its summary conversation before reattaching')
+  const message = convo.messages.find((m) => m.id === 'm-gone2')
+  assert.ok(message, 'the reattached message comes from the stored rows')
   assert.ok(!Object.hasOwn(message, 'turnId'), 'a 404 with the turn still in storage settles as gone')
   assert.equal(message.content, STORED, 'the genuine gone settle keeps the checkpointed partial text')
 }

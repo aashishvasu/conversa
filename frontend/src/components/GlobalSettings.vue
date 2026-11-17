@@ -2,12 +2,11 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger, TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import { EFFORT_LEVELS, RESEARCH_MODEL_FIELDS } from '../state/settings.js'
-import { downloadExport, globalSettings, importData, modelSupportsCache, models, persistGlobal, resetGlobalSettings, restoreData, snapshotInfo } from '../state/store.js'
+import { downloadExport, globalSettings, importData, modelSupportsCache, models, persistGlobal, resetGlobalSettings, restoreSnapshot, snapshotInfo } from '../state/store.js'
 import { convertImport } from '../state/importers.js'
-import { enterToSend, fontScale, locale, restorePrefs, showThinkingAndSearch } from '../utils/prefs.js'
+import { enterToSend, fontScale, locale, showThinkingAndSearch } from '../utils/prefs.js'
 import { needRefresh, applyUpdate } from '../utils/pwa.js'
 import { locales, setLocale, tr } from '../i18n/index.js'
-import { restoreTheme } from '../utils/theme.js'
 import { confirmDelete } from '../utils/confirm.js'
 import ModelSelect from './ModelSelect.vue'
 import TransferControls from './TransferControls.vue'
@@ -91,9 +90,7 @@ async function onRestoreFile(e) {
     if (!info) throw new Error(tr('import.chooseSnapshot'))
     const date = info.exportedAt ? new Date(info.exportedAt).toLocaleString(locale.value) : tr('import.unknownDate')
     if (!await confirmDelete(tr('confirm.restore', { ...info, date }), tr('common.restore'))) return
-    const prefs = await restoreData(data)
-    restorePrefs(prefs)
-    restoreTheme(prefs.theme)
+    await restoreSnapshot(data)
     importMsg.value = tr('import.snapshotRestored')
   } catch (err) {
     importMsg.value = tr('import.restoreFailed', { error: err.message })

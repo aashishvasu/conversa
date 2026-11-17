@@ -1,8 +1,8 @@
-import { delMany, set } from 'idb-keyval'
 import { computed } from 'vue'
-import { IMAGE_KEY_PREFIX, IMAGE_TYPES, state, storageFailure } from './persistence.js'
+import { IMAGE_TYPES, markImagesRemoved, scheduleFlush, state, storageFailure } from './persistence.js'
 import { dismiss } from '../utils/notify.js'
 import { tr } from '../i18n/index.js'
+import { db } from './db.js'
 
 export const docs = computed(() => state.docs)
 export const images = computed(() => state.images)
@@ -13,7 +13,7 @@ export function validImage(image) {
 
 export async function createImage(image) {
   if (!validImage(image)) throw new Error(tr('errors.invalidImage'))
-  await set(`${IMAGE_KEY_PREFIX}${image.id}`, image).then(() => dismiss('storage'), (e) => { storageFailure(e); throw e })
+  await db.images.put(image).then(() => dismiss('storage'), (e) => { storageFailure(e); throw e })
   state.images.push(image)
   return image
 }
@@ -22,16 +22,28 @@ export function imagesOf(message) {
   return (message?.imageIds || []).map((id) => state.images.find((image) => image.id === id)).filter(Boolean)
 }
 
-export function gcImages(ids) {
-  const referenced = new Set(state.conversations.flatMap((c) => c.messages.flatMap((m) => m.imageIds || [])))
-  const doomed = (ids || state.images.map((image) => image.id)).filter((id) => !referenced.has(id))
+// Referenced when the id sits in the *imageIds index or a loaded message's unsaved edits; ids passed in skip the index by design.
+export async function gcImages(ids) {
+  const referenced = new Set()
+  for (const c of state.conversations) {
+    for (const m of c.messages || []) {
+      for (const id of m.imageIds || []) referenced.add(id)
+    }
+  }
+  if (!ids) {
+    for (const id of await db.messages.orderBy('imageIds').uniqueKeys()) referenced.add(id)
+    // Memory is a partial cache (loaded conversations only); the no-arg sweep must span every image, so it reads candidates from the table.
+    ids = await db.images.toCollection().primaryKeys()
+  }
+  const doomed = [...new Set(ids)].filter((id) => !referenced.has(id))
   if (!doomed.length) return
   state.images = state.images.filter((image) => !doomed.includes(image.id))
-  delMany(doomed.map((id) => `${IMAGE_KEY_PREFIX}${id}`)).then(() => dismiss('storage'), storageFailure)
+  markImagesRemoved(doomed)
+  scheduleFlush()
 }
 
 export function releaseImages(ids) {
-  gcImages(ids)
+  return gcImages(ids)
 }
 
 export function gcDocs(ids) {
@@ -77,25 +89,6 @@ export function undoDocRevision(doc) {
   if (!v) return
   doc.text = v.text
   doc.updatedAt = Date.now()
-}
-
-// Pre-doc-store workspaces held docs inline; hoist them into the doc store and leave refs behind.
-// Runs on every entry path (initStore, restoreData, importData) so a legacy archive upgrades wherever it appears.
-// Keeps the original doc ids: refs elsewhere in the same archive stay valid, and re-importing the same legacy export stays keep-local.
-export function hoistInlineDocs(workspaces, docs) {
-  const have = new Set(docs.map((d) => d.id))
-  for (const w of workspaces) {
-    w.docIds ??= []
-    for (const d of w.docs || []) {
-      if (!d?.id) continue
-      if (!have.has(d.id)) {
-        docs.push({ id: d.id, name: d.name, text: d.text, createdAt: Date.now(), updatedAt: Date.now(), source: { kind: 'upload' }, versions: [] })
-        have.add(d.id)
-      }
-      w.docIds.push(d.id)
-    }
-    delete w.docs
-  }
 }
 
 export function downloadText(name, text, type = 'text/markdown') {

@@ -12,6 +12,7 @@ import { sendWindow } from '../prompt/payload.js'
 import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
 import { activeRunOf, createDoc, currentConversation, imagesOf, persistNow, releaseImages, removeRun, sidebarOpen } from '../state/store.js'
 import { cancelTurn, turnState } from '../chat/coordinator.js'
+import { regenerate as regenerateTurn, removeMessage as deleteMessage } from '../chat/edit.js'
 import { cancelPreparation } from '../research/coordinator.js'
 import { useStreamOrchestration } from '../research/orchestration.js'
 import { confirmDelete } from '../utils/confirm.js'
@@ -123,11 +124,7 @@ function doneEdit(m) {
   editingId.value = null
 }
 async function removeMessage(id) {
-  const c = convo.value
-  const message = c.messages.find((m) => m.id === id)
-  if (message?.turnId) await cancelTurn(c, message)
-  c.messages = c.messages.filter((m) => m.id !== id)
-  releaseImages(message?.imageIds)
+  await deleteMessage(convo.value, id, { cancelTurn, releaseImages })
   if (editingId.value === id) editingId.value = null
 }
 // Trash button: confirm first.
@@ -190,35 +187,16 @@ async function send() {
   runCompletion(c)
 }
 
-// Regenerate: discard the generated tail and repeat the originating user turn.
-// A research-enabled turn goes through preparation again, so the model still chooses answer, clarify, or research.
-async function regenerate(m) {
-  if (preparing.value || runActive.value || !convo.value) return
-  const c = convo.value
-  const idx = c.messages.findIndex((message) => message.id === m.id)
-  if (idx < 0) return
-  let cut = idx
-  if (m.role === 'assistant') {
-    while (cut >= 0 && c.messages[cut].role !== 'user') cut--
-    if (cut < 0) return // no user turn before it, so nothing to regenerate from
-  }
-  const user = c.messages[cut]
-  for (const message of c.messages.slice(cut + 1)) if (message.turnId) await cancelTurn(c, message)
-  const removed = c.messages.slice(cut + 1).flatMap((message) => message.imageIds || [])
-  c.messages = c.messages.filter((message, index) => index <= cut || message.role === 'system')
-  releaseImages(removed)
-
-  if (c.mode === 'research') {
-    user.mode = 'research'
-    if (user.runId) removeRun(user.runId)
-    delete user.runId
-    void routeResearch(c, user)
-    return
-  }
-  user.mode = 'chat'
-  if (user.runId) removeRun(user.runId)
-  delete user.runId
-  runCompletion(c)
+function regenerate(m) {
+  return regenerateTurn(convo.value, m, {
+    preparing: preparing.value,
+    runActive: runActive.value,
+    cancelTurn,
+    releaseImages,
+    removeRun,
+    routeResearch,
+    runCompletion,
+  })
 }
 
 function onResearchAnswer(msg) {

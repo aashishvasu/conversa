@@ -18,16 +18,6 @@ export function deleteWorkspace(id) {
   gcDocs(gone?.docIds)
 }
 
-// A workspace holds shared system prompts as message-shaped entries, the same shape a conversation uses.
-// Pre-v5 workspaces held one `systemPrompt` string; it becomes the first entry so old archives and current ones assemble identically.
-// Runs on every entry path (initStore, importData, restoreData), the hoistInlineDocs arrangement.
-export function migrateWorkspacePrompts(workspaces) {
-  for (const w of workspaces) {
-    w.messages ??= w.systemPrompt?.trim() ? [{ id: crypto.randomUUID(), role: 'system', content: w.systemPrompt, createdAt: Date.now() }] : []
-    delete w.systemPrompt
-  }
-}
-
 // null when the convo has no workspace, or its workspace was deleted or not imported; callers degrade to plain-convo behavior.
 export function workspaceOf(convo) {
   return state.workspaces.find((w) => w.id === convo?.workspaceId) || null

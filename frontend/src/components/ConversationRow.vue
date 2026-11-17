@@ -11,7 +11,8 @@ defineProps({
 })
 const emit = defineEmits(['select', 'transfer', 'export', 'save-template', 'delete'])
 
-const lastTs = (c) => c.messages.at(-1)?.createdAt
+// A summary conversation has no messages in memory, so the maintained updatedAt is the last-activity stamp, standing in for a createdAt fallback on rows that never got one.
+const lastTs = (c) => c.updatedAt || c.createdAt
 </script>
 
 <template>
@@ -40,7 +41,7 @@ const lastTs = (c) => c.messages.at(-1)?.createdAt
       @click="emit('select')"
     >
       <div class="flex justify-between text-[10px] text-muted">
-        <span>{{ $t('sidebar.messageCount', convo.messages.length, { count: convo.messages.length }) }}</span>
+        <span>{{ $t('sidebar.messageCount', convo.messageIds.length, { count: convo.messageIds.length }) }}</span>
         <span>{{ formatShort(lastTs(convo)) }}</span>
       </div>
     </button>
