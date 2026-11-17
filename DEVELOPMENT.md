@@ -7,7 +7,7 @@ Technical reference for conversa. See the [README](README.md) for the product ov
 | Layer | Choice |
 |-------|--------|
 | Frontend | Vue 3, Vite, Tailwind CSS v4, Reka UI |
-| Browser storage | IndexedDB through idb-keyval |
+| Browser storage | Dexie over IndexedDB |
 | Backend | FastAPI and uvicorn |
 | Provider SDKs | Anthropic and OpenAI |
 | Fetching | httpx, trafilatura, pypdf |
@@ -140,29 +140,15 @@ Pinned turns precede the send window, are deduplicated, and bypass `num_messages
 
 ### State and persistence
 
-`frontend/src/state/persistence.js` owns the shared reactive state, IndexedDB keys, and debounced writes, which also flush best-effort on `pagehide` and whenever the document turns `hidden`; the browser does not guarantee asynchronous IndexedDB writes commit during teardown. `state/store.js` is the public facade; it owns global settings, model cache, and `initStore()`. User-owned records are exported. The model cache is server-owned and refetched after login; authentication tokens are not part of snapshots.
+`frontend/src/state/persistence.js` owns the shared reactive state, the Dexie tables, and the debounced writes. Writes also flush best-effort on `pagehide` and when the document turns `hidden`. The browser does not guarantee that asynchronous IndexedDB writes commit during teardown. `state/store.js` is the public facade. It owns global settings, the model cache, and `initStore()`. Export covers user-owned records only. The server owns the model cache, and the app refetches it after login. Snapshots never carry authentication tokens.
 
-| Record | Shape and ownership |
-|--------|---------------------|
-| Workspace | `{id, name, messages, cards, docIds}`; workspace messages are shared system prompts. |
-| Document | `{id, name, text, createdAt, updatedAt, source, versions}`; owners reference documents through `docIds`. |
-| Image | Stored under `conversa_img:<id>`; messages keep image ids. |
-| Assistant evidence | Optional `artifacts` on the assistant message that produced the evidence. |
-| Research run | Browser-owned input, brief, answers, settings, checkpoint, events, and terminal result. |
+See [Data Model](docs/Data%20Model.md) for the tables, indexes, record shapes, loading rules, and export versions.
 
-Documents are removed after their final conversation or workspace reference is removed. Images are collected when no conversation message references them. Snapshot merge import keeps local records on id collisions; restore replaces browser-owned collections after confirmation. A missing field in an older snapshot leaves the current value unchanged.
+`gcDocs()` deletes a document when no conversation or workspace references it. `gcImages()` deletes an image when no message references it.
 
-`state/snapshot.js` owns full and single-conversation export, merge import, restore, and snapshot validation. `SNAPSHOT_VERSION` is a data-contract version, not the app release number. Current code accepts older understood snapshots and migrates their records on load, import, or restore. It rejects a snapshot with a version newer than the current reader, because fields or layouts may have changed in ways it cannot preserve.
+`state/snapshot.js` owns export, merge import, restore, and validation. Export covers the full archive and one conversation. Merge import adds records that the browser does not have. An imported conversation with a duplicate id gets new ids, so both copies survive. Merge import skips a duplicate document, workspace, run, or image. Restore clears the browser tables and writes the new rows in one transaction. A failed restore leaves the existing data unchanged. Raise `SNAPSHOT_VERSION` when a change needs a migration, or when an older reader could lose data. Then add a row to the version table in [Data Model](docs/Data%20Model.md).
 
-| Version | Snapshot contract change | Compatibility reason |
-|---------|--------------------------|----------------------|
-| 1 | Initial full snapshot format. It has no usage ledger. | Restore leaves the current ledger alone when the snapshot has no `usage` field. |
-| 2 | Adds the usage ledger to full snapshots. | Older readers cannot preserve usage when restoring or re-exporting the snapshot. |
-| 3 | Moves documents from inline workspace records into the shared document store; assistant messages can carry tool evidence artifacts. | Readers that expect inline docs can lose them after the move; readers that do not handle artifacts cannot include that evidence in prompts. |
-| 4 | Research records use structured briefs and checkpoint-aware run state. | `migrateRun()` fills the current run shape from older records; without it, valid saved runs may fail validation or recovery. |
-| 5 | Workspaces replace one `systemPrompt` string with a `messages` array of system prompts. | Older readers look for `systemPrompt` and would miss the shared instructions. |
-
-`state/workspaces.js`, `state/docs.js`, and `state/runs.js` own their record migrations. `snapshot.js` applies them on import and restore; `store.js` applies them on initial load. Raise `SNAPSHOT_VERSION` when a snapshot change needs an in-place migration or when an older reader could silently drop user data. Keep the version list here aligned with migration code and `store.selfcheck.js`.
+`state/migrate-keyval.js` migrates data from the old key-value layout. It runs once inside `initStore()`, before any table read. It applies the record fixups in the same pass. It deletes the old database after the row counts match.
 
 ### Frontend modules
 
@@ -171,6 +157,9 @@ Documents are removed after their final conversation or workspace reference is r
 | `App.vue` | Application assembly, authentication state, and pane routing. |
 | `api/client.js` | HTTP, SSE, authentication, chat, research, and transfer calls. |
 | `state/persistence.js`, `state/store.js` | Shared IndexedDB state and public state API. |
+| `state/db.js` | Declares the Dexie database and the table schema. |
+| `state/migrate-keyval.js` | Converts records from the old key-value layout. |
+| `state/reload.js` | Flushes writes and reloads on a Dexie version change. |
 | `state/conversations.js`, `workspaces.js` | Conversation, template, and workspace records. |
 | `state/docs.js`, `snapshot.js` | Documents, images, garbage collection, import, export, and restore. |
 | `state/runs.js`, `usage.js` | Browser research records, finalization, and usage accounting. |
