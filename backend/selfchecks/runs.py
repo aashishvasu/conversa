@@ -14,7 +14,14 @@ from research.state import empty_state, validate_checkpoint
 
 
 def brief():
-    return {"objective": "Investigate Project Orion", "deliverable": "A sourced brief", "scope": ["Project Orion"], "constraints": ["cite evidence"], "questions": [], "answers": {"region": "US"}}
+    return {
+        "objective": "Investigate Project Orion",
+        "deliverable": "A sourced brief",
+        "scope": ["Project Orion"],
+        "constraints": ["cite evidence"],
+        "questions": [],
+        "answers": {"region": "US"},
+    }
 
 
 async def echo_reformulate(model, system, prompt, **kwargs):
@@ -53,7 +60,14 @@ async def workflow_checks():
             return '{"valid":true,"corrections":"","gaps":[]}'
         return ""
 
-    g.search, g._page, g.note, g.complete, r.complete, report.complete = search, page, note, echo_reformulate, complete, complete
+    g.search, g._page, g.note, g.complete, r.complete, report.complete = (
+        search,
+        page,
+        note,
+        echo_reformulate,
+        complete,
+        complete,
+    )
     old_min = r.MIN_EVIDENCE
     r.MIN_EVIDENCE = 1
     try:
@@ -71,13 +85,17 @@ async def workflow_checks():
     prior_calls = resume_data["budgets"]["calls"]
     resumed = Run(brief(), {"search": "new", "note": "new", "report": "new"}, checkpoint_data=resume_data)
     assert resumed.frontier[0]["status"] == "pending"
-    assert resumed.update_calls() == prior_calls, "checkpoint resume must retain spent call budget without double counting"
+    assert resumed.update_calls() == prior_calls, (
+        "checkpoint resume must retain spent call budget without double counting"
+    )
     retry_data = validate_checkpoint(resume_data)
     retry_data["evidence"] = []
     retry_data["frontier"][0].update(status="pruned", attempts=1, operation_id="failed-op")
     retry_data["operations"]["completed"]["failed-op"] = True
     retry_data["operations"]["queries"]["investigate project orion"] = 2
-    retried = Run(brief(), {"search": "new", "note": "new", "report": "new"}, checkpoint_data=retry_data, restart_failed=True)
+    retried = Run(
+        brief(), {"search": "new", "note": "new", "report": "new"}, checkpoint_data=retry_data, restart_failed=True
+    )
     assert retried.frontier[0]["status"] == "pending" and "failed-op" not in retried.data["operations"]["completed"]
     assert "investigate project orion" not in retried.data["operations"]["queries"]
     assert any(task["question"] == "follow-up question" for task in run.frontier)
@@ -88,16 +106,23 @@ async def workflow_checks():
     except ValueError as error:
         raise AssertionError("worker context must be valid JSON") from error
     worker_excerpt = worker_context["known_findings"][0]["excerpt"]
-    assert 0 < len(worker_excerpt) < len(run.evidence[0]["excerpt"]) and run.evidence[0]["excerpt"].startswith(worker_excerpt), "worker context truncates a long excerpt to a bounded prefix"
-    assert run.data["budgets"]["calls"] == run.prior_calls + run.spend.calls + run.data["budgets"].get("fallback_calls", 0)
+    assert 0 < len(worker_excerpt) < len(run.evidence[0]["excerpt"]) and run.evidence[0]["excerpt"].startswith(
+        worker_excerpt
+    ), "worker context truncates a long excerpt to a bounded prefix"
+    assert run.data["budgets"]["calls"] == run.prior_calls + run.spend.calls + run.data["budgets"].get(
+        "fallback_calls", 0
+    )
     assert any(event["kind"] == "source_reused" for event in run.events.since()), "run-wide URL reuse is visible"
 
 
 async def breaker_and_resume_checks():
     real = g.search, g.complete, r.complete, report.complete
+
     async def repeated(query, *args, **kwargs):
         return []
+
     decisions = 0
+
     async def complete(model, system, prompt, **kwargs):
         nonlocal decisions
         if system == r.COORDINATOR:
@@ -110,6 +135,7 @@ async def breaker_and_resume_checks():
         if system == report.VERIFY:
             return '{"valid":true,"corrections":"","gaps":[]}'
         return ""
+
     g.search, g.complete, r.complete, report.complete = repeated, echo_reformulate, complete, complete
     try:
         run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
@@ -123,22 +149,94 @@ async def breaker_and_resume_checks():
     r.complete, report.complete = complete, complete
     try:
         partial = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1, max_calls=2)
-        partial.sources["https://example.test/page"] = {"id": "S1", "url": "https://example.test/page", "title": "Source", "task_ids": ["T1"]}
-        partial.evidence.append({"id": "E1", "source_id": "S1", "task_id": "T1", "question": "Investigate Project Orion", "excerpt": "fact", "note": "fact", "title": "Source"})
+        partial.sources["https://example.test/page"] = {
+            "id": "S1",
+            "url": "https://example.test/page",
+            "title": "Source",
+            "task_ids": ["T1"],
+        }
+        partial.evidence.append(
+            {
+                "id": "E1",
+                "source_id": "S1",
+                "task_id": "T1",
+                "question": "Investigate Project Orion",
+                "excerpt": "fact",
+                "note": "fact",
+                "title": "Source",
+            }
+        )
         await r._run(partial)
     finally:
         r.complete, report.complete = real[2], real[3]
     assert partial.status == "partial" and partial.payload is not None and partial.payload["gaps"], partial.state()
 
     checkpoint = empty_state(brief(), {"id": "T1", "question": "Investigate Project Orion"})
-    checkpoint["sources"]["https://example.test/page"] = {"id": "S1", "url": "https://example.test/page", "title": "Source", "task_ids": ["T1"]}
-    checkpoint["evidence"].append({"id": "E1", "source_id": "S1", "task_id": "T1", "task_ids": ["T1"], "excerpt": "fact", "note": "fact", "title": "Source"})
+    checkpoint["sources"]["https://example.test/page"] = {
+        "id": "S1",
+        "url": "https://example.test/page",
+        "title": "Source",
+        "task_ids": ["T1"],
+    }
+    checkpoint["evidence"].append(
+        {
+            "id": "E1",
+            "source_id": "S1",
+            "task_id": "T1",
+            "task_ids": ["T1"],
+            "excerpt": "fact",
+            "note": "fact",
+            "title": "Source",
+        }
+    )
     checkpoint["frontier"][0]["status"] = "done"
     assert validate_checkpoint(checkpoint)["revision"] == 0
 
 
+def actionable_checks():
+    dead = {"frontier": [{"id": "t1", "status": "pruned", "attempts": 3}], "evidence": [], "operations": {}}
+    assert r.checkpoint_actionable(dead) is False, "a permanently pruned checkpoint with no evidence is not actionable"
+    reopen = {"frontier": [{"id": "t1", "status": "pruned", "attempts": 1}], "evidence": [], "operations": {}}
+    assert r.checkpoint_actionable(reopen) is True, "a pruned task under the attempt ceiling is reopenable"
+    pending = {"frontier": [{"id": "t1", "status": "pending"}], "evidence": [], "operations": {}}
+    assert r.checkpoint_actionable(pending) is True, "a live task is actionable"
+    evidenced = {
+        "frontier": [{"id": "t1", "status": "pruned", "attempts": 3}],
+        "evidence": [{"task_ids": ["t1"]}],
+        "operations": {},
+    }
+    assert r.checkpoint_actionable(evidenced) is True, "evidence lets a restart finish from the checkpoint"
+
+
+actionable_checks()
 asyncio.run(workflow_checks())
 asyncio.run(breaker_and_resume_checks())
+
+
+async def successor_claim_checks():
+    real_run = r._run
+
+    async def noop(_run_obj):
+        return None
+
+    r._run = noop
+    models = {"search": "m", "note": "m", "report": "m"}
+    try:
+        first, outcome1 = r.start(brief(), models, run_id="logical-1", predecessor_id="attempt-0")
+        assert outcome1 == "created"
+        assert first.id != "attempt-0" and first.logical_id == "logical-1", (
+            "a retry gets a fresh attempt id under the same logical run"
+        )
+        second, outcome2 = r.start(brief(), models, run_id="logical-1", predecessor_id="attempt-0")
+        assert second.id == first.id, "a concurrent retry claims the same successor, not a second billable attempt"
+        assert outcome2 == "already_running"
+        assert r._SUCCESSORS["attempt-0"] == first.id
+        await r.forget(first.id)
+    finally:
+        r._run = real_run
+
+
+asyncio.run(successor_claim_checks())
 
 try:
     report.reject_unknown("claim [E9]", [{"id": "E1"}])
@@ -148,6 +246,7 @@ else:
     raise AssertionError("unknown citation accepted")
 source = {"id": "S1", "url": "https://example.test/page"}
 assert report.compile_links("claim [E1]", {"E1": source}) == "claim [E1](https://example.test/page)"
+
 
 # Registry lifecycle through the public run API, with a scripted producer in place of _run.
 async def registry_checks():
@@ -209,7 +308,9 @@ async def registry_checks():
             pass
         else:
             raise AssertionError("restarting an errored run must respect the active-run limit")
-        assert failed.status == "error" and failed.task is None and len(failed.events) == events_before, "a refused restart leaves the errored run untouched"
+        assert failed.status == "error" and failed.task is None and len(failed.events) == events_before, (
+            "a refused restart leaves the errored run untouched"
+        )
         await r.forget(blocker.id)
         restarted, outcome = r.start(brief(), models, run_id=failed.id)
         assert restarted is failed and outcome == "restarted" and failed.status == "running"
@@ -234,7 +335,9 @@ async def registry_checks():
         assert not reader_task.done(), "the reader waits on the live log"
         steps[live.id].put_nowait("probe")
         await asyncio.wait_for(arrived.wait(), 1)
-        assert [event["kind"] for event in live.events.since(after)] == ["probe"], "the waiting tail sees the event before the producer emits again"
+        assert [event["kind"] for event in live.events.since(after)] == ["probe"], (
+            "the waiting tail sees the event before the producer emits again"
+        )
         await settle(live, "done")
         await reader_task
         await r.forget(live.id)
@@ -248,7 +351,9 @@ asyncio.run(registry_checks())
 
 # Coverage gate: premature finish converts to continue once, then passes.
 gate_run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1)
-gate_run.evidence.append({"id": "E1", "source_id": "S1", "question": "unrelated topic", "title": "x", "excerpt": "y" * 500})
+gate_run.evidence.append(
+    {"id": "E1", "source_id": "S1", "question": "unrelated topic", "title": "x", "excerpt": "y" * 500}
+)
 finish = {"action": "finish", "resolve": [], "prune": [], "add": [], "merge": [], "gaps": []}
 gated = r._coverage_gate(gate_run, finish)
 assert gated["action"] == "continue" and gated["gaps"] and gate_run.data["budgets"]["coverage_override"]
@@ -258,16 +363,23 @@ old_min = r.MIN_EVIDENCE
 r.MIN_EVIDENCE = 1
 try:
     covered_run = Run(brief(), {"search": "m", "note": "m", "report": "m"}, depth=1, min_sources=1)
-    covered_run.evidence.extend({"id": f"E{i}", "source_id": "S1", "question": "Investigate Project Orion", "title": "t", "excerpt": "e"} for i in range(1, 3))
+    covered_run.evidence.extend(
+        {"id": f"E{i}", "source_id": "S1", "question": "Investigate Project Orion", "title": "t", "excerpt": "e"}
+        for i in range(1, 3)
+    )
     assert r._coverage_gate(covered_run, finish)["action"] == "finish"
 finally:
     r.MIN_EVIDENCE = old_min
 
 # Coordinator payload: gists only, no raw evidence rows.
 payload = r._coordinator_payload(gate_run, [{"evidence": [{"id": "E1"}], "gaps": ["worker gap"]}])
-assert "new_results" not in payload and payload["new_evidence_ids"] == ["E1"] and payload["worker_gaps"] == ["worker gap"]
+assert (
+    "new_results" not in payload and payload["new_evidence_ids"] == ["E1"] and payload["worker_gaps"] == ["worker gap"]
+)
 gist = payload["evidence"][0]["gist"]
-assert 0 < len(gist) < len(gate_run.evidence[0]["excerpt"]) and gate_run.evidence[0]["excerpt"].startswith(gist), "coordinator gists truncate long evidence to a bounded prefix"
+assert 0 < len(gist) < len(gate_run.evidence[0]["excerpt"]) and gate_run.evidence[0]["excerpt"].startswith(gist), (
+    "coordinator gists truncate long evidence to a bounded prefix"
+)
 assert isinstance(payload["exhausted_queries"], list) and isinstance(payload["scope_coverage"], dict)
 
 models = {"search": "m", "note": "m", "report": "m"}
@@ -276,9 +388,8 @@ models = {"search": "m", "note": "m", "report": "m"}
 budget_run = Run(brief(), models, depth=3, min_sources=15, max_sources=50)
 assert budget_run.min_sources == 15
 assert budget_run.max_sources == 50
-#  budget contracts, not a restated formula. Scaling with the source cap, funding
-# every task, and clearing the elapsed floor hold for any cap; recomputing the formula
-# here would move in lockstep with production and prove nothing.
+# Assert budget contracts, not a restated formula.
+# Scaling with the source cap, funding every task, and clearing the elapsed floor hold for any cap; recomputing the formula here would move in lockstep with production and prove nothing.
 narrow_run = Run(brief(), models, depth=3, max_sources=10)
 assert budget_run.max_calls > narrow_run.max_calls, (narrow_run.max_calls, budget_run.max_calls)
 assert budget_run.max_calls >= r.MAX_TASKS, "the call budget funds at least one call per task"
@@ -297,7 +408,10 @@ assert clamped_run.max_sources == 300
 # min_sources feeds coverage gate floor
 cov_run = Run(brief(), models, min_sources=10)
 cov_finish = {"action": "finish", "resolve": [], "prune": [], "add": [], "merge": [], "gaps": []}
-cov_run.evidence.extend({"id": f"E{i}", "source_id": "S1", "question": "Investigate Project Orion", "title": "t", "excerpt": "e"} for i in range(1, 9))
+cov_run.evidence.extend(
+    {"id": f"E{i}", "source_id": "S1", "question": "Investigate Project Orion", "title": "t", "excerpt": "e"}
+    for i in range(1, 9)
+)
 gated_cov = r._coverage_gate(cov_run, cov_finish)
 assert gated_cov["action"] == "continue", "finish rejected when evidence < min_sources"
 assert str(cov_run.min_sources) in gated_cov["gaps"][-1], "the coverage gate names the evidence floor it enforces"
@@ -305,7 +419,13 @@ assert str(cov_run.min_sources) in gated_cov["gaps"][-1], "the coverage gate nam
 # Theory and coverage in run state and coordinator handling
 t_run = Run(brief(), models, depth=1)
 assert t_run.data["version"] == 2
-assert t_run.data["theory"] == {"hypothesis": "", "confidence": "low", "supporting": [], "contradicting": [], "revised_at_wave": 0}
+assert t_run.data["theory"] == {
+    "hypothesis": "",
+    "confidence": "low",
+    "supporting": [],
+    "contradicting": [],
+    "revised_at_wave": 0,
+}
 assert "Project Orion" in t_run.data["coverage"]
 
 coord_decision = {
@@ -350,8 +470,24 @@ assert "E1" in t_run.data["coverage"]["Project Orion"]
 
 # Contradiction-forced redirection asserts
 c6_run = Run(brief(), models, depth=1)
-c6_run.evidence.append({"id": "E1", "source_id": "S1", "question": "Was Orion feasible?", "title": "Orion Feasibility", "claims": [{"text": "Feasible", "stance": "supports"}]})
-c6_run.evidence.append({"id": "E2", "source_id": "S2", "question": "Was Orion feasible?", "title": "Orion Infeasibility", "claims": [{"text": "Not feasible", "stance": "contradicts"}]})
+c6_run.evidence.append(
+    {
+        "id": "E1",
+        "source_id": "S1",
+        "question": "Was Orion feasible?",
+        "title": "Orion Feasibility",
+        "claims": [{"text": "Feasible", "stance": "supports"}],
+    }
+)
+c6_run.evidence.append(
+    {
+        "id": "E2",
+        "source_id": "S2",
+        "question": "Was Orion feasible?",
+        "title": "Orion Infeasibility",
+        "claims": [{"text": "Not feasible", "stance": "contradicts"}],
+    }
+)
 
 # 1. Contradicting theory forces at most one redirect task per wave
 c6_decision = {
@@ -431,7 +567,15 @@ assert len(clean_run.frontier) == 1, "empty contradicting list without claim con
 # 4. Respect MAX_TASKS bound
 full_run = Run(brief(), models, depth=1)
 for i in range(r.MAX_TASKS - 1):
-    full_run.frontier.append({"id": f"T{len(full_run.frontier)+1}", "question": f"Question {i}", "reason": "test", "status": "pending", "attempts": 0})
+    full_run.frontier.append(
+        {
+            "id": f"T{len(full_run.frontier) + 1}",
+            "question": f"Question {i}",
+            "reason": "test",
+            "status": "pending",
+            "attempts": 0,
+        }
+    )
 assert len(full_run.frontier) == r.MAX_TASKS
 
 full_decision = {

@@ -12,7 +12,7 @@ import { sendWindow } from '../prompt/payload.js'
 import { effectiveSettings, EFFORT_LEVELS } from '../state/settings.js'
 import { activeRunOf, createDoc, currentConversation, imagesOf, persistNow, releaseImages, removeRun, sidebarOpen } from '../state/store.js'
 import { cancelTurn, turnState } from '../chat/coordinator.js'
-import { regenerate as regenerateTurn, removeMessage as deleteMessage } from '../chat/edit.js'
+import { applyEdit, regenerate as regenerateTurn, removeMessage as deleteMessage } from '../chat/edit.js'
 import { cancelPreparation } from '../research/coordinator.js'
 import { useStreamOrchestration } from '../research/orchestration.js'
 import { confirmDelete } from '../utils/confirm.js'
@@ -118,8 +118,7 @@ function cancelEdit(m) {
   editingId.value = null
 }
 function doneEdit(m) {
-  // Edited prose no longer matches the evidence recorded for the original answer, so the artifacts go with it.
-  if (editBackup && (m.role !== editBackup.role || m.content !== editBackup.content)) delete m.artifacts
+  applyEdit(m, editBackup)
   editBackup = null
   editingId.value = null
 }
@@ -198,6 +197,7 @@ function regenerate(m) {
     runCompletion,
   })
 }
+
 
 function onResearchAnswer(msg) {
   const c = convo.value

@@ -39,3 +39,11 @@ export async function removeMessage(convo, id, hooks) {
   convo.messages = convo.messages.filter((m) => m.id !== id)
   releaseImages(message?.imageIds)
 }
+
+// A user-edited replacement is no longer the failed generation: drop its stale status and artifacts.
+export function applyEdit(message, backup) {
+  if (backup && (message.role !== backup.role || message.content !== backup.content)) {
+    delete message.artifacts
+    delete message.generation
+  }
+}

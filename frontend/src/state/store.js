@@ -18,7 +18,7 @@ import { migrateFromKeyval } from './migrate-keyval.js'
 import { initUsage } from './usage.js'
 import { tr } from '../i18n/index.js'
 import { notify } from '../utils/notify.js'
-import { exportData as _exportData, restoreData as _restoreData, restoreSnapshot as _restoreSnapshot } from './snapshot.js'
+import { exportData as _exportData, exportLastSaved as _exportLastSaved, restoreData as _restoreData, restoreSnapshot as _restoreSnapshot } from './snapshot.js'
 export { persistNow, ensureLoaded } from './persistence.js'
 export {
   activePane, attachedDocs, conversations, createConversation, createFromTemplate,
@@ -71,14 +71,23 @@ export function setGlobalSettings(defaults) {
 export function exportData(id) {
   return _exportData(id, savedGlobal)
 }
+function saveExportFile(data, id) {
+  const name = (id ? data.conversations[0]?.title || 'conversation' : 'export').replace(/[^\w-]+/g, '_').slice(0, 40)
+  const stamp = new Date().toISOString().slice(0, 10)
+  downloadText(`conversa-${name}-${stamp}.json`, JSON.stringify(data, null, 2), 'application/json')
+}
 export async function downloadExport(id) {
   try {
-    const data = await exportData(id)
-    const name = (id ? data.conversations[0]?.title || 'conversation' : 'export').replace(/[^\w-]+/g, '_').slice(0, 40)
-    const stamp = new Date().toISOString().slice(0, 10)
-    downloadText(`conversa-${name}-${stamp}.json`, JSON.stringify(data, null, 2), 'application/json')
+    saveExportFile(await exportData(id), id)
   } catch (error) {
-    // The storage banner's only escape hatch must surface the failure instead of an unhandled rejection at the moment storage is the problem.
+    notify({ key: 'export-failed', text: tr('notification.error'), detail: error?.message || String(error) })
+  }
+}
+// The storage banner's escape hatch: committed rows only, so it still works when the flush is what is failing.
+export async function downloadLastSavedCopy(id) {
+  try {
+    saveExportFile(await _exportLastSaved(id, savedGlobal), id)
+  } catch (error) {
     notify({ key: 'export-failed', text: tr('notification.error'), detail: error?.message || String(error) })
   }
 }
@@ -93,7 +102,7 @@ export function restoreData(data) {
 export function restoreSnapshot(data) {
   return _restoreSnapshot(data, applyRestoredSettings)
 }
-setDownloadExport(downloadExport)
+setDownloadExport(downloadLastSavedCopy)
 // Everything the sidebar renders loads in one read: conversations newest-created first (a createdAt index, not a stored order), then the collections.
 export async function initStore() {
   // IDB is best-effort storage; this asks the browser to exempt the origin from eviction. Denial is fine, export stays the real backup.

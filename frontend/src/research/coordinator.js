@@ -1,8 +1,8 @@
 import { ackResearch, discardResearch, prepareResearch, startResearch, streamResearch } from '../api/client.js'
-import { acceptEvent, applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, replayPosition, resumeWithCurrentModels } from './lifecycle.js'
+import { acceptEvent, applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, recoveryDelay, replayPosition, resumeWithCurrentModels } from './lifecycle.js'
 import { CHECKPOINT_MS } from '../chat/coordinator.js'
 import { finishRun } from '../state/runs.js'
-import { ensureLoaded, persistNow, state } from '../state/persistence.js'
+import { ensureLoaded, persistNow, persistResearchSettlement, readStoredRun, state } from '../state/persistence.js'
 import { effectiveSettings } from '../state/settings.js'
 
 const controllers = new Map()
@@ -91,11 +91,23 @@ export async function startRun(run, answers = null) {
 
 // ackPending survives a failed ack so syncActiveRuns() can retry it; a stored run without it needs nothing.
 async function finishAndAck(run, frame) {
-  // The run may finish for a conversation that is not the open one; finishRun writes its report into that conversation's messages, so the row must load first.
   await ensureLoaded(state.conversations.find((c) => c.id === run.convoId))
-  finishRun(run, frame)
-  run.ackPending = true
+  const attemptId = run.serverId
+  const result = await persistResearchSettlement(run, attemptId, () => finishRun(run, frame))
+  if (!result.saved) return false
+  if (!result.accepted) {
+    const stored = result.receipt
+    if (stored) {
+      for (const key of ['serverId', 'status', 'phase', 'payload', 'error', 'spend', 'checkpoint', 'reportDocId', 'spendLedgered', 'actionable', 'ackPending']) {
+        if (!Object.hasOwn(stored, key)) delete run[key]
+      }
+      Object.assign(run, stored)
+      if (stored.serverId === attemptId && stored.ackPending) await ackRun(run)
+    }
+    return false
+  }
   await ackRun(run)
+  return true
 }
 
 async function ackRun(run) {
@@ -163,10 +175,42 @@ export async function tailRun(run) {
         }, controller.signal)
 
         if (run.status !== 'running') break
+        // A clean EOF without a terminal is an interruption, not success: consume the same recovery budget as a throw.
+        failures++
+        const eofDelay = recoveryDelay(failures, MAX_STREAM_RETRIES)
+        if (eofDelay === null) {
+          applyFailure(run, new Error('research stream ended without a terminal'))
+          await persistNow()
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, eofDelay))
       } catch (streamError) {
         drain()
         if (controller.signal.aborted) break
         if (prepareReplacement(run, streamError)) {
+          let stored
+          try {
+            stored = await readStoredRun(run.id)
+          } catch (readError) {
+            applyFailure(run, readError)
+            await persistNow()
+            break
+          }
+          if (stored?.serverId === run.serverId && ['done', 'partial', 'error', 'cancelled'].includes(stored.status)) {
+            Object.assign(run, {
+              status: stored.status,
+              phase: stored.phase,
+              payload: stored.payload,
+              error: stored.error,
+              spend: stored.spend,
+              checkpoint: stored.checkpoint,
+              reportDocId: stored.reportDocId,
+              spendLedgered: stored.spendLedgered,
+              actionable: stored.actionable,
+            })
+            await persistNow()
+            break
+          }
           await persistNow()
           try {
             const body = buildResearchStartBody(run)
@@ -182,12 +226,13 @@ export async function tailRun(run) {
           }
         }
         failures++
-        if (failures >= MAX_STREAM_RETRIES) {
+        const delayMs = recoveryDelay(failures, MAX_STREAM_RETRIES)
+        if (delayMs === null) {
           applyFailure(run, new Error(streamError.message || 'research stream failed'))
           await persistNow()
           break
         }
-        await new Promise((resolve) => setTimeout(resolve, Math.min(500 * 2 ** (failures - 1), 5000)))
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
       }
     }
   } finally {

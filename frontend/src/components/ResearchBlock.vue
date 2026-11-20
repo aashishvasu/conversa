@@ -160,7 +160,8 @@ onMounted(() => {
     <div v-if="message.content" class="md mt-3 [overflow-wrap:anywhere]" v-html="renderMarkdown(message.content)"></div>
     <p v-if="reportDoc" class="mt-2 text-xs text-muted">{{ $t('research.attached', { name: reportDoc.name }) }}</p>
     <p v-if="run.error" class="mt-2 text-xs text-danger">{{ run.error }}</p>
-    <div v-if="run.status === 'error'" class="mt-2 flex gap-2">
+    <p v-if="run.status === 'error' && run.actionable === false" class="mt-2 text-xs text-muted">{{ $t('research.notActionable') }}</p>
+    <div v-if="run.status === 'error' && run.actionable !== false" class="mt-2 flex gap-2">
       <UiButton size="compact" :disabled="isPreparing" @click="retry"><Play :size="12" /> {{ isPreparing ? $t('research.status.preparing') : $t(run.preparationFailed ? 'research.retryPreparation' : 'research.runAgain') }}</UiButton>
       <UiButton v-if="!run.preparationFailed && run.checkpoint" size="compact" variant="ghost" :disabled="isPreparing" @click="onResumeWithModels">{{ $t('research.resumeWithModels') }}</UiButton>
     </div>

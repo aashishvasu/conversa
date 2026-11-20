@@ -1,6 +1,6 @@
 // Run: node src/selfchecks/chat-edit.selfcheck.js.
 import assert from 'node:assert'
-import { regenerate, removeMessage } from '../chat/edit.js'
+import { applyEdit, regenerate, removeMessage } from '../chat/edit.js'
 
 function convo(messages, mode = 'chat') {
   return { id: 'c', mode, messages }
@@ -103,3 +103,15 @@ assert.ok(true, 'a missing conversation is a no-op')
   assert.deepEqual(h.released, [], 'a message with no images releases nothing')
   assert.deepEqual(c.messages.map((m) => m.id), ['u0'], 'the message is dropped')
 }
+
+// A user-edited replacement drops the stale failure status and artifacts; an unchanged edit keeps them.
+{
+  const m = { id: 'a1', role: 'assistant', content: 'partial', artifacts: [{ tool: 'x' }], generation: { status: 'failed', error: { code: 'internal', message: 'e', retryable: false }, finishReason: null } }
+  applyEdit(m, { role: 'assistant', content: 'partial' })
+  assert.ok(m.generation && m.artifacts, 'an unchanged edit keeps the recorded status and artifacts')
+  m.content = 'user replacement'
+  applyEdit(m, { role: 'assistant', content: 'partial' })
+  assert.ok(!Object.hasOwn(m, 'generation'), 'an edited replacement clears the stale failure label')
+  assert.ok(!Object.hasOwn(m, 'artifacts'), 'an edited replacement drops artifacts that no longer match')
+}
+

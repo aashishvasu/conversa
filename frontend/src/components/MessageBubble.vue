@@ -27,6 +27,12 @@ const promoted = ref(false)
 
 // A streaming turn's text lives in coordinator view state until it settles; the stored message lags behind it by up to a checkpoint interval.
 const shownContent = computed(() => props.live?.content ?? props.message.content)
+const statusKey = computed(() => {
+  const s = props.message.generation?.status
+  if (s === 'failed') return 'message.statusFailed'
+  if (s === 'output_limit') return 'message.statusOutputLimit'
+  return 'message.statusStopped'
+})
 
 function bubbleClass(role) {
   if (role === 'user') return 'bg-accent text-on-accent'
@@ -124,7 +130,7 @@ function promote() {
           </div>
           <div v-if="message.role === 'system'" class="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm" :class="!shownContent && 'italic text-muted'">{{ shownContent || $t('message.emptySystem') }}</div>
           <div v-else-if="shownContent" class="md [overflow-wrap:anywhere]" v-html="renderMarkdown(shownContent)"></div>
-          <div v-else class="text-muted">…</div>
+          <div v-else-if="message.generation?.status !== 'failed'" class="text-muted">…</div>
           <ProgressRoot v-if="message.turnId" :model-value="null" class="mt-2 h-0.5 overflow-hidden rounded-full bg-edge" :aria-label="$t('chat.replyInProgress')">
             <ProgressIndicator class="research-progress h-full w-1/3 rounded-full bg-accent" />
           </ProgressRoot>
@@ -142,6 +148,14 @@ function promote() {
             </UiToolbarButton>
             <UiToolbarButton :label="$t('message.delete')" danger @click="emit('delete')"><Trash2 :size="14" /></UiToolbarButton>
           </ToolbarRoot>
+        </div>
+        <div
+          v-if="message.generation && message.generation.status !== 'completed'"
+          class="mt-1 px-1 text-xs"
+          :class="message.generation.status === 'failed' ? 'text-danger' : 'text-muted'"
+        >
+          <span>{{ $t(statusKey) }}</span>
+          <p v-if="message.generation.error?.message" class="mt-0.5 break-words">{{ message.generation.error.message }}</p>
         </div>
         <div v-if="message.role !== 'system' && message.createdAt" class="mt-0.5 px-1 text-[10px] text-muted">
           {{ formatTime(message.createdAt) }}

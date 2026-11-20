@@ -8,7 +8,7 @@ from typing import Any
 
 from streams.log import EventLog
 
-Producer = Callable[[EventLog], Awaitable[None]]
+Producer = Callable[[EventLog], Awaitable[str | None]]
 
 
 @dataclass(eq=False)
@@ -29,7 +29,9 @@ class Registry:
         self._now = now
         self._streams: dict[str, Stream] = {}
 
-    def start(self, stream_id: str, produce: Producer, owner: Any = None, log: EventLog | None = None) -> tuple[Stream, bool]:
+    def start(
+        self, stream_id: str, produce: Producer, owner: Any = None, log: EventLog | None = None
+    ) -> tuple[Stream, bool]:
         self.evict()
         existing = self._streams.get(stream_id)
         if existing is not None:
@@ -67,10 +69,12 @@ class Registry:
         self._streams.pop(stream_id, None)
 
     def evict(self) -> None:
-        finished = sorted(((s.finished_at, s) for s in self._streams.values() if s.finished_at is not None), key=lambda pair: pair[0])
+        finished = sorted(
+            ((s.finished_at, s) for s in self._streams.values() if s.finished_at is not None), key=lambda pair: pair[0]
+        )
         cutoff = self._now() - self.ttl_seconds
         expired = [s for finished_at, s in finished if finished_at < cutoff]
-        kept = [s for _, s in finished][len(expired):]
+        kept = [s for _, s in finished][len(expired) :]
         if self.max_finished is not None and len(kept) > self.max_finished:
             expired += kept[: len(kept) - self.max_finished]
         for stream in expired:
@@ -85,8 +89,8 @@ class Registry:
 
     async def _run(self, stream: Stream, produce: Producer) -> None:
         try:
-            await produce(stream.log)
-            stream.status = "done"
+            outcome = await produce(stream.log)
+            stream.status = "error" if outcome == "failed" else "done"
         except asyncio.CancelledError:
             stream.status = "cancelled"
             raise

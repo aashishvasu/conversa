@@ -43,8 +43,8 @@ export function cloneWithNewIds(convo) {
   c.id = crypto.randomUUID()
   c.messages = c.messages.map((m) => ({ ...m, id: crypto.randomUUID() }))
   c.messageIds = c.messages.map((m) => m.id)
-  // A copy never claims the original's pending turn.
-  for (const m of c.messages) delete m.turnId
+  // A copy never claims the original's pending turn or local generation status.
+  for (const m of c.messages) { delete m.turnId; delete m.generation }
   c.cards = (c.cards || []).map((cd) => ({ ...cd, id: crypto.randomUUID() }))
   return c
 }

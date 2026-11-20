@@ -16,6 +16,7 @@ export function sendWindow(convo, settings) {
   return turns.slice(cut)
 }
 
+
 // --- Lexical recall -----------------------------------------------------------
 // With use_recall on, the dropped turns most relevant to the latest user message are resent verbatim via the system prompt.
 // Dropped means neither pinned nor inside the send window.

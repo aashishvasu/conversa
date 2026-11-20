@@ -3,6 +3,13 @@ export function isNoSuchRun(error) {
   return error?.code === 'no_such_run'
 }
 
+// A clean EOF without a terminal and a thrown stream error share one bounded recovery budget.
+// Returns the backoff delay in ms, or null once the budget is exhausted.
+export function recoveryDelay(failures, maxRetries) {
+  if (failures >= maxRetries) return null
+  return Math.min(500 * 2 ** (failures - 1), 5000)
+}
+
 // Highest seq applied this page session, per run id.
 // phase and checkpoint events are applied without being stored, so the stored events alone lag behind the server log.
 const seenSeqs = new Map()
@@ -36,6 +43,7 @@ export function applyStart(run, result) {
     status: result.status,
     phase: result.phase,
     error: null,
+    actionable: result.actionable ?? run.actionable ?? null,
     updatedAt: Date.now(),
   })
   return freshLog
@@ -89,7 +97,9 @@ export function buildResearchStartBody(current) {
   const maxSources = Math.max(rawMin, rawMax)
 
   return {
-    id: current.serverId || current.id,
+    // id is the stable logical run; predecessor is the attempt being replaced, so a retry/recovery claims a fresh attempt.
+    id: current.id,
+    predecessor: current.serverId || null,
     brief,
     answers,
     checkpoint: current.checkpoint || null,
