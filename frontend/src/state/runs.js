@@ -84,6 +84,8 @@ export function finishRun(run, frame) {
     payload: frame.payload,
     spend: frame.spend ?? run.spend,
     checkpoint: frame.checkpoint ?? run.checkpoint,
+    error: frame.error ?? null,
+    actionable: frame.actionable ?? null,
     updatedAt: Date.now(),
   })
   const convo = state.conversations.find((c) => c.id === run.convoId)
@@ -99,8 +101,8 @@ export function finishRun(run, frame) {
       const msg = convo.messages.find((m) => m.id === run.resultMessageId)
       if (msg) {
         msg.docId = doc.id
-        const ready = `Your "${frame.payload.name}" research document is ready.`
-        msg.content = frame.payload.summary ? `${ready}\n\n${frame.payload.summary}` : ready
+        // The ready label is app status and lives in the research block; the body keeps only model-authored summary.
+        msg.content = frame.payload.summary ?? ''
       }
     }
   }

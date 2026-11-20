@@ -15,8 +15,17 @@ from research import runs
 from streams.log import EventLog
 from streams.registry import Registry
 from providers import (
-    CONFIG_ERRORS, DEFAULT_EFFORT, DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_TEMPERATURE,
-    DEFAULT_UTILITY_MODEL, EFFORT_VALUES, MODELS, join_model, resolve_model, stream_chat,
+    CONFIG_ERRORS,
+    DEFAULT_EFFORT,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_MODEL,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_UTILITY_MODEL,
+    EFFORT_VALUES,
+    MODELS,
+    join_model,
+    resolve_model,
+    stream_chat,
 )
 from tools import ToolConfigError, resolve_enabled_tools
 
@@ -253,7 +262,9 @@ def chat_events(req: ChatRequest) -> AsyncIterator[dict]:
     max_tokens = req.max_tokens or DEFAULT_MAX_TOKENS
     effort = req.effort if req.effort is not None else DEFAULT_EFFORT
     if effort and effort not in EFFORT_VALUES:
-        raise HTTPException(400, {"code": "unknown_effort", "message": f"unknown effort level: {effort}", "effort": effort})
+        raise HTTPException(
+            400, {"code": "unknown_effort", "message": f"unknown effort level: {effort}", "effort": effort}
+        )
     provider, model, selected_tools, system = resolve_next_system(req)
     return stream_chat(
         provider,
@@ -279,14 +290,22 @@ class ChatTurnRequest(ChatRequest):
 async def chat(req: ChatTurnRequest, _=Depends(require_auth)):
     events = chat_events(req)
 
-    async def produce(log: EventLog) -> None:
+    async def produce(log: EventLog) -> str:
+        from public_error import error_frame
+
+        outcome = "completed"
         try:
             async for frame in events:
                 log.append(frame)
+                if frame.get("error") is not None:
+                    outcome = "failed"
+                elif frame.get("done"):
+                    outcome = "output_limit" if frame.get("finishReason") == "output_limit" else "completed"
         except Exception as error:
             # stream_chat reports its own failures as frames; this covers one that escapes it.
-            log.append({"error": str(error)})
+            log.append(error_frame(error))
             raise
+        return outcome
 
     stream, _ = CHAT_STREAMS.start(req.turn_id, produce)
     return StreamingResponse(tail_frames(stream.log), media_type="text/event-stream")
@@ -312,7 +331,14 @@ async def complete(req: ChatRequest, _=Depends(require_auth)):
     text, usage = [], None
     async for frame in chat_events(req):
         if "error" in frame:
-            raise HTTPException(502, {"code": "completion_failed", "message": frame["error"]})
+            raise HTTPException(
+                502,
+                {
+                    "code": frame.get("code", "completion_failed"),
+                    "message": frame["error"],
+                    "retryable": frame.get("retryable", False),
+                },
+            )
         if "text" in frame:
             text.append(frame["text"])
         elif "usage" in frame:

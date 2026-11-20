@@ -239,4 +239,66 @@ assert.ok((await eventRows('hidden-run')).some((row) => row.text === PAGEHIDE_SE
 await stopRun(hiddenLive)
 await hiddenTail
 
+const receiptId = 'receipt-run'
+const receiptServerId = 'receipt-attempt'
+await db.runs.put({
+  id: receiptId, serverId: receiptServerId, status: 'done', phase: 'done', payload: { summary: 'RECEIPT-SUMMARY' },
+  error: null, spend: { calls: 3 }, checkpoint: { cursor: 7 }, reportDocId: 'receipt-doc', spendLedgered: true, actionable: false,
+})
+const receiptRun = { id: receiptId, serverId: receiptServerId, status: 'running', events: [], spend: null, checkpoint: null }
+const receiptCalls = []
+globalThis.fetch = async (url, init) => {
+  receiptCalls.push({ url: String(url), method: init?.method || 'GET' })
+  return new Response(JSON.stringify({ detail: { code: 'no_such_run', message: 'gone' } }), { status: 404, headers: { 'Content-Type': 'application/json' } })
+}
+await tailRun(receiptRun)
+const receiptState = [receiptRun.status, receiptRun.serverId, receiptRun.phase, receiptRun.payload?.summary, receiptRun.error,
+  receiptRun.spend?.calls, receiptRun.checkpoint?.cursor, receiptRun.reportDocId, receiptRun.spendLedgered, receiptRun.actionable,
+  receiptCalls.filter((call) => call.method === 'POST').length]
+
+const settlementConvo = { id: 'settlement-convo', title: 'Settlement', docIds: [], messages: [{ id: 'settlement-result', role: 'assistant', content: '' }] }
+const settlementRun = {
+  id: 'settlement-run', serverId: 'current-attempt', convoId: settlementConvo.id, resultMessageId: 'settlement-result',
+  status: 'running', phase: 'gather', events: [], spend: null, spendLedgered: false, reportDocId: null,
+}
+state.conversations.push(settlementConvo)
+state.runs.push(settlementRun)
+const liveSettlement = state.runs.find((item) => item.id === settlementRun.id)
+await (await import('vue')).nextTick()
+await persistNow()
+await db.conversations.put({ id: settlementConvo.id, title: settlementConvo.title, docIds: [], messageIds: ['settlement-result'] })
+await db.messages.put({ id: 'settlement-result', convoId: settlementConvo.id, role: 'assistant', content: '' })
+await db.runs.put({ ...settlementRun, events: undefined })
+const frame = {
+  status: 'done', phase: 'done', error: null, actionable: false,
+  payload: { name: 'Summary', summary: 'MODEL-SUMMARY', sources: [], report: { text: 'REPORT-SENTINEL' } },
+  spend: { models: { 'settlement-model': { calls: 1, input: 2, output: 1, usd: 0.01 } } },
+}
+const staleDuplicate = { ...liveSettlement, status: 'running', reportDocId: null, spendLedgered: false, ackPending: false }
+const { finishRun } = await import('../state/runs.js')
+const { persistResearchSettlement } = await import('../state/persistence.js')
+const firstSettlement = await persistResearchSettlement(liveSettlement, liveSettlement.serverId, () => finishRun(liveSettlement, frame))
+const settledRow = await db.runs.get(liveSettlement.id)
+const resultMessage = await db.messages.get('settlement-result')
+const settlementDocs = (await db.docs.toArray()).filter((doc) => doc.source?.runId === liveSettlement.id)
+const usageRows = await db.usage.toArray()
+const duplicateSettlement = await persistResearchSettlement(staleDuplicate, staleDuplicate.serverId, () => finishRun(staleDuplicate, frame))
+const docsAfterDuplicate = (await db.docs.toArray()).filter((doc) => doc.source?.runId === liveSettlement.id)
+await db.runs.put({ id: 'newer-run', serverId: 'new-attempt', status: 'running' })
+let staleSettlementRan = false
+const rejectedSettlement = await persistResearchSettlement({ id: 'newer-run', serverId: 'old-attempt' }, 'old-attempt', () => { staleSettlementRan = true })
+assert.deepEqual(
+  {
+    receipt: receiptState,
+    settlement: [firstSettlement.accepted, settledRow.status, settledRow.ackPending, settledRow.spendLedgered,
+      settledRow.reportDocId === settlementDocs[0]?.id, resultMessage.content, resultMessage.docId === settledRow.reportDocId,
+      docsAfterDuplicate.length, duplicateSettlement.accepted, rejectedSettlement.accepted, staleSettlementRan,
+      usageRows.some((row) => row.model === 'settlement-model' && row.kind === 'research' && row.calls === 1)],
+  },
+  {
+    receipt: ['done', receiptServerId, 'done', 'RECEIPT-SUMMARY', null, 3, 7, 'receipt-doc', true, false, 0],
+    settlement: [true, 'done', true, true, true, 'MODEL-SUMMARY', true, 1, false, false, false, true],
+  },
+  'missing-run recovery adopts the exact terminal receipt; settlement commits the report, result, spend and ack intent once per attempt',
+)
 console.log('research persistence selfcheck OK')

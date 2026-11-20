@@ -5,7 +5,7 @@ import { activePane, activeRunOf, attachedDocs, conversations, createConversatio
 import { setCardOverride } from '../prompt/cardMutations.js'
 // recordUsage/usageDays operate on in-memory state; only snapshots are read back from the tables.
 import { recordUsage, usageDays } from '../state/usage.js'
-import { SNAPSHOT_VERSION } from '../state/snapshot.js'
+import { SNAPSHOT_VERSION, exportLastSaved } from '../state/snapshot.js'
 import { dismiss, notifications } from '../utils/notify.js'
 import { db, SCHEMA_VERSION } from '../state/db.js'
 
@@ -272,8 +272,7 @@ const reportOut = docsOf(rc).find((d) => d.id === lr.reportDocId)
 assert.ok(reportOut, 'the report doc is attached to the conversation')
 assert.deepEqual(reportOut.source, { kind: 'research', runId: lr.id, convoId: rc.id, messageId: 'rh' }, 'the doc carries full lineage')
 assert.equal(holder.docId, lr.reportDocId, 'the result message points at the report')
-assert.ok(holder.content.includes(frame.payload.name), 'the assistant turn names the finished run')
-assert.ok(holder.content.endsWith(frame.payload.summary), 'and ends with the model-written summary')
+assert.equal(holder.content, frame.payload.summary ?? '', 'the body carries only the model summary; the ready label lives in the research block')
 assert.ok(!holder.content.includes(frame.payload.report.text), 'the report body stays in the doc, not the chat turn')
 assert.ok(reportOut.text.startsWith('## Research provenance'), 'the attached document starts with its provenance header')
 assert.ok(reportOut.text.endsWith('REPORT'), 'the full Q&A report stays in the attached document after the provenance header')
@@ -370,6 +369,22 @@ try {
   db.conversations.orderBy = readsFail
 }
 assert.equal(exportRejected, false, 'a failed export never rejects its caller')
+
+// --- A failed flush refuses a normal export; the last-saved copy still works and excludes the unsaved edit ---
+const editTarget = conversations.value.find((c) => c.messages?.length)
+const savedContent = editTarget.messages[0].content
+editTarget.messages[0].content = 'UNSAVED_SENTINEL_EDIT'
+const realBulkPut = db.messages.bulkPut
+db.messages.bulkPut = () => { throw new Error('flush-failed') }
+try {
+  await assert.rejects(() => exportData(), /refused/, 'a normal export refuses when the flush fails')
+  const lastSaved = await exportLastSaved()
+  const exported = lastSaved.conversations.find((c) => c.id === editTarget.id).messages.find((m) => m.id === editTarget.messages[0].id)
+  assert.equal(exported.content, savedContent, 'the last-saved copy excludes the unsaved edit')
+} finally {
+  db.messages.bulkPut = realBulkPut
+  editTarget.messages[0].content = savedContent
+}
 const exportNotice = notifications.value.find((n) => n.key === 'export-failed')
 assert.ok(exportNotice && exportNotice.detail?.includes('export-read-failed'), 'a failed export notifies the user with the underlying error')
 await dismiss(exportNotice.id)

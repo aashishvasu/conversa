@@ -1,0 +1,10 @@
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom calls Depends() in argument defaults; B008 must not flag it.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Body", "fastapi.Header"]

@@ -1,25 +1,26 @@
 """The three provider wire protocols, normalized to conversa event dictionaries."""
 
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 
+from public_error import error_frame
 from tools import ConversaTool
 
 from .anthropic import LEGACY_EFFORT_BUDGETS, LEGACY_MODELS
 from .registry import CLIENTS, DEFAULT_MAX_TOKENS, PROVIDERS, resolve_model
 from .tool_use import (
-    _AnthropicToolDeltas,
-    _ResponsesToolDeltas,
     _anthropic_request_tools,
+    _AnthropicToolDeltas,
     _prefer_streamed_arguments,
+    _ResponsesToolDeltas,
     anthropic_tool_calls,
-    anthropic_tools,
+    anthropic_tools,  # noqa: F401 - re-export consumed by selfchecks.tool_runner
     field,
     responses_request_tools,
     responses_tool_calls,
-    responses_tools,
-    tool_schema,
+    responses_tools,  # noqa: F401 - re-export consumed by selfchecks.tool_runner
+    tool_schema,  # noqa: F401 - re-export consumed by selfchecks.tool_runner
 )
-
 
 REASONING_OUTPUT_FLOOR = 32000
 # Terminal Responses events. Incomplete and failed still carry usage for tokens already billed.
@@ -58,10 +59,16 @@ def anthropic_system(system: str | list[str] | None) -> str | list[dict] | None:
     """Convert [stable, volatile] into Anthropic blocks, caching the stable half."""
     if not isinstance(system, list):
         return system
-    return [{"type": "text", "text": text, **({"cache_control": {"type": "ephemeral"}} if index == 0 else {})} for index, text in enumerate(system) if text]
+    return [
+        {"type": "text", "text": text, **({"cache_control": {"type": "ephemeral"}} if index == 0 else {})}
+        for index, text in enumerate(system)
+        if text
+    ]
 
 
-def chat_completions_kwargs(model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, temperature: float | None = None) -> dict:
+def chat_completions_kwargs(
+    model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, temperature: float | None = None
+) -> dict:
     if system:
         messages = [{"role": "system", "content": join_system(system)}, *messages]
     kwargs = {"model": model, "messages": messages, "max_tokens": max_tokens}
@@ -84,14 +91,24 @@ def anthropic_frame(event: object) -> dict | None:
         value = field(block, "input").get("url" if key == "fetch" else "query")
         return {key: value}
     if field(block, "type") == "web_search_tool_result" and isinstance(field(block, "content"), list):
-        links = [{"title": field(result, "title"), "url": field(result, "url")} for result in block.content if field(result, "type") == "web_search_result"]
+        links = [
+            {"title": field(result, "title"), "url": field(result, "url")}
+            for result in block.content
+            if field(result, "type") == "web_search_result"
+        ]
         return {"results": links} if links else None
     return None
 
 
 def anthropic_usage(usage: object) -> dict:
     tool = field(usage, "server_tool_use")
-    return {"input": field(usage, "input_tokens") or 0, "output": field(usage, "output_tokens") or 0, "cache_read": field(usage, "cache_read_input_tokens") or 0, "cache_write": field(usage, "cache_creation_input_tokens") or 0, "search_requests": (field(tool, "web_search_requests") or 0) if tool else 0}
+    return {
+        "input": field(usage, "input_tokens") or 0,
+        "output": field(usage, "output_tokens") or 0,
+        "cache_read": field(usage, "cache_read_input_tokens") or 0,
+        "cache_write": field(usage, "cache_creation_input_tokens") or 0,
+        "search_requests": (field(tool, "web_search_requests") or 0) if tool else 0,
+    }
 
 
 def _cache_fields(details: object | None) -> tuple[int, int]:
@@ -108,6 +125,9 @@ def response_frame(event: object) -> dict | None:
         return {"think": field(event, "delta")}
     if event_type == "response.output_item.done":
         item = field(event, "item")
+        content = field(item, "content")
+        if isinstance(content, list) and any(field(part, "type") == "refusal" for part in content):
+            return error_frame("refusal", code="provider_error")
         action = field(item, "action") if field(item, "type") == "web_search_call" else None
         if action is not None:
             if field(action, "type") == "open_page":
@@ -134,7 +154,13 @@ def response_frame(event: object) -> dict | None:
 
 def responses_usage_from(usage: object) -> dict:
     cache_read, cache_write = _cache_fields(field(usage, "input_tokens_details"))
-    return {"input": field(usage, "input_tokens") or 0, "output": field(usage, "output_tokens") or 0, "cache_read": cache_read, "cache_write": cache_write, "search_requests": 0}
+    return {
+        "input": field(usage, "input_tokens") or 0,
+        "output": field(usage, "output_tokens") or 0,
+        "cache_read": cache_read,
+        "cache_write": cache_write,
+        "search_requests": 0,
+    }
 
 
 def responses_usage(event: object) -> dict | None:
@@ -158,7 +184,13 @@ def chat_completion_frames(chunk: object) -> list[dict]:
 
 def chat_completion_usage_from(usage: object) -> dict:
     cache_read, cache_write = _cache_fields(field(usage, "prompt_tokens_details"))
-    return {"input": field(usage, "prompt_tokens") or 0, "output": field(usage, "completion_tokens") or 0, "cache_read": cache_read, "cache_write": cache_write, "search_requests": 0}
+    return {
+        "input": field(usage, "prompt_tokens") or 0,
+        "output": field(usage, "completion_tokens") or 0,
+        "cache_read": cache_read,
+        "cache_write": cache_write,
+        "search_requests": 0,
+    }
 
 
 def chat_completion_usage(chunk: object) -> dict | None:
@@ -194,8 +226,15 @@ async def _anthropic_stream(
             if frame := anthropic_frame(event):
                 yield frame
         message = await stream.get_final_message()
+    if message is None:
+        yield error_frame("provider_error", code="provider_error")
+        return
+    yield {"_usage": anthropic_usage(message.usage)}
     parsed_calls = anthropic_tool_calls(message)
-    yield {"_usage": anthropic_usage(message.usage), "_response": message, "_tool_calls": _prefer_streamed_arguments(parsed_calls, deltas.parsed()) if parsed_calls else deltas.parsed()}
+    yield {
+        "_response": message,
+        "_tool_calls": _prefer_streamed_arguments(parsed_calls, deltas.parsed()) if parsed_calls else deltas.parsed(),
+    }
 
 
 def openai_messages(messages: list[dict], responses: bool) -> list[dict]:
@@ -214,7 +253,11 @@ def openai_messages(messages: list[dict], responses: bool) -> list[dict]:
             else:
                 source = block["source"]
                 url = f"data:{source['media_type']};base64,{source['data']}"
-                parts.append({"type": image_type, "image_url": url} if responses else {"type": image_type, "image_url": {"url": url}})
+                parts.append(
+                    {"type": image_type, "image_url": url}
+                    if responses
+                    else {"type": image_type, "image_url": {"url": url}}
+                )
         out.append({**message, "content": parts})
     return out
 
@@ -231,7 +274,12 @@ def responses_kwargs(
     hosted_search: bool = False,
     input_items: list[dict] | None = None,
 ) -> dict:
-    kwargs = {"model": model, "input": input_items if input_items is not None else openai_messages(messages, True), "max_output_tokens": max_tokens, "stream": True}
+    kwargs = {
+        "model": model,
+        "input": input_items if input_items is not None else openai_messages(messages, True),
+        "max_output_tokens": max_tokens,
+        "stream": True,
+    }
     if system:
         kwargs["instructions"] = join_system(system)
     if takes_reasoning(provider, model):
@@ -275,17 +323,39 @@ async def _responses_stream(
     )
     deltas = _ResponsesToolDeltas()
     response = None
-    async for event in stream:
-        deltas.add(event)
-        if frame := response_frame(event):
-            yield frame
-        if usage := responses_usage(event):
-            # Only a completed response has the output items a tool round continues from.
-            if field(event, "type") == "response.completed":
-                response = field(event, "response")
-            yield {"_usage": usage}
-    parsed_calls = responses_tool_calls(response) if response else []
-    yield {"_response": response, "_tool_calls": _prefer_streamed_arguments(parsed_calls, deltas.parsed()) if parsed_calls else deltas.parsed()}
+    completed = False
+    terminal = False
+    failure = None
+    try:
+        async for event in stream:
+            event_type = field(event, "type")
+            deltas.add(event)
+            if event_type in RESPONSE_END_EVENTS:
+                terminal = True
+                if event_type in ("response.completed", "response.incomplete"):
+                    response = field(event, "response")
+                completed = event_type == "response.completed"
+            if usage := responses_usage(event):
+                yield {"_usage": usage}
+            if frame := response_frame(event):
+                if frame.get("error") is not None:
+                    failure = frame
+                elif failure is None:
+                    yield frame
+    finally:
+        if close := getattr(stream, "close", None):
+            await close()
+    if failure:
+        yield failure
+        return
+    if not terminal:
+        yield error_frame("provider_error", code="provider_error")
+        return
+    parsed_calls = responses_tool_calls(response) if completed and response else []
+    yield {
+        "_response": response,
+        "_tool_calls": _prefer_streamed_arguments(parsed_calls, deltas.parsed()) if parsed_calls else [],
+    }
 
 
 async def _chat_completions_stream(
@@ -301,14 +371,35 @@ async def _chat_completions_stream(
     kwargs = chat_completions_kwargs(model, openai_messages(messages, False), system, max_tokens, temperature)
     kwargs["stream_options"] = {"include_usage": True}
     stream = await CLIENTS[provider].chat.completions.create(stream=True, **kwargs)
-    async for chunk in stream:
-        for frame in chat_completion_frames(chunk):
-            yield frame
-        if usage := chat_completion_usage(chunk):
-            yield {"_usage": usage}
+    response = None
+    failure = None
+    try:
+        async for chunk in stream:
+            choices = field(chunk, "choices")
+            reason = field(choices[0], "finish_reason") if isinstance(choices, list) and choices else None
+            if reason is not None:
+                response = SimpleNamespace(choices=[SimpleNamespace(finish_reason=reason)])
+                if reason == "content_filter":
+                    failure = error_frame("provider_error", code="provider_error")
+            if usage := chat_completion_usage(chunk):
+                yield {"_usage": usage}
+            if failure is None:
+                for frame in chat_completion_frames(chunk):
+                    yield frame
+    finally:
+        if close := getattr(stream, "close", None):
+            await close()
+    if failure:
+        yield failure
+    elif response is None:
+        yield error_frame("provider_error", code="provider_error")
+    else:
+        yield {"_response": response, "_tool_calls": []}
 
 
-def complete_messages_kwargs(provider: str, model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, effort: str) -> dict:
+def complete_messages_kwargs(
+    provider: str, model: str, messages: list[dict], system: str | list[str] | None, max_tokens: int, effort: str
+) -> dict:
     """Build one non-streaming completion request from assembled chat context."""
     dialect = PROVIDERS[provider]["dialect"]
     if dialect == "anthropic":
@@ -330,7 +421,9 @@ def complete_messages_kwargs(provider: str, model: str, messages: list[dict], sy
     return chat_completions_kwargs(model, openai_messages(messages, False), system, max_tokens)
 
 
-async def complete_messages(model_id: str, system: str | list[str] | None, messages: list[dict], max_tokens: int = 2048, effort: str = "") -> str:
+async def complete_messages(
+    model_id: str, system: str | list[str] | None, messages: list[dict], max_tokens: int = 2048, effort: str = ""
+) -> str:
     """Complete an already assembled conversation without flattening its context."""
     provider, model = resolve_model(model_id)
     api = CLIENTS[provider]
@@ -346,7 +439,14 @@ async def complete_messages(model_id: str, system: str | list[str] | None, messa
     return (response.choices[0].message.content or "").strip()
 
 
-async def complete(model_id: str, system: str | list[str] | None, prompt: str, max_tokens: int = 2048, effort: str = "", spend: object | None = None) -> str:
+async def complete(
+    model_id: str,
+    system: str | list[str] | None,
+    prompt: str,
+    max_tokens: int = 2048,
+    effort: str = "",
+    spend: object | None = None,
+) -> str:
     provider, model = resolve_model(model_id)
     entry = PROVIDERS[provider]
     api = CLIENTS[provider]
@@ -359,7 +459,14 @@ async def complete(model_id: str, system: str | list[str] | None, prompt: str, m
             message = await stream.get_final_message()
         if spend:
             usage = anthropic_usage(message.usage)
-            spend.add(model_id, usage["input"], usage["output"], usage["cache_read"], usage["cache_write"], usage["search_requests"])
+            spend.add(
+                model_id,
+                usage["input"],
+                usage["output"],
+                usage["cache_read"],
+                usage["cache_write"],
+                usage["search_requests"],
+            )
         return "".join(block.text for block in message.content if block.type == "text").strip()
     if entry["dialect"] == "responses":
         kwargs = {"model": model, "input": prompt, "max_output_tokens": max_tokens}

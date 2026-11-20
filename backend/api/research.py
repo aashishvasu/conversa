@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
@@ -10,12 +10,27 @@ from api.auth import require_auth
 from api.chat import Msg, SystemParts, render_system
 from api.sse import sse
 from providers import DEFAULT_MODEL, complete_messages
+from public_error import public_error
 from research import runs
 from research.parsing import object_from_text
-from research.state import validate_checkpoint
 from research.prompts import PREPARE_SYSTEM
+from research.state import validate_checkpoint
 
 router = APIRouter()
+
+RESEARCH_CLIENT = "1"
+
+
+def require_research_client(request: Request):
+    # Reads stay open; only mutations are fenced, so a stale tab is read-only for research until it reloads.
+    if request.headers.get("x-conversa-client") != RESEARCH_CLIENT:
+        raise HTTPException(
+            409,
+            {
+                "code": "client_outdated",
+                "message": "This app version can no longer start or control research. Reload to update.",
+            },
+        )
 
 
 class Clarification(BaseModel):
@@ -95,13 +110,21 @@ def prepare_system(system):
 async def research_prepare(req: "PrepareRequest", _=Depends(require_auth)):
     try:
         system = render_system(req.system, req.model or DEFAULT_MODEL, [])
-        text = await complete_messages(req.model or DEFAULT_MODEL, prepare_system(system), [message.model_dump() for message in req.messages], max_tokens=1400)
+        text = await complete_messages(
+            req.model or DEFAULT_MODEL,
+            prepare_system(system),
+            [message.model_dump() for message in req.messages],
+            max_tokens=1400,
+        )
         return parse_prepare_response(text)
     except ValueError as error:
         raise HTTPException(502, {"code": "research_prepare_failed", "message": str(error)}) from error
     except Exception as error:
-        # Provider messages include actionable auth, quota, and model details.
-        raise HTTPException(502, {"code": "research_prepare_failed", "message": str(error)}) from error
+        # Safe public message keeps the actionable reason (auth, balance, quota) without the raw upstream body or request id.
+        pub = public_error(error)
+        raise HTTPException(
+            502, {"code": "research_prepare_failed", "message": pub["message"], "retryable": pub["retryable"]}
+        ) from error
 
 
 class PrepareRequest(BaseModel):
@@ -124,18 +147,24 @@ class ResearchRequest(BaseModel):
     prompts: dict[str, str] | None = None
     checkpoint: dict | None = None
     restart_failed: bool = False
+    predecessor: str | None = None
 
     @field_validator("models")
     @classmethod
     def research_models(cls, value):
-        if set(value) != {"search", "note", "report"} or any(not isinstance(model, str) or not model.strip() for model in value.values()):
+        if set(value) != {"search", "note", "report"} or any(
+            not isinstance(model, str) or not model.strip() for model in value.values()
+        ):
             raise ValueError("models must contain non-empty search, note, and report IDs")
         return {role: model.strip() for role, model in value.items()}
 
     @field_validator("answers")
     @classmethod
     def non_empty_answers(cls, value):
-        if any(not isinstance(key, str) or not key.strip() or not isinstance(answer, str) or not answer.strip() for key, answer in value.items()):
+        if any(
+            not isinstance(key, str) or not key.strip() or not isinstance(answer, str) or not answer.strip()
+            for key, answer in value.items()
+        ):
             raise ValueError("answers must have non-empty string keys and values")
         return {key.strip(): answer.strip() for key, answer in value.items()}
 
@@ -147,10 +176,20 @@ class ResearchRequest(BaseModel):
 
 
 @router.post("/api/research")
-async def research_start(req: ResearchRequest, _=Depends(require_auth)):
+async def research_start(req: ResearchRequest, _=Depends(require_auth), __=Depends(require_research_client)):
     try:
         checkpoint_data = validate_checkpoint(req.checkpoint) if req.checkpoint is not None else None
-        brief = req.brief.model_dump() if req.brief else {"objective": req.goal, "deliverable": "A sourced research brief", "scope": ["The requested subject"], "constraints": ["Use current public sources"], "questions": []}
+        brief = (
+            req.brief.model_dump()
+            if req.brief
+            else {
+                "objective": req.goal,
+                "deliverable": "A sourced research brief",
+                "scope": ["The requested subject"],
+                "constraints": ["Use current public sources"],
+                "questions": [],
+            }
+        )
         brief["answers"] = req.answers
         min_sources = max(8, min(req.min_sources, 300))
         max_sources = max(min_sources, min(req.max_sources, 300))
@@ -165,12 +204,21 @@ async def research_start(req: ResearchRequest, _=Depends(require_auth)):
             restart_failed=req.restart_failed,
             min_sources=min_sources,
             max_sources=max_sources,
+            predecessor_id=req.predecessor,
         )
     except runs.RunLimitError as error:
         raise HTTPException(429, {"code": "too_many_runs", "message": str(error)}) from error
     except ValueError as error:
         raise HTTPException(400, {"code": "invalid_checkpoint", "message": str(error)}) from error
-    return {"id": run.id, "outcome": outcome, "resumed": outcome != "created", "status": run.status, "phase": run.phase, "revision": run.data.get("revision", 0), "checkpoint": run.data, "payload": run.payload}
+    return {
+        "id": run.id,
+        "outcome": outcome,
+        "resumed": outcome != "created",
+        "status": run.status,
+        "phase": run.phase,
+        "revision": run.data.get("revision", 0),
+        "actionable": runs.checkpoint_actionable(run.data),
+    }
 
 
 @router.get("/api/research/{run_id}")
@@ -200,7 +248,7 @@ async def research_stream(run_id: str, after: int = 0, _=Depends(require_auth)):
 
 
 @router.delete("/api/research/{run_id}")
-async def research_discard(run_id: str, _=Depends(require_auth)):
+async def research_discard(run_id: str, _=Depends(require_auth), __=Depends(require_research_client)):
     run = runs.get(run_id)
     if not run:
         raise HTTPException(404, {"code": "no_such_run", "message": "no such run"})
@@ -212,7 +260,7 @@ async def research_discard(run_id: str, _=Depends(require_auth)):
 
 
 @router.post("/api/research/{run_id}/ack")
-async def research_ack(run_id: str, _=Depends(require_auth)):
+async def research_ack(run_id: str, _=Depends(require_auth), __=Depends(require_research_client)):
     run = runs.get(run_id)
     if not run:
         return {"status": "already_removed"}
@@ -220,4 +268,3 @@ async def research_ack(run_id: str, _=Depends(require_auth)):
         raise HTTPException(400, {"code": "run_still_active", "message": "cannot ack an active run"})
     await runs.forget(run_id)
     return {"status": "acknowledged"}
-

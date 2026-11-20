@@ -7,7 +7,7 @@ import { ensureLoaded, persistNow, readPendingTurnMessages, readStoredMessage, s
 import { effectiveSettings } from '../state/settings.js'
 import { addConvoUsage, recordUsage } from '../state/usage.js'
 import { notify } from '../utils/notify.js'
-import { applyFrame, newDraft, settleMessage, turnStillWanted } from './turn.js'
+import { applyFrame, newDraft, publicError, settleMessage, turnStillWanted } from './turn.js'
 
 const connections = new Map()
 const streams = new Map()
@@ -70,7 +70,7 @@ function createLiveStream({ convo, message, turnId, draft, view, controller, rep
       view.lastFrameAt = Date.now()
       if (!frame.live) onContent()
       applyFrame(draft, frame)
-      if (!visible && (frame.live || draft.done || draft.error)) promote()
+      if (!visible && (frame.live || draft.outcome)) promote()
       else if (visible && !frame.live) touched = true
     }
     if (touched) {
@@ -104,6 +104,11 @@ function createLiveStream({ convo, message, turnId, draft, view, controller, rep
 // A 404 on reattach also happens when another tab finished the turn and discarded it server-side.
 // The stored record is the arbiter: its message no longer carrying this turnId means the turn was settled elsewhere, and adopting it preserves the complete reply instead of overwriting it with this tab's partial text.
 // A missing or unreadable record leaves the ordinary gone settle in charge.
+function adoptStoredMessage(message, stored) {
+  for (const key of Object.keys(message)) if (!Object.hasOwn(stored, key)) delete message[key]
+  Object.assign(message, stored)
+}
+
 async function adoptIfSettled(_convo, message, turnId) {
   if (message.turnId !== turnId) return false
   let storedMessage
@@ -113,8 +118,7 @@ async function adoptIfSettled(_convo, message, turnId) {
     return false
   }
   if (!storedMessage || storedMessage.turnId === turnId) return false
-  delete message.turnId
-  Object.assign(message, storedMessage)
+  adoptStoredMessage(message, storedMessage)
   const view = turns.get(message.id)
   if (view) {
     view.content = null
@@ -126,14 +130,14 @@ async function adoptIfSettled(_convo, message, turnId) {
 async function finish(convo, message, turnId, draft, outcome, settings) {
   if (!stillWanted(convo, message, turnId)) return
   settleMessage(message, draft, outcome)
+  if (outcome === 'done') addConvoUsage(convo, draft.usage)
+  const saved = await persistNow()
+  if (outcome === 'done') recordUsage('chat', draft.usage)
   const view = turns.get(message.id)
   if (view) {
     view.content = null
     view.artifacts = null
   }
-  if (outcome === 'done') addConvoUsage(convo, draft.usage)
-  const saved = await persistNow()
-  if (outcome === 'done') recordUsage('chat', draft.usage)
   if (saved) void discardChatTurn(turnId)
   if (outcome === 'gone') notify({ key: 'chat:interrupted', severity: 'warning', text: tr('chat.replyInterrupted') })
   if (outcome === 'done' && convo.title === tr('sidebar.newConversation')) {
@@ -177,8 +181,8 @@ async function run(convo, message, turnId, payload, settings, controller, view) 
       else await attachChatTurn(turnId, stream.push, controller.signal)
       stream.drain()
       if (controller.signal.aborted) break
-      if (draft.done || draft.error) {
-        await finish(convo, message, turnId, draft, draft.error ? 'error' : 'done', settings)
+      if (draft.outcome) {
+        await finish(convo, message, turnId, draft, draft.outcome === 'failed' ? 'error' : 'done', settings)
         return
       }
       failures++
@@ -190,12 +194,13 @@ async function run(convo, message, turnId, payload, settings, controller, view) 
         const partial = reactive(newDraft())
         partial.content = view.content ?? message.content ?? ''
         partial.artifacts = [...(view.artifacts ?? message.artifacts ?? [])]
-        partial.error = originalError?.message || error.message
+        partial.error = publicError({ error: originalError?.message || error.message, code: 'unavailable', retryable: true })
         await finish(convo, message, turnId, partial, received ? 'gone' : 'error', settings)
         return
       }
       if (first && error.status) {
-        draft.error = error.message
+        draft.error = publicError({ error: error.message, code: error.code ?? 'http', retryable: false })
+        draft.outcome = 'failed'
         await finish(convo, message, turnId, draft, 'error', settings)
         return
       }

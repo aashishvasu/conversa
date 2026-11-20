@@ -13,12 +13,14 @@ load_dotenv()
 
 from api.auth import limiter, rate_limit_handler, router as auth_router  # noqa: E402
 from api.chat import router as chat_router  # noqa: E402
+from api.errors import register_error_handlers
 from api.research import router as research_router  # noqa: E402
 from api.transfers import router as transfers_router  # noqa: E402
 
 app = FastAPI(title="conversa")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+register_error_handlers(app)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),

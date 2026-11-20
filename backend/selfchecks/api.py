@@ -3,13 +3,17 @@
 import asyncio
 import json
 from collections.abc import AsyncGenerator
+from types import SimpleNamespace
 from typing import cast
+from unittest.mock import patch
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 import api.chat as chat_api
+import api.research as research_api
+from api.auth import mint_token
 from api.chat import ChatRequest, ImageBlock, Msg, SystemParts, render_system
 from api.research import (
     PREPARE_SYSTEM,
@@ -20,12 +24,22 @@ from api.research import (
 from api.sse import sse
 
 assert sse(text="a\nb") == 'data: {"text": "a\\nb"}\n\n'
-image = Msg.model_validate({"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/webp", "data": "x"}}]})
+image = Msg.model_validate(
+    {
+        "role": "user",
+        "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/webp", "data": "x"}}],
+    }
+)
 image_block = image.content[0]
 assert isinstance(image_block, ImageBlock) and image_block.source.media_type == "image/webp"
 assert not ChatRequest(messages=[]).allow_tools
 try:
-    Msg.model_validate({"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/avif", "data": "x"}}]})
+    Msg.model_validate(
+        {
+            "role": "user",
+            "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/avif", "data": "x"}}],
+        }
+    )
 except ValidationError:
     pass
 else:
@@ -34,11 +48,20 @@ else:
 assert "objective" in PREPARE_SYSTEM and "at most three" in PREPARE_SYSTEM
 answer = parse_prepare_response('preface ```json {"action":"answer","brief":null} ```')
 assert answer.action == "answer" and answer.brief is None
-research = parse_prepare_response('{"action":"research","brief":{"objective":"Compare Project Orion databases","deliverable":"A recommendation","scope":["regulated launch"],"constraints":["cite current sources"],"questions":[{"question":"Which region?","reason":"changes compliance","default":"US"}]}}')
+research = parse_prepare_response(
+    '{"action":"research","brief":{"objective":"Compare Project Orion databases","deliverable":"A recommendation","scope":["regulated launch"],"constraints":["cite current sources"],"questions":[{"question":"Which region?","reason":"changes compliance","default":"US"}]}}'
+)
 assert research.brief is not None
 assert research.brief.objective == "Compare Project Orion databases"
 assert research.brief.scope == ["regulated launch"]
-request = ResearchRequest.model_validate({"id": "r1", "brief": {"objective": "x", "deliverable": "d", "scope": ["s"], "constraints": ["c"], "questions": []}, "answers": {"Which region?": "US"}, "models": {"search": "m", "note": "m", "report": "m"}})
+request = ResearchRequest.model_validate(
+    {
+        "id": "r1",
+        "brief": {"objective": "x", "deliverable": "d", "scope": ["s"], "constraints": ["c"], "questions": []},
+        "answers": {"Which region?": "US"},
+        "models": {"search": "m", "note": "m", "report": "m"},
+    }
+)
 assert request.answers == {"Which region?": "US"}
 try:
     ResearchRequest.model_validate({"id": "r1", "goal": "x", "models": {"search": "m", "note": "m", "report": "m"}})
@@ -47,12 +70,18 @@ except ValidationError:
 else:
     raise AssertionError("missing answers accepted")
 try:
-    ResearchRequest.model_validate({"id": "r1", "goal": "x", "answers": {}, "settings": {}, "models": {"search": "m", "note": "m", "report": "m"}})
+    ResearchRequest.model_validate(
+        {"id": "r1", "goal": "x", "answers": {}, "settings": {}, "models": {"search": "m", "note": "m", "report": "m"}}
+    )
 except ValidationError:
     pass
 else:
     raise AssertionError("redundant settings accepted")
-for bad_models in ({"search": "m", "report": "m"}, {"search": "m", "note": "m", "report": ""}, {"search": "m", "note": "m", "report": "m", "extra": "m"}):
+for bad_models in (
+    {"search": "m", "report": "m"},
+    {"search": "m", "note": "m", "report": ""},
+    {"search": "m", "note": "m", "report": "m", "extra": "m"},
+):
     try:
         ResearchRequest.model_validate({"id": "r1", "goal": "x", "answers": {}, "models": bad_models})
     except ValidationError:
@@ -61,7 +90,9 @@ for bad_models in ({"search": "m", "report": "m"}, {"search": "m", "note": "m", 
         raise AssertionError("invalid research models accepted")
 for bad_answers in ({"": "US"}, {"region": ""}, {"region": 1}):
     try:
-        ResearchRequest.model_validate({"id": "r1", "goal": "x", "answers": bad_answers, "models": {"search": "m", "note": "m", "report": "m"}})
+        ResearchRequest.model_validate(
+            {"id": "r1", "goal": "x", "answers": bad_answers, "models": {"search": "m", "note": "m", "report": "m"}}
+        )
     except ValidationError:
         pass
     else:
@@ -76,7 +107,12 @@ for bad_brief in (
         pass
     else:
         raise AssertionError("string or empty brief lists accepted")
-for malformed in ('not json', '{"action":"research","brief":null}', '{"action":"answer","brief":null,"extra":true}', '{"action":"research","brief":{"objective":"x","deliverable":"x","scope":"x","constraints":"x","questions":[{"question":"1","reason":"2","default":"3"},{"question":"4","reason":"5","default":"6"},{"question":"7","reason":"8","default":"9"},{"question":"10","reason":"11","default":"12"}]}}'):
+for malformed in (
+    "not json",
+    '{"action":"research","brief":null}',
+    '{"action":"answer","brief":null,"extra":true}',
+    '{"action":"research","brief":{"objective":"x","deliverable":"x","scope":"x","constraints":"x","questions":[{"question":"1","reason":"2","default":"3"},{"question":"4","reason":"5","default":"6"},{"question":"7","reason":"8","default":"9"},{"question":"10","reason":"11","default":"12"}]}}',
+):
     try:
         parse_prepare_response(malformed)
     except ValueError:
@@ -85,11 +121,19 @@ for malformed in ('not json', '{"action":"research","brief":null}', '{"action":"
         raise AssertionError(f"invalid preparation response accepted: {malformed}")
 
 # Checkpoint v1 to v2 migration asserts
-from research.state import CHECKPOINT_VERSION, empty_state, validate_checkpoint
+from research.state import validate_checkpoint
+
 v1_checkpoint = {
     "version": 1,
     "revision": 3,
-    "brief": {"objective": "x", "deliverable": "d", "scope": ["scope 1", "scope 2"], "constraints": ["c"], "questions": [], "answers": {}},
+    "brief": {
+        "objective": "x",
+        "deliverable": "d",
+        "scope": ["scope 1", "scope 2"],
+        "constraints": ["c"],
+        "questions": [],
+        "answers": {},
+    },
     "frontier": [{"id": "T1", "question": "q", "status": "pending", "attempts": 0}],
     "sources": {},
     "evidence": [],
@@ -101,20 +145,35 @@ v1_checkpoint = {
 }
 migrated = validate_checkpoint(v1_checkpoint)
 assert migrated["version"] == 2
-assert migrated["theory"] == {"hypothesis": "", "confidence": "low", "supporting": [], "contradicting": [], "revised_at_wave": 0}
+assert migrated["theory"] == {
+    "hypothesis": "",
+    "confidence": "low",
+    "supporting": [],
+    "contradicting": [],
+    "revised_at_wave": 0,
+}
 assert migrated["coverage"] == {"scope 1": [], "scope 2": []}
 
 # Structured system prompt: object form validates and renders into tagged text.
-structured = ChatRequest.model_validate({
-    "messages": [],
-    "system": {
-        "instructions": "Be brief.",
-        "docs": [{"name": "lore.md", "text": "Dragons."}],
-        "summary": "Earlier.",
-        "evidence": True,
-        "runtime": {"timezone": "Asia/Kolkata", "locale": "en-GB", "use_memory": True, "use_recall": False, "use_cache": True, "enabled_tools": ["search_web"]},
-    },
-})
+structured = ChatRequest.model_validate(
+    {
+        "messages": [],
+        "system": {
+            "instructions": "Be brief.",
+            "docs": [{"name": "lore.md", "text": "Dragons."}],
+            "summary": "Earlier.",
+            "evidence": True,
+            "runtime": {
+                "timezone": "Asia/Kolkata",
+                "locale": "en-GB",
+                "use_memory": True,
+                "use_recall": False,
+                "use_cache": True,
+                "enabled_tools": ["search_web"],
+            },
+        },
+    }
+)
 assert isinstance(structured.system, SystemParts)
 rendered = render_system(structured.system, "claude-sonnet-5", ["search_web", "fetch_url"])
 assert isinstance(rendered, list) and len(rendered) == 2
@@ -130,14 +189,16 @@ assert "<evidence-policy>" in volatile
 # Without evidence the artifact instruction is omitted.
 no_evidence = render_system(SystemParts.model_validate({"instructions": "Be brief.", "runtime": {}}), "m", [])
 assert isinstance(no_evidence, str) and "<evidence-policy>" not in no_evidence
-# The server tools argument is authoritative. Research prepare has no tool loop, so a
-# client-supplied enabled_tools hint never renders a tools line.
+# The server tools argument is authoritative.
+# Research prepare has no tool loop, so a client-supplied enabled_tools hint never renders a tools line.
 research_hint = render_system(SystemParts.model_validate({"runtime": {"enabled_tools": ["search_web"]}}), "m", [])
 assert isinstance(research_hint, str) and "tools:" not in research_hint
 server_tools = render_system(SystemParts.model_validate({"runtime": {"enabled_tools": []}}), "m", ["search_web"])
 assert isinstance(server_tools, str) and "tools: search_web" in server_tools
 # Research preparation accepts the same structured system object.
-prepared = PrepareRequest.model_validate({"messages": [], "system": {"instructions": "Be brief.", "runtime": {}}, "model": "m"})
+prepared = PrepareRequest.model_validate(
+    {"messages": [], "system": {"instructions": "Be brief.", "runtime": {}}, "model": "m"}
+)
 assert isinstance(prepared.system, SystemParts)
 # String and list forms pass through unchanged.
 assert render_system("plain", "m", []) == "plain"
@@ -159,13 +220,15 @@ except ValidationError:
     pass
 else:
     raise AssertionError("structured system without runtime accepted")
-# The system-preview endpoint reuses the chat request contract: a structured system
-# object plus top-level enabled_tools. The render path is identical to chat.
-preview_req = ChatRequest.model_validate({
-    "messages": [],
-    "system": {"instructions": "Be brief.", "runtime": {}},
-    "enabled_tools": ["search_web"],
-})
+# The system-preview endpoint reuses the chat request contract: a structured system object plus top-level enabled_tools.
+# The render path is identical to chat.
+preview_req = ChatRequest.model_validate(
+    {
+        "messages": [],
+        "system": {"instructions": "Be brief.", "runtime": {}},
+        "enabled_tools": ["search_web"],
+    }
+)
 assert isinstance(preview_req.system, SystemParts)
 assert preview_req.enabled_tools == ["search_web"]
 
@@ -192,14 +255,16 @@ chat_api.resolve_model = lambda _model: ("openai", "stub")
 
 
 def turn(turn_id: str, **extra) -> chat_api.ChatTurnRequest:
-    return chat_api.ChatTurnRequest.model_validate({"messages": [{"role": "user", "content": "hi"}], "turn_id": turn_id, **extra})
+    return chat_api.ChatTurnRequest.model_validate(
+        {"messages": [{"role": "user", "content": "hi"}], "turn_id": turn_id, **extra}
+    )
 
 
 def decoded(chunk: str) -> dict | None:
     if not chunk.startswith("data: "):
         return None
     try:
-        return json.loads(chunk[len("data: "):])
+        return json.loads(chunk[len("data: ") :])
     except json.JSONDecodeError as error:
         raise AssertionError(f"malformed SSE frame: {chunk!r}") from error
 
@@ -253,7 +318,9 @@ async def detached_checks() -> None:
     stub_gate.set()
     await settle("t-drop")
     assert stub_runs["finished"] == finished + 1
-    assert [frame for frame in await read_all(await chat_api.chat_stream("t-drop")) if frame != {"live": True}] == stub_frames
+    assert [
+        frame for frame in await read_all(await chat_api.chat_stream("t-drop")) if frame != {"live": True}
+    ] == stub_frames
 
     # The live marker follows exactly the frames present when the GET arrived.
     stub_gate = asyncio.Event()
@@ -293,7 +360,8 @@ async def detached_checks() -> None:
     stub_raise = "SENTINEL-ERROR-91c"
     await read_all(await chat_api.chat(turn("t-raise")))
     errors = [frame for frame in await read_all(await chat_api.chat_stream("t-raise")) if "error" in frame]
-    assert len(errors) == 1 and stub_raise in errors[0]["error"]
+    assert len(errors) == 1 and errors[0].get("code"), errors
+    assert stub_raise not in errors[0]["error"], "raw exception text never reaches the public error frame"
     stub_raise = None
 
     # A request that fails validation leaves no stream behind.
@@ -325,7 +393,10 @@ async def complete_checks() -> None:
     global stub_frames, stub_gate
     # One-shot completion: text joined in order and trimmed, the turn's usage handed back for spend.
     usage = {"calls": 1}
-    stub_frames, stub_gate = [{"text": " alpha"}, {"think": "omega"}, {"text": "-beta "}, {"usage": usage}, {"done": True}], asyncio.Event()
+    stub_frames, stub_gate = (
+        [{"text": " alpha"}, {"think": "omega"}, {"text": "-beta "}, {"usage": usage}, {"done": True}],
+        asyncio.Event(),
+    )
     stub_gate.set()
     result = await chat_api.complete(chat_api.ChatRequest(messages=[]))
     assert result["text"] == "alpha-beta", "text frames are joined in order, trimmed, and nothing else leaks in"
@@ -353,5 +424,45 @@ except ValidationError:
     pass
 else:
     raise AssertionError("chat turn without turn_id accepted")
+
+# Research mutations are fenced by client version; reads stay open. A stale tab (no header) is read-only.
+research_client = TestClient(FastAPI(routes=research_api.router.routes))
+research_auth = {"Authorization": f"Bearer {mint_token()}"}
+fenced_ack = research_client.post("/api/research/missing/ack", headers=research_auth)
+assert fenced_ack.status_code == 409 and fenced_ack.json()["detail"]["code"] == "client_outdated", fenced_ack.text
+fenced_start = research_client.post(
+    "/api/research",
+    json={"goal": "gate probe", "models": {"search": "m", "note": "m", "report": "m"}},
+    headers=research_auth,
+)
+assert fenced_start.status_code == 409 and fenced_start.json()["detail"]["code"] == "client_outdated", fenced_start.text
+versioned = {**research_auth, "X-Conversa-Client": research_api.RESEARCH_CLIENT}
+assert research_client.post("/api/research/missing/ack", headers=versioned).status_code == 200
+assert research_client.get("/api/research/missing", headers=research_auth).status_code == 404
+identity_run = SimpleNamespace(
+    id="identity-run",
+    status="running",
+    phase="plan",
+    data={"revision": 7, "frontier": []},
+    payload={"summary": "sentinel"},
+)
+with patch.object(research_api.runs, "start", return_value=(identity_run, "created")):
+    identity_response = research_client.post(
+        "/api/research",
+        json={
+            "id": "identity-run",
+            "goal": "identity response",
+            "answers": {},
+            "models": {"search": "m", "note": "m", "report": "m"},
+        },
+        headers=versioned,
+    )
+identity_start = identity_response.json()
+assert identity_response.status_code == 200, identity_response.text
+assert set(identity_start) == {"id", "outcome", "resumed", "status", "phase", "revision", "actionable"}
+assert identity_start["id"] == identity_run.id and identity_start["outcome"] == "created"
+assert identity_start["resumed"] is False and identity_start["revision"] == identity_run.data["revision"]
+assert identity_start["status"] == identity_run.status and identity_start["phase"] == identity_run.phase
+assert isinstance(identity_start["actionable"], bool)
 
 print("api selfcheck OK")

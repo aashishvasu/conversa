@@ -65,6 +65,7 @@ const pp2 = buildPayload(pinConvo, {
 })
 assert.deepEqual(pp2.messages.map((m) => m.content), ['pinned old', 'recent'], 'no dup when pinned is recent')
 
+
 // memory mode: window = turns after memoryCount; memory injected into system
 const memConvo = {
   scanAssistant: false,

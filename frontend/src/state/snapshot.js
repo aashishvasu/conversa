@@ -66,8 +66,7 @@ function runsWithEvents(runRows, eventRows) {
 // Everything IndexedDB holds that is the user's, not the deployment's: conversations, workspaces, docs, runs, edited settings, and the usage ledger.
 // The models cache is excluded on purpose (server-owned, refetched after login); the auth token never enters a snapshot at all.
 // A single-conversation export carries just that conversation plus the docs and images its messages reference.
-export async function exportData(id, settings = null) {
-  await persistNow()
+async function buildExport(id, settings) {
   const data = { version: SNAPSHOT_VERSION, exportedAt: new Date().toISOString() }
   if (id) {
     const row = await db.conversations.get(id)
@@ -92,8 +91,21 @@ export async function exportData(id, settings = null) {
     data.prefs = snapshotPrefs()
   }
   // A pending turn belongs to this browser; the copy is detached from it, so the store is untouched.
-  for (const c of data.conversations) for (const m of c.messages) delete m.turnId
+  for (const c of data.conversations) for (const m of c.messages) { delete m.turnId; delete m.generation }
   return wire(data)
+}
+
+// A normal export promises the current state, so a failed flush refuses it rather than silently omitting unsaved edits.
+export async function exportData(id, settings = null) {
+  const saved = await persistNow()
+  // undefined means nothing was loaded and there is nothing to flush; only an explicit false is a failed flush.
+  if (saved === false) throw new Error(tr('errors.exportUnsaved'))
+  return buildExport(id, settings)
+}
+
+// The recovery escape hatch: committed rows only, explicitly excluding unsaved edits, and never requiring a successful flush.
+export async function exportLastSaved(id, settings = null) {
+  return buildExport(id, settings)
 }
 
 // The reader is version-exact: one user, always on the latest build, so any other version is mis-imported rather than quietly degraded.
@@ -131,6 +143,7 @@ export async function importData(data) {
     if (!validConversation(c)) continue
     // Imports may lack a created time, and the createdAt index omits rows missing it; backfill so an imported conversation still loads.
     c.createdAt ??= Date.now()
+    for (const m of c.messages || []) { delete m.generation }
     state.conversations.unshift(have.has(c.id) ? cloneWithNewIds(c) : c)
     have.add(c.id)
     added++
@@ -168,7 +181,7 @@ await db.transaction('rw', RESTORE_TABLES, async () => {
     await db.runEvents.clear()
     await db.usage.clear()
     if (restoredConvos.length) await db.conversations.bulkPut(restoredConvos.map(({ messages, ...row }) => row))
-    const messageRows = restoredConvos.flatMap((c) => (c.messages || []).map((m) => ({ convoId: c.id, ...m })))
+    const messageRows = restoredConvos.flatMap((c) => (c.messages || []).map(({ generation, ...m }) => ({ convoId: c.id, ...m })))
     if (messageRows.length) await db.messages.bulkPut(messageRows)
     if (restoredWorkspaces.length) await db.workspaces.bulkPut(restoredWorkspaces)
     if (restoredDocs.length) await db.docs.bulkPut(restoredDocs)

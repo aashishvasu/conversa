@@ -20,7 +20,7 @@ export function storageFailure(e) {
     sticky: true,
     text: tr('notification.storage'),
     detail: e?.stack ? `${head}\n${e.stack}` : head || String(e),
-    action: { label: tr('notification.downloadBackup'), fn: () => _downloadExportFn?.() },
+    action: { label: tr('notification.downloadLastSaved'), fn: () => _downloadExportFn?.() },
   })
 }
 const SAVE_DEBOUNCE = 400
@@ -32,14 +32,21 @@ function save() {
   saveTimer = setTimeout(enqueueFlush, SAVE_DEBOUNCE)
 }
 export function scheduleFlush() { save() }
-function enqueueFlush() {
-  chain = chain.then(runFlush)
-  return chain
+function enqueueFlush(options) {
+  const next = chain.then(() => runFlush(options))
+  chain = next.then(() => undefined)
+  return next
 }
 export function persistNow() {
   if (!loaded) return
   clearTimeout(saveTimer)
   return enqueueFlush()
+}
+
+export async function persistResearchSettlement(run, attemptId, settle) {
+  if (!loaded) return { saved: false, accepted: false }
+  clearTimeout(saveTimer)
+  return enqueueFlush({ researchSettlement: { run, attemptId, settle } })
 }
 // Best effort by nature: IndexedDB is async and the browser may not commit before teardown, but skipping the flush loses every edit made inside the debounce window.
 // pagehide covers bfcache-eligible navigations and mobile; `hidden` is the reliable backgrounding signal there.
@@ -56,6 +63,9 @@ export function installTeardownFlush() {
 // Reads one message row by id, bypassing every path that would schedule a write.
 export function readStoredMessage(id) {
   return db.messages.get(id)
+}
+export function readStoredRun(id) {
+  return db.runs.get(id)
 }
 // Rows still carrying a turnId are live turns that a reload or reconnection must reattach. The turnId index holds only rows with a defined key, so this finds them across every conversation without loading any.
 export async function readPendingTurnMessages() {
@@ -141,6 +151,7 @@ function syncMessageWatchers(convo, markNewDirty) {
       // A released turnId is the settle: the message stops being a live turn, and the row bump outlives the reload.
       // The previous turnId is boxed in a closure rather than read off the watcher's oldValue, which is the live proxy, not a pre-change clone.
       messageWatchers.set(m.id, {
+        message: m,
         stop: watch(() => m, () => {
           const hasTurn = Boolean(m.turnId)
           if (hadTurn && !hasTurn) {
@@ -156,7 +167,8 @@ function syncMessageWatchers(convo, markNewDirty) {
   }
   for (const id of known) {
     if (!present.has(id)) {
-      messageWatchers.get(id)?.stop()
+      const watcher = messageWatchers.get(id)
+      watcher?.stop()
       messageWatchers.delete(id)
       removedMessages.add(id)
     }
@@ -314,6 +326,21 @@ function runRow(run) {
   const { events, ...row } = run
   return plainCopy(row)
 }
+
+
+async function writableRunRows(ids) {
+  const rows = []
+  for (const id of ids) {
+    const run = state.runs.find((item) => item.id === id)
+    if (!run) continue
+    const row = runRow(run)
+    const stored = await db.runs.get(id)
+    if (stored && row.serverId !== stored.serverId && stored.status !== 'recovering') continue
+    if (stored && TERMINAL_RUN_STATUSES.includes(stored.status) && !TERMINAL_RUN_STATUSES.includes(row.status)) continue
+    rows.push(row)
+  }
+  return rows
+}
 async function appendNewRunEvents(runs) {
   for (const run of runs) {
     const events = run.events || []
@@ -402,7 +429,8 @@ async function writePending(p) {
     if (p.removedWorkspaceIds.length) await db.workspaces.bulkDelete(p.removedWorkspaceIds)
     if (p.docIds.length) await db.docs.bulkPut(p.docIds.map((id) => plainCopy(state.docs.find((d) => d.id === id))))
     if (p.removedDocIds.length) await db.docs.bulkDelete(p.removedDocIds)
-    if (p.runIds.length) await db.runs.bulkPut(p.runIds.map((id) => runRow(state.runs.find((r) => r.id === id))))
+    const runRows = await writableRunRows(p.runIds)
+    if (runRows.length) await db.runs.bulkPut(runRows)
     if (p.removedRunIds.length) {
       await db.runEvents.where('runId').anyOf(p.removedRunIds).delete()
       for (const id of p.removedRunIds) writtenEventCounts.delete(id)
@@ -431,7 +459,67 @@ function restorePending(p) {
   for (const [key, value] of p.meta) dirtyMeta.set(key, value)
 }
 
-async function runFlush() {
+const TERMINAL_RUN_STATUSES = ['done', 'partial', 'error', 'cancelled']
+
+async function writeResearchEvents(run) {
+  const events = run.events || []
+  const written = writtenEventCounts.get(run.id) ?? 0
+  if (events.length < written) {
+    await db.runEvents.where('runId').equals(run.id).delete()
+    if (events.length) await db.runEvents.bulkAdd(events.map((event) => ({ ...plainCopy(event), runId: run.id })))
+  } else if (events.length > written) {
+    const insert = events.slice(written)
+    if (insert.length) await db.runEvents.bulkAdd(insert.map((event) => ({ ...plainCopy(event), runId: run.id })))
+  }
+  return events.length
+}
+
+async function writeResearchSettlement({ run, attemptId, settle }) {
+  let receipt
+  let usage
+  let eventCount
+  let accepted = false
+  try {
+    await db.transaction('rw', DB_TABLES, async () => {
+      const stored = await db.runs.get(run.id)
+      if (!stored || stored.serverId !== attemptId || TERMINAL_RUN_STATUSES.includes(stored.status)) {
+        receipt = stored
+        return
+      }
+      settle()
+      run.ackPending = true
+      const convo = state.conversations.find((item) => item.id === run.convoId)
+      const message = convo?.messages?.find((item) => item.id === run.resultMessageId)
+      const doc = state.docs.find((item) => item.id === run.reportDocId)
+      await db.runs.put(runRow(run))
+      eventCount = await writeResearchEvents(run)
+      if (convo) await db.conversations.put(plainCopy(convoRow(convo)))
+      const row = message && messageRows([message.id])[0]
+      if (row) await db.messages.put(row)
+      if (doc) await db.docs.put(plainCopy(doc))
+      usage = takeUsagePending()
+      if (usage.deltas.size || usage.replace !== null) await commitUsage(usage)
+      accepted = true
+    })
+  } catch (error) {
+    if (usage) restoreUsagePending(usage)
+    storageFailure(error)
+    return { saved: false, accepted: false }
+  }
+  if (!accepted) return { saved: true, accepted: false, receipt }
+  clearTimeout(saveTimer)
+  writtenEventCounts.set(run.id, eventCount)
+  dirtyRuns.delete(run.id)
+  const convo = state.conversations.find((item) => item.id === run.convoId)
+  if (convo) dirtyConvos.delete(convo.id)
+  dirtyMessages.delete(run.resultMessageId)
+  if (run.reportDocId) dirtyDocs.delete(run.reportDocId)
+  dismiss('storage')
+  return { saved: true, accepted: true }
+}
+
+async function runFlush(options) {
+  if (options?.researchSettlement) return writeResearchSettlement(options.researchSettlement)
   const pending = collectPending()
   if (isPendingEmpty(pending)) return true
   try {

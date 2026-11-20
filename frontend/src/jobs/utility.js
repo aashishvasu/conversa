@@ -32,8 +32,8 @@ export function utilityCall(owner, payload) {
       discardChatTurn(turnId)
     }
     recordSpend(owner, draft.usage)
-    if (draft.error) throw new Error(draft.error)
-    if (!draft.done) throw new Error(tr('chat.replyInterrupted'))
+    if (draft.error) throw new Error(draft.error.message)
+    if (!draft.outcome) throw new Error(tr('chat.replyInterrupted'))
     return draft.content.trim()
   })
 }

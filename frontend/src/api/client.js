@@ -14,13 +14,16 @@ export function logout() {
   authed.value = false
 }
 
+// Research mutation routes reject clients that do not carry this version, so a stale tab cannot start or control runs.
+const RESEARCH_CLIENT = '1'
+
 function authHeaders(json = true) {
-  const h = { Authorization: `Bearer ${getToken()}` }
+  const h = { Authorization: `Bearer ${getToken()}`, 'X-Conversa-Client': RESEARCH_CLIENT }
   if (json) h['Content-Type'] = 'application/json'
   return h
 }
 
-const ERROR_KEYS = { no_such_run: 'errors.noSuchRun', unknown_effort: 'errors.unknownEffort', no_such_transfer: 'errors.noSuchTransfer', transfer_too_large: 'errors.transferTooLarge', transfers_full: 'errors.transfersFull' }
+const ERROR_KEYS = { no_such_run: 'errors.noSuchRun', unknown_effort: 'errors.unknownEffort', no_such_transfer: 'errors.noSuchTransfer', transfer_too_large: 'errors.transferTooLarge', transfers_full: 'errors.transfersFull', client_outdated: 'errors.clientOutdated' }
 
 async function responseError(res) {
   try {
@@ -160,17 +163,25 @@ async function readSSE(res, onEvent) {
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
+  // A block may carry event:/comment lines beside the data line; only data lines are frames.
+  const emit = async (block) => {
+    for (const line of block.split('\n')) {
+      if (line.startsWith('data: ')) await onEvent(JSON.parse(line.slice(6)))
+    }
+  }
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
     buf += decoder.decode(value, { stream: true })
     let idx
     while ((idx = buf.indexOf('\n\n')) >= 0) {
-      const line = buf.slice(0, idx)
+      const block = buf.slice(0, idx)
       buf = buf.slice(idx + 2)
-      if (line.startsWith('data: ')) await onEvent(JSON.parse(line.slice(6)))
+      await emit(block)
     }
   }
+  buf += decoder.decode()
+  if (buf.trim()) await emit(buf)
 }
 
 // --- Transient transfers ---------------------------------------------------------------

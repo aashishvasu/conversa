@@ -65,6 +65,7 @@ async def supplied_log_checks():
     assert events == [{"seed": True}, {"n": 0}]
     assert stream.log.since(1) == events[1:]
 
+
 async def abandoned_tail_checks():
     registry = Registry(ttl_seconds=60)
     gate = asyncio.Event()
@@ -242,8 +243,36 @@ async def restart_checks():
     assert [seq for seq, _ in await collect(stream.log, after=before)] == [before + 1, before + 2]
 
 
+async def outcome_checks():
+    registry = Registry(ttl_seconds=60)
+
+    async def failed(log: EventLog) -> str:
+        log.append({"error": "x", "code": "internal", "retryable": False})
+        return "failed"
+
+    stream, _ = registry.start("f", failed)
+    await finished(stream)
+    assert stream.status == "error", "a failed producer outcome settles the stream as error"
+
+    async def completed(log: EventLog) -> str:
+        log.append({"done": True})
+        return "completed"
+
+    stream, _ = registry.start("c", completed)
+    await finished(stream)
+    assert stream.status == "done", "a completed producer outcome settles the stream as done"
+
+    async def silent(log: EventLog) -> None:
+        log.append({"done": True})
+
+    stream, _ = registry.start("s", silent)
+    await finished(stream)
+    assert stream.status == "done", "a producer returning None still settles done"
+
+
 async def main():
     await replay_checks()
+    await outcome_checks()
     await supplied_log_checks()
     await abandoned_tail_checks()
     await wakeup_ordering_checks()

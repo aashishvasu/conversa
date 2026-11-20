@@ -1,6 +1,6 @@
 // Run: node src/selfchecks/research-lifecycle.selfcheck.js.
 import assert from 'node:assert'
-import { acceptEvent, applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, replayPosition, resumeWithCurrentModels } from '../research/lifecycle.js'
+import { acceptEvent, applyCancel, applyFailure, applyPrepared, applyStart, buildResearchStartBody, prepareReplacement, recoveryDelay, replayPosition, resumeWithCurrentModels } from '../research/lifecycle.js'
 import { activeRunOf, createRun, finishRun, researchProvenanceHeader } from '../state/runs.js'
 import { setLoaded, startWatching, state } from '../state/persistence.js'
 import { streamResearch } from '../api/client.js'
@@ -14,18 +14,28 @@ const run = {
 assert.equal(prepareReplacement(run, { code: 'no_such_run' }), true, 'a missing backend run enters persisted recovery')
 assert.equal(run.status, 'recovering')
 assert.equal(run.events.length, 1, 'recovery keeps replay state until the start response identifies a replacement')
-assert.equal(applyStart(run, { id: 'client-run', outcome: 'created', status: 'running', phase: 'plan' }), true)
+assert.equal(applyStart(run, { id: 'client-run', outcome: 'created', status: 'running', phase: 'plan', revision: 0 }), true)
 assert.deepEqual(run.events, [], 'a replacement backend run clears stale events')
+assert.equal(run.payload, null, 'a created run clears the previous payload without a start payload')
 assert.equal(run.spend, null)
 
-const checkpointed = { serverId: 'run', checkpoint: 'old', prepared: { brief: { objective: 'objective', deliverable: 'report' } }, answers: {}, settings: { research_depth: 4, research_min_sources: 12, research_max_sources: 40, research_search_model: 's', research_note_model: 'n', research_report_model: 'r' } }
-applyStart(checkpointed, { id: 'run', outcome: 'already_running', status: 'running', phase: 'researching', checkpoint: 'new' })
-assert.equal(checkpointed.checkpoint, 'new', 'start adopts a returned checkpoint')
-applyStart(checkpointed, { id: 'run', outcome: 'already_running', status: 'running', phase: 'researching' })
-assert.equal(checkpointed.checkpoint, 'new', 'start preserves a checkpoint when the response omits it')
+const checkpointed = {
+  id: 'run', serverId: 'run', status: 'running', phase: 'researching', events: [], checkpoint: 'client-checkpoint',
+  payload: { report: 'client-payload' }, prepared: { brief: { objective: 'objective', deliverable: 'report' } }, answers: {},
+  settings: { research_depth: 4, research_min_sources: 12, research_max_sources: 40, research_search_model: 's', research_note_model: 'n', research_report_model: 'r' },
+}
+assert.equal(applyStart(checkpointed, { id: 'run', outcome: 'already_running', status: 'running', phase: 'researching', revision: 3 }), false)
+assert.equal(checkpointed.checkpoint, 'client-checkpoint', 'identity-only start keeps the checkpoint already held by the client')
+assert.equal(checkpointed.payload.report, 'client-payload', 'identity-only start keeps the payload already held by the client')
+
+const resumed = { id: 'resumed-run', events: [{ seq: 4 }], checkpoint: 'sentinel-checkpoint', payload: { report: 'sentinel-payload' } }
+assert.equal(applyStart(resumed, { id: 'resumed-run', outcome: 'resumed_from_checkpoint', status: 'running', phase: 'researching', revision: 4 }), true)
+assert.deepEqual(resumed.events, [], 'resuming from a checkpoint begins a fresh event log')
+assert.equal(resumed.checkpoint, 'sentinel-checkpoint', 'resumed start uses the checkpoint the client already sent')
+assert.equal(resumed.payload.report, 'sentinel-payload', 'resumed start keeps the payload already held by the client')
 const startBody = buildResearchStartBody(checkpointed)
 assert.equal(Object.hasOwn(startBody, 'settings'), false, 'research start does not send the redundant settings field')
-assert.equal(startBody.checkpoint, 'new', 'research start sends the retained checkpoint')
+assert.equal(startBody.checkpoint, 'client-checkpoint', 'research start sends the retained checkpoint')
 assert.equal(startBody.restart_failed, false, 'ordinary starts do not reopen failed tasks')
 assert.equal(startBody.min_sources, 12, 'research start sends min_sources from settings')
 assert.equal(startBody.max_sources, 40, 'research start sends max_sources from settings')
@@ -108,6 +118,13 @@ assert.ok(partialDoc.text.startsWith('## Research provenance'), 'report document
 assert.ok(partialDoc.text.endsWith('report'), 'provenance preserves the report body')
 state.conversations.pop()
 state.docs = state.docs.filter((doc) => doc.id !== partial.reportDocId)
+
+const errored = { id: 'error-run', convoId: 'missing', resultMessageId: 'result', status: 'running', spendLedgered: true, spend: null, events: [] }
+finishRun(errored, { status: 'error', phase: 'error', error: 'SENTINEL no evidence', payload: null, spend: { models: {} } })
+assert.equal(errored.status, 'error', 'terminal error frames finalize the run')
+assert.equal(errored.error, 'SENTINEL no evidence', 'the backend error message reaches the run so the UI can show it')
+finishRun(errored, { status: 'done', phase: 'done', error: null, payload: null, spend: { models: {} } })
+assert.equal(errored.error, null, 'a later clean frame clears a stale error')
 
 // coordinator.js and orchestration.js reach the network through global fetch and the token through localStorage, so planting both drives the real functions.
 const wireCalls = []
@@ -263,4 +280,13 @@ try {
 assert.equal(unsaved.ackPending, true, 'a run whose result was not saved keeps its pending ack')
 assert.ok(!ackCalls.some((call) => call.includes('unsaved-server')), 'a run is never acknowledged before its result is saved')
 
+// The recovery budget is shared by clean EOF and thrown errors: bounded, monotonic, capped.
+{
+  const max = 5
+  assert.equal(recoveryDelay(1, max), 500, 'the first retry backs off half a second')
+  assert.ok(recoveryDelay(2, max) > recoveryDelay(1, max), 'backoff grows with failures')
+  assert.equal(recoveryDelay(max, max), null, 'the budget exhausts at the retry ceiling')
+  assert.equal(recoveryDelay(max + 1, max), null, 'past the ceiling stays exhausted')
+  assert.ok(recoveryDelay(20, 100) <= 5000, 'backoff is capped')
+}
 console.log('research lifecycle selfcheck OK')
