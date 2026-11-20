@@ -149,14 +149,14 @@ function promote() {
             <UiToolbarButton :label="$t('message.delete')" danger @click="emit('delete')"><Trash2 :size="14" /></UiToolbarButton>
           </ToolbarRoot>
         </div>
-        <p
+        <div
           v-if="message.generation && message.generation.status !== 'completed'"
-          class="mt-1 flex items-center gap-2 px-1 text-xs"
+          class="mt-1 px-1 text-xs"
           :class="message.generation.status === 'failed' ? 'text-danger' : 'text-muted'"
         >
           <span>{{ $t(statusKey) }}</span>
-          <span v-if="message.generation.error?.message" class="truncate">{{ message.generation.error.message }}</span>
-        </p>
+          <p v-if="message.generation.error?.message" class="mt-0.5 break-words">{{ message.generation.error.message }}</p>
+        </div>
         <div v-if="message.role !== 'system' && message.createdAt" class="mt-0.5 px-1 text-[10px] text-muted">
           {{ formatTime(message.createdAt) }}
         </div>

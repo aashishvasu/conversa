@@ -176,7 +176,7 @@
     "pin": "Pin (always sent)",
     "saveDoc": "Save as document",
     "copyRaw": "Copy raw",
-    "statusFailed": "Generation failed",
+    "statusFailed": "Error",
     "statusStopped": "Stopped",
     "statusOutputLimit": "Reached output limit",
     "delete": "Delete",

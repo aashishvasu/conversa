@@ -176,7 +176,7 @@
     "pin": "Épingler (toujours envoyé)",
     "saveDoc": "Enregistrer comme document",
     "copyRaw": "Copier le texte brut",
-    "statusFailed": "Échec de la génération",
+    "statusFailed": "Erreur",
     "statusStopped": "Arrêté",
     "statusOutputLimit": "Limite de sortie atteinte",
     "delete": "Supprimer",

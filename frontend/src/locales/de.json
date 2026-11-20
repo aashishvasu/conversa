@@ -176,7 +176,7 @@
     "pin": "Anheften (wird immer gesendet)",
     "saveDoc": "Als Dokument speichern",
     "copyRaw": "Rohtext kopieren",
-    "statusFailed": "Generierung fehlgeschlagen",
+    "statusFailed": "Fehler",
     "statusStopped": "Gestoppt",
     "statusOutputLimit": "Ausgabelimit erreicht",
     "delete": "Löschen",
