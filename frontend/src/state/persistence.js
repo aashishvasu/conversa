@@ -20,7 +20,7 @@ export function storageFailure(e) {
     sticky: true,
     text: tr('notification.storage'),
     detail: e?.stack ? `${head}\n${e.stack}` : head || String(e),
-    action: { label: tr('notification.downloadLastSaved'), fn: () => _downloadExportFn?.() },
+    action: { label: tr('notification.downloadBackup'), fn: () => _downloadExportFn?.() },
   })
 }
 const SAVE_DEBOUNCE = 400
